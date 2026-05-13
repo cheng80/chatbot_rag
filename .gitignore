@@ -176,6 +176,7 @@ analysis/leveling/data/raw/
 **/*.db
 **/*.dump
 **/*.sql~
+data/vector_store/chroma/
 
 ############################################################
 # Symbols / Debug

@@ -1,0 +1,59 @@
+from functools import lru_cache
+from pathlib import Path
+from typing import List
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    app_name: str = Field(default="chatbot_rag", alias="APP_NAME")
+    environment: str = Field(default="local", alias="ENVIRONMENT")
+    cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
+
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_chat_model: str = Field(default="qwen3:8b", alias="OLLAMA_CHAT_MODEL")
+    ollama_embed_model: str = Field(default="qwen3-embedding", alias="OLLAMA_EMBED_MODEL")
+    ollama_request_timeout: float = Field(default=120.0, alias="OLLAMA_REQUEST_TIMEOUT")
+    llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
+    llm_num_predict: int = Field(default=256, alias="LLM_NUM_PREDICT")
+    llm_think: bool = Field(default=False, alias="LLM_THINK")
+    ollama_keep_alive: str = Field(default="10m", alias="OLLAMA_KEEP_ALIVE")
+
+    chroma_path: Path = Field(default=PROJECT_ROOT / "data" / "vector_store" / "chroma", alias="CHROMA_PATH")
+    chroma_collection: str = Field(default="manual_documents", alias="CHROMA_COLLECTION")
+
+    raw_data_path: Path = Field(default=PROJECT_ROOT / "data" / "raw", alias="RAW_DATA_PATH")
+    chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")
+    chunk_overlap: int = Field(default=150, alias="CHUNK_OVERLAP")
+    embedding_batch_size: int = Field(default=16, alias="EMBEDDING_BATCH_SIZE")
+
+    top_k: int = Field(default=5, alias="TOP_K")
+
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    @property
+    def cors_origin_list(self) -> List[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def prompt_path(self) -> Path:
+        return PROJECT_ROOT / "prompts" / "rag_answer_prompt.txt"
+
+    @property
+    def no_context_prompt_path(self) -> Path:
+        return PROJECT_ROOT / "prompts" / "no_context_prompt.txt"
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()

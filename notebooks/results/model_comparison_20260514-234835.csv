@@ -1,0 +1,41 @@
+model,question,elapsed_sec,answer,sources,error
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,환불은 언제까지 가능한가요?,12.93,"구매일로부터 7일 이내에 가능합니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.522380530834198}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,고객 지원 운영 시간은 언제인가요?,1.78,"고객 지원은 평일 오전 10시부터 오후 6시까지 운영됩니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.7072556018829346}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,설치 후 앱을 어떻게 해야 하나요?,1.4,"설치가 끝나면 앱을 재시작합니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.8355392217636108}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,대전 근처에서 역사 관련 관광지를 추천해줘.,1.32,"제공된 문서에서 확인되지 않습니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.4432159662246704}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,아이와 함께 가기 좋은 실내 관광지를 추천해줘.,1.32,"제공된 문서에서 확인되지 않습니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.357039213180542}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,문서에 없는 숙소 가격 정보를 알려줘.,1.33,"제공된 문서에서 확인되지 않습니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.235172986984253}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,추천 이유와 출처를 함께 알려줘.,1.41,"제공된 문서에는 추천 이유에 대한 정보가 없습니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.2280389070510864}]",
+hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M,비 오는 날 갈 만한 관광 코스를 알려줘.,1.26,"제공된 문서에서 확인되지 않습니다.
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.1968990564346313}]",
+gemma3:4b-it-q4_K_M,환불은 언제까지 가능한가요?,21.55,"구매일로부터 7일 이내에 가능합니다. (data/raw/example_faq.md)
+
+참고: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.522380530834198}]",
+gemma3:4b-it-q4_K_M,고객 지원 운영 시간은 언제인가요?,2.18,"평일 오전 10시부터 오후 6시까지 운영됩니다.
+
+참고: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.7072556018829346}]",
+gemma3:4b-it-q4_K_M,설치 후 앱을 어떻게 해야 하나요?,1.81,"설치 파일을 실행한 후 화면의 안내에 따라 진행하고, 설치가 끝나면 앱을 재시작합니다.
+
+참고: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 0.8355392217636108}]",
+gemma3:4b-it-q4_K_M,대전 근처에서 역사 관련 관광지를 추천해줘.,1.2,"제공된 문서에서 확인되지 않습니다.
+
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.4432159662246704}]",
+gemma3:4b-it-q4_K_M,아이와 함께 가기 좋은 실내 관광지를 추천해줘.,1.29,"제공된 문서에서 확인되지 않습니다.
+
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.357039213180542}]",
+gemma3:4b-it-q4_K_M,문서에 없는 숙소 가격 정보를 알려줘.,1.24,"제공된 문서에서 확인되지 않습니다.
+
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.235172986984253}]",
+gemma3:4b-it-q4_K_M,추천 이유와 출처를 함께 알려줘.,1.69,"환불 정책은 구매일로부터 7일 이내에 가능합니다. (data/raw/example_faq.md)
+
+참고: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.2280389070510864}]",
+gemma3:4b-it-q4_K_M,비 오는 날 갈 만한 관광 코스를 알려줘.,1.27,"제공된 문서에서 확인되지 않습니다.
+
+참고 출처: data/raw/example_faq.md","[{""source"": ""data/raw/example_faq.md"", ""page"": null, ""chunk_id"": ""1c59cf66-d193-5110-b5f1-f12e4998b4f1"", ""chunk_index"": 0, ""distance"": 1.1968990564346313}]",

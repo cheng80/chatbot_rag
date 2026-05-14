@@ -1,0 +1,258 @@
+[
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "환불은 언제까지 가능한가요?",
+    "elapsed_sec": 12.93,
+    "answer": "구매일로부터 7일 이내에 가능합니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.522380530834198
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "고객 지원 운영 시간은 언제인가요?",
+    "elapsed_sec": 1.78,
+    "answer": "고객 지원은 평일 오전 10시부터 오후 6시까지 운영됩니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.7072556018829346
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "설치 후 앱을 어떻게 해야 하나요?",
+    "elapsed_sec": 1.4,
+    "answer": "설치가 끝나면 앱을 재시작합니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.8355392217636108
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "대전 근처에서 역사 관련 관광지를 추천해줘.",
+    "elapsed_sec": 1.32,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.4432159662246704
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "아이와 함께 가기 좋은 실내 관광지를 추천해줘.",
+    "elapsed_sec": 1.32,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.357039213180542
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "문서에 없는 숙소 가격 정보를 알려줘.",
+    "elapsed_sec": 1.33,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.235172986984253
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "추천 이유와 출처를 함께 알려줘.",
+    "elapsed_sec": 1.41,
+    "answer": "제공된 문서에는 추천 이유에 대한 정보가 없습니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.2280389070510864
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
+    "question": "비 오는 날 갈 만한 관광 코스를 알려줘.",
+    "elapsed_sec": 1.26,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.1968990564346313
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "환불은 언제까지 가능한가요?",
+    "elapsed_sec": 21.55,
+    "answer": "구매일로부터 7일 이내에 가능합니다. (data/raw/example_faq.md)\n\n참고: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.522380530834198
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "고객 지원 운영 시간은 언제인가요?",
+    "elapsed_sec": 2.18,
+    "answer": "평일 오전 10시부터 오후 6시까지 운영됩니다.\n\n참고: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.7072556018829346
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "설치 후 앱을 어떻게 해야 하나요?",
+    "elapsed_sec": 1.81,
+    "answer": "설치 파일을 실행한 후 화면의 안내에 따라 진행하고, 설치가 끝나면 앱을 재시작합니다.\n\n참고: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 0.8355392217636108
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "대전 근처에서 역사 관련 관광지를 추천해줘.",
+    "elapsed_sec": 1.2,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.4432159662246704
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "아이와 함께 가기 좋은 실내 관광지를 추천해줘.",
+    "elapsed_sec": 1.29,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.357039213180542
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "문서에 없는 숙소 가격 정보를 알려줘.",
+    "elapsed_sec": 1.24,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.235172986984253
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "추천 이유와 출처를 함께 알려줘.",
+    "elapsed_sec": 1.69,
+    "answer": "환불 정책은 구매일로부터 7일 이내에 가능합니다. (data/raw/example_faq.md)\n\n참고: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.2280389070510864
+      }
+    ],
+    "error": ""
+  },
+  {
+    "model": "gemma3:4b-it-q4_K_M",
+    "question": "비 오는 날 갈 만한 관광 코스를 알려줘.",
+    "elapsed_sec": 1.27,
+    "answer": "제공된 문서에서 확인되지 않습니다.\n\n참고 출처: data/raw/example_faq.md",
+    "sources": [
+      {
+        "source": "data/raw/example_faq.md",
+        "page": null,
+        "chunk_id": "1c59cf66-d193-5110-b5f1-f12e4998b4f1",
+        "chunk_index": 0,
+        "distance": 1.1968990564346313
+      }
+    ],
+    "error": ""
+  }
+]

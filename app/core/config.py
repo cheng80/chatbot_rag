@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
 
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
-    ollama_chat_model: str = Field(default="qwen3:8b", alias="OLLAMA_CHAT_MODEL")
-    ollama_embed_model: str = Field(default="qwen3-embedding", alias="OLLAMA_EMBED_MODEL")
+    ollama_chat_model: str = Field(default="hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M", alias="OLLAMA_CHAT_MODEL")
+    ollama_embed_model: str = Field(default="bge-m3", alias="OLLAMA_EMBED_MODEL")
     ollama_request_timeout: float = Field(default=120.0, alias="OLLAMA_REQUEST_TIMEOUT")
     llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
     llm_num_predict: int = Field(default=256, alias="LLM_NUM_PREDICT")
@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     chroma_path: Path = Field(default=PROJECT_ROOT / "data" / "vector_store" / "chroma", alias="CHROMA_PATH")
     chroma_collection: str = Field(default="manual_documents", alias="CHROMA_COLLECTION")
+
+    database_url: str = Field(default="sqlite:///./data/app.sqlite3", alias="DATABASE_URL")
 
     raw_data_path: Path = Field(default=PROJECT_ROOT / "data" / "raw", alias="RAW_DATA_PATH")
     chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")

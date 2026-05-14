@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_tourism_chat_service
@@ -5,6 +7,7 @@ from app.schemas.tourism import TourismChatRequest, TourismChatResponse
 from app.services.tourism_chat_service import TourismChatService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/chat", response_model=TourismChatResponse)
@@ -21,4 +24,11 @@ def tourism_chat(
             session_id=request.session_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("관광 챗봇 응답 생성 실패")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "TOURISM_CHAT_FAILED",
+                "message": "관광 상담 응답을 만드는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            },
+        ) from exc

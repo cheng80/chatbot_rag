@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from app.core.config import Settings
+from app.schemas.tourism import TourismPlaceCard
 from app.services.tourism_chat_service import TourismChatService
+from app.services.tourism_normalizer import TourismNormalizer
 from app.services.tourism_query_service import TourismQueryService
 
 
@@ -62,6 +64,8 @@ def test_tourism_chat_falls_back_to_local_samples(tmp_path):
     assert len(response.cards) == 1
     assert response.cards[0].title == "오죽헌"
     assert response.sources[0].chunk_id == "sample-gangneung-001"
+    assert response.degraded is True
+    assert "fallback" in response.warnings[0]
 
 
 def test_tourism_chat_does_not_expand_sigungu_without_intent():
@@ -83,3 +87,60 @@ def test_tourism_chat_expands_sigungu_when_user_asks_nearby():
     assert response.cards[0].title == "서울어린이대공원"
     assert any("서울" in (card.address or "") for card in response.cards)
     assert "서울 범위 후보를 함께 포함했습니다" in response.answer
+
+
+def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
+    sample_dir = tmp_path / "empty"
+    sample_dir.mkdir()
+
+    class EmptyRetriever:
+        def retrieve(self, message: str):
+            return []
+
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울 휠체어 관광지 추천")
+
+    assert response.cards == []
+    assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+
+
+def test_tourism_chat_sample_cards_are_cached(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    card = TourismPlaceCard(
+        content_id="cache-sample",
+        title="캐시 테스트 관광지",
+        address="서울 중구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    (sample_dir / "sample.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+
+    class CountingCodec:
+        def __init__(self):
+            self.calls = 0
+
+        def from_markdown(self, text: str):
+            self.calls += 1
+            return TourismNormalizer().codec.from_markdown(text)
+
+    class EmptyRetriever:
+        def retrieve(self, message: str):
+            return []
+
+    codec = CountingCodec()
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+        card_codec=codec,
+    )
+
+    assert service.answer("서울 휠체어 관광지").cards[0].title == "캐시 테스트 관광지"
+    assert service.answer("서울 휠체어 관광지").cards[0].title == "캐시 테스트 관광지"
+    assert codec.calls == 1

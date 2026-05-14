@@ -3,41 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from app.schemas.tourism import AccessibilityInfo, TourismPlaceCard
-
-
-ACCESSIBILITY_FIELD_LABELS = {
-    "parking": "주차",
-    "route": "접근로",
-    "publictransport": "대중교통",
-    "ticketoffice": "매표소",
-    "promotion": "홍보물",
-    "wheelchair": "휠체어",
-    "exit": "출입통로",
-    "elevator": "엘리베이터",
-    "restroom": "화장실",
-    "auditorium": "관람석",
-    "room": "객실",
-    "handicapetc": "기타 장애인 편의",
-    "braileblock": "점자블록",
-    "helpdog": "보조견",
-    "guidehuman": "안내요원",
-    "audioguide": "오디오가이드",
-    "bigprint": "큰활자",
-    "brailepromotion": "점자홍보물",
-    "guidesystem": "안내시스템",
-    "blindhandicapetc": "시각장애 편의",
-    "signguide": "수어안내",
-    "videoguide": "자막/영상안내",
-    "hearingroom": "청각장애 객실",
-    "hearinghandicapetc": "청각장애 편의",
-    "stroller": "유모차",
-    "lactationroom": "수유실",
-    "babysparechair": "유아용 의자",
-    "infantsfamilyetc": "영유아 가족 편의",
-}
+from app.services.tourism_card_codec import ACCESSIBILITY_FIELD_LABELS, TourismCardMarkdownCodec
 
 
 class TourismNormalizer:
+    def __init__(self, codec: TourismCardMarkdownCodec | None = None):
+        self.codec = codec or TourismCardMarkdownCodec()
+
     def normalize_place(self, common_item: dict[str, Any], accessible_item: dict[str, Any] | None = None) -> TourismPlaceCard:
         accessible_item = accessible_item or {}
         content_id = self._string(common_item.get("contentid") or accessible_item.get("contentid"))
@@ -73,30 +45,7 @@ class TourismNormalizer:
         )
 
     def card_to_markdown(self, card: TourismPlaceCard) -> str:
-        accessibility_lines = [f"- {ACCESSIBILITY_FIELD_LABELS.get(key, key)}: {value}" for key, value in card.raw_fields.items()]
-        if not accessibility_lines:
-            accessibility_lines = ["- 확인 필요: OpenAPI 응답에 세부 편의정보가 없습니다."]
-
-        return "\n".join(
-            [
-                f"# {card.title}",
-                "",
-                f"관광지명: {card.title}",
-                f"콘텐츠ID: {card.content_id}",
-                f"주소: {card.address or '확인 필요'}",
-                f"전화번호: {card.tel or '확인 필요'}",
-                f"대표이미지: {card.image_url or '확인 필요'}",
-                f"추천근거: {card.recommendation_reason}",
-                f"접근성태그: {', '.join(card.accessibility_tags) if card.accessibility_tags else '확인 필요'}",
-                f"가족태그: {', '.join(card.family_tags) if card.family_tags else '확인 필요'}",
-                f"출처: {card.source_name}",
-                f"출처URL: {card.source_url or '확인 필요'}",
-                "",
-                "편의정보:",
-                *accessibility_lines,
-                "",
-            ]
-        )
+        return self.codec.to_markdown(card)
 
     def _extract_raw_accessibility_fields(self, item: dict[str, Any]) -> dict[str, str]:
         fields: dict[str, str] = {}

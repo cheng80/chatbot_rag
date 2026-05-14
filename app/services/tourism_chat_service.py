@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
+import logging
 
 from app.core.config import Settings
 from app.schemas.chat import Source
-from app.schemas.tourism import AccessibilityInfo, TourismChatResponse, TourismPlaceCard
+from app.schemas.tourism import TourismChatResponse, TourismPlaceCard
 from app.services.retriever import Retriever
+from app.services.tourism_card_codec import TourismCardMarkdownCodec
 from app.services.tourism_query_service import TourismQueryService
+
+logger = logging.getLogger(__name__)
 
 
 class TourismChatService:
@@ -15,103 +18,68 @@ class TourismChatService:
         settings: Settings,
         retriever: Retriever,
         query_service: TourismQueryService,
+        card_codec: TourismCardMarkdownCodec | None = None,
     ):
         self.settings = settings
         self.retriever = retriever
         self.query_service = query_service
+        self.card_codec = card_codec or TourismCardMarkdownCodec()
+        self._sample_cards_cache: list[TourismPlaceCard] | None = None
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
-        contexts = self._retrieve(message)
+        contexts, degraded = self._retrieve(message)
         cards = self._cards_from_contexts(contexts)
 
         if not cards:
             cards = self._cards_from_markdown_samples()
+            degraded = degraded or bool(cards)
         elif query.get("allow_region_expansion"):
             cards = self._deduplicate([*cards, *self._cards_from_markdown_samples()])
 
         cards, expanded = self._select_cards(cards, message, query)
         sources = self._build_sources(contexts, cards)
+        warnings = self._build_warnings(query, degraded)
 
         if not cards:
             return TourismChatResponse(
                 answer="조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요.",
                 cards=[],
                 sources=sources,
+                degraded=degraded,
+                warnings=warnings,
             )
 
         answer = self._build_answer(cards, query, expanded=expanded)
-        return TourismChatResponse(answer=answer, cards=cards, sources=sources)
+        return TourismChatResponse(answer=answer, cards=cards, sources=sources, degraded=degraded, warnings=warnings)
 
-    def _retrieve(self, message: str) -> list[dict]:
+    def _retrieve(self, message: str) -> tuple[list[dict], bool]:
         try:
-            return self.retriever.retrieve(message)
-        except Exception:
-            return []
+            return self.retriever.retrieve(message), False
+        except Exception as exc:
+            logger.warning("관광 RAG 검색 실패, 로컬 샘플 fallback 사용: %s", exc.__class__.__name__)
+            return [], True
 
     def _cards_from_contexts(self, contexts: list[dict]) -> list[TourismPlaceCard]:
         cards = []
         for context in contexts:
-            card = self._parse_card_text(context.get("text") or "")
+            card = self.card_codec.from_markdown(context.get("text") or "")
             if card:
                 cards.append(card)
         return self._deduplicate(cards)
 
     def _cards_from_markdown_samples(self) -> list[TourismPlaceCard]:
+        if self._sample_cards_cache is not None:
+            return list(self._sample_cards_cache)
+
         sample_path = self.settings.resolved_tourism_sample_path
         cards = []
         for path in sorted(sample_path.glob("*.md")):
-            card = self._parse_card_text(path.read_text(encoding="utf-8"))
+            card = self.card_codec.from_markdown(path.read_text(encoding="utf-8"))
             if card:
                 cards.append(card)
-        return self._deduplicate(cards)
-
-    def _parse_card_text(self, text: str) -> TourismPlaceCard | None:
-        fields: dict[str, str] = {}
-        raw_fields: dict[str, str] = {}
-        in_facilities = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped == "편의정보:":
-                in_facilities = True
-                continue
-            if in_facilities and stripped.startswith("- ") and ":" in stripped:
-                key, value = stripped[2:].split(":", 1)
-                if value.strip() and value.strip() != "확인 필요":
-                    raw_fields[key.strip()] = value.strip()
-                continue
-            if ":" in stripped:
-                key, value = stripped.split(":", 1)
-                fields[key.strip()] = value.strip()
-
-        title = fields.get("관광지명")
-        content_id = fields.get("콘텐츠ID")
-        if not title or not content_id:
-            return None
-
-        accessibility_tags = self._split_tags(fields.get("접근성태그"))
-        family_tags = self._split_tags(fields.get("가족태그"))
-        return TourismPlaceCard(
-            content_id=content_id,
-            title=title,
-            address=self._none_if_unknown(fields.get("주소")),
-            image_url=self._none_if_unknown(fields.get("대표이미지")),
-            tel=self._none_if_unknown(fields.get("전화번호")),
-            recommendation_reason=fields.get("추천근거") or f"{title}은(는) 무장애 여행 정보에 포함된 관광지입니다.",
-            accessibility=AccessibilityInfo(
-                wheelchair=self._find_raw(raw_fields, ["휠체어", "출입통로"]),
-                parking=self._find_raw(raw_fields, ["주차"]),
-                restroom=self._find_raw(raw_fields, ["화장실"]),
-                stroller=self._find_raw(raw_fields, ["유모차"]),
-                nursing_room=self._find_raw(raw_fields, ["수유실"]),
-                elevator=self._find_raw(raw_fields, ["엘리베이터"]),
-                route=self._find_raw(raw_fields, ["접근로", "대중교통"]),
-            ),
-            accessibility_tags=accessibility_tags,
-            family_tags=family_tags,
-            source_url=self._none_if_unknown(fields.get("출처URL")),
-            raw_fields=raw_fields,
-        )
+        self._sample_cards_cache = self._deduplicate(cards)
+        return list(self._sample_cards_cache)
 
     def _select_cards(
         self,
@@ -209,7 +177,7 @@ class TourismChatService:
         card_ids = {card.content_id for card in cards}
         sourced_card_ids = set()
         for context in contexts:
-            context_card = self._parse_card_text(context.get("text") or "")
+            context_card = self.card_codec.from_markdown(context.get("text") or "")
             if card_ids and (not context_card or context_card.content_id not in card_ids):
                 continue
             metadata = context.get("metadata") or {}
@@ -235,6 +203,16 @@ class TourismChatService:
         return sources
 
     @staticmethod
+    def _build_warnings(query: dict, degraded: bool) -> list[str]:
+        warnings = []
+        if degraded:
+            warnings.append("검색 인덱스를 사용할 수 없어 로컬 샘플 기반 fallback 응답을 사용했습니다.")
+        cache_warning = query.get("region_cache_warning")
+        if cache_warning:
+            warnings.append(str(cache_warning))
+        return warnings
+
+    @staticmethod
     def _deduplicate(cards: list[TourismPlaceCard]) -> list[TourismPlaceCard]:
         result = []
         seen = set()
@@ -244,23 +222,3 @@ class TourismChatService:
             seen.add(card.content_id)
             result.append(card)
         return result
-
-    @staticmethod
-    def _split_tags(value: str | None) -> list[str]:
-        if not value or value == "확인 필요":
-            return []
-        return [tag.strip() for tag in value.split(",") if tag.strip()]
-
-    @staticmethod
-    def _none_if_unknown(value: str | None) -> str | None:
-        if not value or value == "확인 필요":
-            return None
-        return value
-
-    @staticmethod
-    def _find_raw(raw_fields: dict[str, str], labels: list[str]) -> str | None:
-        for label in labels:
-            for key, value in raw_fields.items():
-                if label in key:
-                    return value
-        return None

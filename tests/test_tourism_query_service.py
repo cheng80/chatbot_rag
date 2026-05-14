@@ -42,3 +42,18 @@ def test_tourism_query_falls_back_without_cache(tmp_path: Path):
     assert query["area_code"] == "6"
     assert query["sigungu_code"] is None
     assert "접근로" in query["conditions"]
+    assert query["region_cache_status"] == "missing"
+    assert "지역 코드 캐시" in query["region_cache_warning"]
+
+
+def test_tourism_query_reports_invalid_cache(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text("{bad json", encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path)
+
+    query = service.extract("부산에서 접근로 좋은 관광지")
+
+    assert query["region"] == "부산"
+    assert query["area_code"] == "6"
+    assert query["region_cache_status"] == "invalid"
+    assert "지역 코드 캐시" in query["region_cache_warning"]

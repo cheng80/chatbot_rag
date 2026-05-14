@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import logging
 
 from app.core.config import PROJECT_ROOT
 
@@ -45,11 +46,14 @@ CONDITION_KEYWORDS = {
 }
 
 EXPANSION_KEYWORDS = ["근처", "주변", "가까운", "인근"]
+logger = logging.getLogger(__name__)
 
 
 class TourismQueryService:
     def __init__(self, area_code_cache_path: Path | None = None):
         self.area_code_cache_path = area_code_cache_path or DEFAULT_AREA_CODE_CACHE_PATH
+        self.cache_status = "loaded"
+        self.cache_warning: str | None = None
         self.region_index = self._load_region_index()
 
     def extract(self, message: str) -> dict[str, list[str] | str | None]:
@@ -70,6 +74,8 @@ class TourismQueryService:
             "is_sigungu": bool(sigungu_code),
             "allow_region_expansion": any(keyword in message for keyword in EXPANSION_KEYWORDS),
             "conditions": conditions,
+            "region_cache_status": self.cache_status,
+            "region_cache_warning": self.cache_warning,
         }
 
     def _find_region(self, message: str) -> str | None:
@@ -80,13 +86,22 @@ class TourismQueryService:
 
     def _load_region_index(self) -> dict[str, dict[str, str | None]]:
         if not self.area_code_cache_path.exists():
+            self.cache_status = "missing"
+            self.cache_warning = f"지역 코드 캐시를 찾지 못했습니다: {self.area_code_cache_path}"
+            logger.warning(self.cache_warning)
             return {}
         try:
             payload = json.loads(self.area_code_cache_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            self.cache_status = "invalid"
+            self.cache_warning = f"지역 코드 캐시를 읽을 수 없습니다: {self.area_code_cache_path}"
+            logger.warning("%s (%s)", self.cache_warning, exc.__class__.__name__)
             return {}
         region_index = payload.get("region_index", {})
         if not isinstance(region_index, dict):
+            self.cache_status = "invalid"
+            self.cache_warning = f"지역 코드 캐시 형식이 올바르지 않습니다: {self.area_code_cache_path}"
+            logger.warning(self.cache_warning)
             return {}
         return {
             str(name): value

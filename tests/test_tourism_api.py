@@ -22,6 +22,11 @@ class FakeTourismChatService:
         )
 
 
+class FailingTourismChatService:
+    def answer(self, message: str, session_id: str | None = None):
+        raise RuntimeError("secret internal path /tmp/private")
+
+
 def test_tourism_chat_api_smoke():
     app.dependency_overrides[get_tourism_chat_service] = lambda: FakeTourismChatService()
     client = TestClient(app)
@@ -33,3 +38,29 @@ def test_tourism_chat_api_smoke():
     data = response.json()
     assert data["cards"][0]["title"] == "테스트 관광지"
     assert data["cards"][0]["accessibility_tags"] == ["휠체어 접근"]
+
+
+def test_tourism_chat_rejects_blank_message():
+    app.dependency_overrides[get_tourism_chat_service] = lambda: FakeTourismChatService()
+    client = TestClient(app)
+
+    response = client.post("/tourism/chat", json={"message": "   "})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 400
+    assert response.json()["detail"] == "message는 비어 있을 수 없습니다."
+
+
+def test_tourism_chat_hides_internal_exception_details():
+    app.dependency_overrides[get_tourism_chat_service] = lambda: FailingTourismChatService()
+    client = TestClient(app)
+
+    response = client.post("/tourism/chat", json={"message": "서울 휠체어 관광지 추천"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
+        "code": "TOURISM_CHAT_FAILED",
+        "message": "관광 상담 응답을 만드는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+    }
+    assert "secret internal path" not in response.text

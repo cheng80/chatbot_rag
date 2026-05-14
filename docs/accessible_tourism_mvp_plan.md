@@ -47,13 +47,14 @@ NOT in scope:
 핵심 구현 흐름:
 
 ```text
-사용자 질문
-  -> 질문 조건 추출
-  -> TourAPI 무장애 여행 정보 조회
+TourAPI 샘플 수집 스크립트
   -> 응답 정규화
-  -> Chroma 색인 또는 임시 context 구성
-  -> RAG 답변 생성
-  -> 답변 + 관광지 카드 + 출처 반환
+  -> RAG용 Markdown 생성
+  -> Chroma 재색인
+  -> 사용자 질문
+  -> 질문 조건 추출
+  -> Chroma 검색 또는 로컬 샘플 fallback
+  -> 답변 + 관광지 카드 + 출처 + 진단 정보 반환
 ```
 
 권장 1차 구현 접근:
@@ -61,6 +62,7 @@ NOT in scope:
 ```text
 TourAPI 조회 결과를 먼저 정규화 JSON으로 저장하고,
 그 정규화 데이터를 RAG 색인 대상으로 사용한다.
+`/tourism/chat`은 request-time live TourAPI 호출 없이 색인된 샘플과 로컬 fallback을 사용한다.
 ```
 
 이유:
@@ -68,6 +70,7 @@ TourAPI 조회 결과를 먼저 정규화 JSON으로 저장하고,
 - 현재 `data/raw` -> `scripts/rebuild_index.py` -> Chroma 흐름을 재사용할 수 있다.
 - API 응답이 바뀌거나 누락되어도 저장된 샘플로 테스트 가능하다.
 - 공모전 시연에서 네트워크/API 실패 리스크를 줄일 수 있다.
+- live TourAPI freshness는 별도 TODO로 분리하고, 1차 backend MVP는 안정적인 offline-index contract를 우선한다.
 
 새 구성 요소:
 
@@ -122,6 +125,8 @@ POST /tourism/chat
     answer: string
     cards: TourismPlaceCard[]
     sources: Source[]
+    degraded: boolean
+    warnings: string[]
 ```
 
 MVP에서는 기존 `/chat`을 유지하고 `/tourism/chat`을 별도 추가하는 쪽을 권장한다. 기존 일반 RAG 테스트와 관광 챗봇 테스트를 분리할 수 있기 때문이다.
@@ -131,12 +136,14 @@ MVP에서는 기존 `/chat`을 유지하고 `/tourism/chat`을 별도 추가하�
 | 실패 | 처리 |
 |---|---|
 | TourAPI 키 없음 | 500 대신 설정 오류 메시지와 로그 |
-| TourAPI timeout | 캐시/로컬 샘플이 있으면 fallback |
+| TourAPI timeout | 샘플 수집 스크립트에서 실패를 기록하고 기존 캐시/로컬 샘플 유지 |
 | 결과 없음 | “조건에 맞는 관광지를 확인하지 못했습니다” + 조건 완화 제안 |
 | 시군구 결과 3개 미만 | 자동 확장하지 않고 확인된 결과만 반환 + 근처/주변 질문 제안 |
 | 근처/주변 확장 요청 | 상위 광역 지역 후보를 포함 + 답변에 확장 사실 명시 |
 | 접근성 필드 누락 | 누락을 명시하고 추측하지 않음 |
-| LLM 응답 실패 | 검색된 카드만 반환하거나 재시도 |
+| Retriever/Ollama/Chroma 실패 | 로컬 샘플 fallback + `degraded=true` + `warnings` 진단 |
+| API 내부 예외 | 원문 예외를 노출하지 않고 안정적인 오류 code/message 반환 |
+| 지역 코드 캐시 누락/손상 | fallback은 유지하되 `warnings`로 캐시 상태를 노출 |
 
 테스트 범위:
 
@@ -145,6 +152,9 @@ MVP에서는 기존 `/chat`을 유지하고 `/tourism/chat`을 별도 추가하�
 - 접근성 필드 누락 테스트
 - `/tourism/chat` 통합 테스트
 - Ollama 없는 환경을 위한 mock 서비스 테스트
+- card Markdown codec round-trip 테스트
+- safe error response 테스트
+- degraded fallback 및 지역 코드 캐시 진단 테스트
 
 ### `/plan-design-review`
 
@@ -201,9 +211,9 @@ UI 원칙:
 5. 관광 데이터 markdown 또는 JSON-to-text 변환 후 Chroma 재색인
 6. `/tourism/chat` 엔드포인트 추가
 7. 관광지 카드 응답 schema 추가
-8. 공모전용 질문 20개 평가셋 작성
-9. `supergemma4` vs `gemma3` 비교 실행
-10. Flutter 또는 간단한 web client에서 챗봇+카드 표시
+8. 공모전용 질문 20개 평가셋 작성 (별도 TODO)
+9. `supergemma4` vs `gemma3` 비교 실행 (별도 TODO)
+10. Flutter 또는 간단한 web client에서 챗봇+카드 표시 (별도 TODO)
 
 ## 4. 2차 대안 전환 기준
 

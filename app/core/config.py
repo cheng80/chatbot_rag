@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     tour_api_mobile_os: str = Field(default="ETC", alias="TOUR_API_MOBILE_OS")
     tour_api_mobile_app: str = Field(default="chatbot_rag", alias="TOUR_API_MOBILE_APP")
     tour_api_timeout: float = Field(default=20.0, alias="TOUR_API_TIMEOUT")
+    tourism_live_lookup_enabled: bool = Field(default=True, alias="TOURISM_LIVE_LOOKUP_ENABLED")
+    tourism_live_rows: int = Field(default=10, alias="TOURISM_LIVE_ROWS")
+    tourism_live_max_detail_calls: int = Field(default=10, alias="TOURISM_LIVE_MAX_DETAIL_CALLS")
     tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
 
     model_config = SettingsConfigDict(

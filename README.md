@@ -2,7 +2,7 @@
 
 FastAPI + ChromaDB + Ollama 기반의 로컬 RAG 챗봇입니다.
 
-현재 1차 MVP는 한국관광공사 무장애 여행 정보 OpenAPI 샘플을 RAG로 색인하고, 사용자의 자연어 질문에 접근성·가족 친화 근거가 있는 관광지 카드를 반환하는 관광 상담 챗봇입니다.
+현재 1차 MVP는 사용자의 자연어 질문에서 지역·조건·확장 의도를 먼저 구조화한 뒤, 한국관광공사 무장애 여행 정보 OpenAPI 후보를 소량 조회해 접근성·가족 친화 근거가 있는 관광지 카드를 반환하는 관광 상담 챗봇입니다.
 
 이 프로젝트는 ChatGPT/Gemini API 없이 다음 구조로 동작합니다.
 
@@ -20,18 +20,24 @@ Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
 답변 + 출처 반환
 ```
 
-관광 챗봇 흐름은 request-time live TourAPI 호출이 아니라, 미리 수집한 TourAPI 샘플과 로컬 Markdown fallback을 사용한다.
+관광 챗봇은 live TourAPI 조회를 우선 사용하고, API 키 없음·쿼터·네트워크 장애·결과 없음 상황에서는 기존 Chroma 색인과 로컬 Markdown 샘플을 fallback으로 사용한다.
 
 ```text
-TourAPI 샘플 수집
+사용자 질문
   ↓
-관광지 카드 Markdown 생성
+지역/조건/확장 의도 구조화
   ↓
-ChromaDB 재색인
+동명이 지역이면 지역 선택 후보 반환
   ↓
-POST /tourism/chat
+TourAPI areaBasedList2 후보 소량 조회
   ↓
-답변 + TourismPlaceCard[] + 출처 + 진단 정보 반환
+상위 후보 detailCommon2 + detailWithTour2 조회
+  ↓
+TourismPlaceCard 정규화
+  ↓
+캐시/Chroma/Markdown fallback과 함께 랭킹
+  ↓
+답변 + TourismPlaceCard[] + 출처 + warnings 반환
 ```
 
 ## 1. 폴더 구조
@@ -52,6 +58,12 @@ chatbot_rag/
 │  ├─ processed/
 │  └─ vector_store/
 ├─ docs/
+│  ├─ project/
+│  ├─ tourism/
+│  ├─ rag/
+│  ├─ setup/
+│  ├─ tools/
+│  └─ references/
 ├─ ingestion/
 ├─ prompts/
 ├─ scripts/
@@ -61,9 +73,11 @@ chatbot_rag/
 └─ docker-compose.yml
 ```
 
+문서별 위치는 [문서 인덱스](docs/README.md)를 먼저 확인한다.
+
 ## 2. 준비
 
-다른 Mac에서 Anaconda/conda 설정을 걷어내고 Python 환경을 최소화해야 하면 [Mac Anaconda 제거 및 Python 환경 최소화 가이드](docs/remove_anaconda_mac_guide.md)를 먼저 참고한다.
+다른 Mac에서 Anaconda/conda 설정을 걷어내고 Python 환경을 최소화해야 하면 [Mac Anaconda 제거 및 Python 환경 최소화 가이드](docs/setup/remove_anaconda_mac_guide.md)를 먼저 참고한다.
 
 ### 프로젝트 진입
 
@@ -178,6 +192,12 @@ python scripts/rebuild_index.py
 
 ## 6. API 서버 실행
 
+서버류 실행 원칙:
+
+- `uvicorn`, `cloudflared`, `python3 -m http.server` 같은 장시간 실행 프로세스는 Codex 백그라운드 세션으로 조용히 띄우지 않는다.
+- 에디터의 새 터미널을 열고 사용자가 로그와 종료 상태를 볼 수 있게 실행한다.
+- FastAPI 서버와 Cloudflare 터널은 서로 다른 터미널에서 실행한다.
+
 ```bash
 source .venv/bin/activate
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
@@ -261,16 +281,27 @@ curl -X POST http://localhost:8000/chat \
 
 ## 9. 관광 MVP 데이터와 정책
 
-현재 테스트 지역은 서울, 부산, 강릉이다.
+현재 fallback 샘플은 모든 광역권에 대해 지역별 약 20장 수준으로 확보했다. 전체 관광지를 모두 저장한 DB가 아니라, live TourAPI 장애나 쿼터 상황에서 기본 응답이 무너지지 않도록 하는 최소 안전망이다.
 
-| 지역 | 현재 샘플 범위 |
+전체 진행도는 [무장애 관광 챗봇 진행도](docs/project/progress_overview.md)에서 확인한다.
+fallback 데이터 분할 수집 계획은 [무장애 관광 데이터 분할 수집 계획](docs/tourism/tourism_data_collection_plan.md)에서 관리한다.
+전국 시군구 단위 fallback을 늘릴 때의 예상 규모는 [전국 시군구 fallback 최소 수집 규모](docs/tourism/tourism_sigungu_fallback_scale.md)를 참고한다.
+응답 전략 변경 이력과 되돌림 기준은 [관광 챗봇 응답 전략 결정 기록](docs/tourism/tourism_response_strategy_decision.md)을 참고한다.
+
+| 범위 | 현재 샘플 |
 |---|---|
-| 서울 | 강남구, 송파구, 양천구, 마포구, 광진구, 용산구, 성동구 |
-| 부산 | 중구, 금정구, 해운대구, 남구, 연제구, 부산진구 |
-| 강릉 | 강릉시 샘플 |
+| 수도권/광역시 | 서울, 부산, 인천, 대전, 대구, 광주, 울산, 세종 |
+| 도 단위 | 경기, 강원, 충북, 충남, 경북, 경남, 전북, 전남, 제주 |
+| 별도 테스트 지역 | 강릉 |
 
 주요 정책:
 
+- 지역이 확정되고 TourAPI 키가 있으면 request-time live TourAPI 후보 조회를 먼저 사용한다.
+- live 조회는 프로세스 메모리 캐시를 사용해 같은 지역 반복 호출을 줄인다.
+- live 조회가 실패하거나 결과가 없으면 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용하고 `warnings`에 진단을 남긴다.
+- 응답의 `lookup_mode`는 `live`, `indexed`, `sample`, `clarification` 중 하나로 현재 응답 경로를 나타낸다.
+- 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다.
+- 장기 권장 구조는 `live-first + 영속 캐시 + fallback`이다. offline-index 우선은 비상/시연 안정 모드로 남긴다.
 - 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
 - 결과가 3개 미만이어도 사용자가 `근처`, `주변`, `가까운`, `인근`을 말하지 않으면 상위 광역 지역으로 확장하지 않는다.
 - `중구`, `남구`, `동구`, `서구`, `북구`처럼 여러 시도에 있는 지명은 먼저 지역 선택 후보를 반환한다.
@@ -322,7 +353,15 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 
 ```bash
 python scripts/fetch_tour_area_codes.py
-python scripts/fetch_accessible_tourism_samples.py
+python scripts/fetch_accessible_tourism_samples.py --preset mvp --rows 20 --max-api-calls 150
+python scripts/rebuild_index.py
+python -m pytest
+```
+
+전국권 샘플을 넓힐 때는 일일 트래픽을 확인한 뒤 명시적으로 실행한다.
+
+```bash
+python scripts/fetch_accessible_tourism_samples.py --preset fallback-1 --rows 20 --max-api-calls 300
 python scripts/rebuild_index.py
 python -m pytest
 ```

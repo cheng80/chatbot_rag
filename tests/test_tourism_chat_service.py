@@ -3,6 +3,7 @@ import json
 
 from app.core.config import Settings
 from app.schemas.tourism import TourismPlaceCard
+from app.services.tour_api_service import TourAPIError
 from app.services.tourism_chat_service import TourismChatService
 from app.services.tourism_normalizer import TourismNormalizer
 from app.services.tourism_query_service import TourismQueryService
@@ -32,6 +33,11 @@ class FakeRetriever:
         ]
 
 
+class EmptyRetriever:
+    def retrieve(self, message: str):
+        return []
+
+
 def test_tourism_chat_returns_cards_and_sources():
     service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
 
@@ -39,9 +45,115 @@ def test_tourism_chat_returns_cards_and_sources():
 
     assert len(response.cards) == 2
     assert response.cards[0].title == "서울어린이대공원"
+    assert response.lookup_mode == "indexed"
     assert response.sources[0].source == "data/raw/tourism_accessible/seoul_sample_001.md"
     assert all("seoul" in source.source for source in response.sources)
     assert "출처" in response.answer
+
+
+def test_tourism_chat_prefers_live_tour_api_when_available():
+    class FakeTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+            self.detail_common_calls = 0
+            self.detail_with_tour_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": "live-1"}, {"contentid": "live-2"}]
+
+        def detail_common(self, content_id: str):
+            self.detail_common_calls += 1
+            return {
+                "contentid": content_id,
+                "title": f"Live 관광지 {content_id}",
+                "addr1": "서울 중구",
+            }
+
+        def detail_with_tour(self, content_id: str):
+            self.detail_with_tour_calls += 1
+            return {"contentid": content_id, "wheelchair": "주 출입구 휠체어 접근 가능"}
+
+    tour_api = FakeTourAPI()
+    service = TourismChatService(
+        Settings(
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_rows=2,
+            tourism_live_max_detail_calls=4,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천")
+
+    assert [card.content_id for card in response.cards] == ["live-1", "live-2"]
+    assert response.lookup_mode == "live"
+    assert response.degraded is False
+    assert response.sources[0].source == "한국관광공사 무장애 여행 정보 OpenAPI"
+    assert tour_api.list_calls == 1
+    assert tour_api.detail_common_calls == 2
+    assert tour_api.detail_with_tour_calls == 2
+
+
+def test_tourism_chat_caches_live_tour_api_region_results():
+    class FakeTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": "live-cache"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "Live 캐시 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    tour_api = FakeTourAPI()
+    service = TourismChatService(
+        Settings(tour_api_service_key="test", tour_api_accessible_service_key="test"),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    assert service.answer("서울 휠체어 관광지").cards[0].title == "Live 캐시 관광지"
+    assert service.answer("서울 유모차 관광지").cards[0].title == "Live 캐시 관광지"
+    assert tour_api.list_calls == 1
+
+
+def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    sample = Path("data/raw/tourism_accessible/gangneung_sample_001.md").read_text(encoding="utf-8")
+    (sample_dir / "gangneung.md").write_text(sample, encoding="utf-8")
+
+    class BrokenTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            raise TourAPIError("quota exhausted")
+
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=BrokenTourAPI(),
+    )
+
+    response = service.answer("강릉 휠체어 관광지")
+
+    assert len(response.cards) == 1
+    assert response.cards[0].title == "오죽헌"
+    assert response.lookup_mode == "sample"
+    assert response.degraded is True
+    assert "fallback" in response.warnings[0]
 
 
 def test_tourism_chat_falls_back_to_local_samples(tmp_path):
@@ -135,6 +247,7 @@ def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
     response = service.answer("중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘")
 
     assert response.cards == []
+    assert response.lookup_mode == "clarification"
     assert "'중구'는 여러 시도에 있는 지명" in response.answer
     assert "서울 중구" in response.answer
     assert "부산 중구" in response.answer

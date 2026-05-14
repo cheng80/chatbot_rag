@@ -63,8 +63,12 @@ Installed release: `0.2.3`
 
 ## Local Project Handoff
 
-Before starting a new work session in this repository, read `docs/next_session_prompt.md`.
+Before starting a new work session in this repository, read `docs/project/next_session_prompt.md`.
 It contains the current startup order, local Python environment notes, and the continuation prompt for this project.
+
+## Server Process Rule
+
+Do not start long-running servers such as `uvicorn`, `cloudflared`, or `python3 -m http.server` in hidden/background Codex sessions. When a server or tunnel is needed, use a new visible editor terminal so the user can see logs and stop the process.
 
 ## Commit Message Rule
 

@@ -6,7 +6,9 @@ from app.core.config import Settings
 from app.schemas.chat import Source
 from app.schemas.tourism import TourismChatResponse, TourismPlaceCard
 from app.services.retriever import Retriever
+from app.services.tour_api_service import TourAPIError, TourAPIService
 from app.services.tourism_card_codec import TourismCardMarkdownCodec
+from app.services.tourism_normalizer import TourismNormalizer
 from app.services.tourism_query_service import TourismQueryService
 
 logger = logging.getLogger(__name__)
@@ -18,13 +20,18 @@ class TourismChatService:
         settings: Settings,
         retriever: Retriever,
         query_service: TourismQueryService,
+        tour_api_service: TourAPIService | None = None,
+        normalizer: TourismNormalizer | None = None,
         card_codec: TourismCardMarkdownCodec | None = None,
     ):
         self.settings = settings
         self.retriever = retriever
         self.query_service = query_service
+        self.tour_api_service = tour_api_service
+        self.normalizer = normalizer or TourismNormalizer()
         self.card_codec = card_codec or TourismCardMarkdownCodec()
         self._sample_cards_cache: list[TourismPlaceCard] | None = None
+        self._live_cards_cache: dict[str, list[TourismPlaceCard]] = {}
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
@@ -33,17 +40,28 @@ class TourismChatService:
                 answer=self._build_region_clarification_answer(query),
                 cards=[],
                 sources=[],
+                lookup_mode="clarification",
                 degraded=False,
                 warnings=self._build_warnings(query, degraded=False),
                 suggested_messages=self._build_region_clarification_suggestions(query),
             )
 
-        contexts, degraded = self._retrieve(message)
-        cards = self._cards_from_contexts(contexts)
+        contexts: list[dict] = []
+        cards, degraded = self._cards_from_live_tour_api(query)
+        lookup_mode = "live" if cards else "unknown"
+
+        if not cards:
+            contexts, retrieve_degraded = self._retrieve(message)
+            degraded = degraded or retrieve_degraded
+            cards = self._cards_from_contexts(contexts)
+            if cards:
+                lookup_mode = "indexed"
 
         if not cards:
             cards = self._cards_from_markdown_samples()
             degraded = degraded or bool(cards)
+            if cards:
+                lookup_mode = "sample"
         elif query.get("allow_region_expansion"):
             cards = self._deduplicate([*cards, *self._cards_from_markdown_samples()])
 
@@ -56,12 +74,20 @@ class TourismChatService:
                 answer="조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요.",
                 cards=[],
                 sources=sources,
+                lookup_mode=lookup_mode,
                 degraded=degraded,
                 warnings=warnings,
             )
 
         answer = self._build_answer(cards, query, expanded=expanded)
-        return TourismChatResponse(answer=answer, cards=cards, sources=sources, degraded=degraded, warnings=warnings)
+        return TourismChatResponse(
+            answer=answer,
+            cards=cards,
+            sources=sources,
+            lookup_mode=lookup_mode,
+            degraded=degraded,
+            warnings=warnings,
+        )
 
     def _retrieve(self, message: str) -> tuple[list[dict], bool]:
         try:
@@ -69,6 +95,67 @@ class TourismChatService:
         except Exception as exc:
             logger.warning("관광 RAG 검색 실패, 로컬 샘플 fallback 사용: %s", exc.__class__.__name__)
             return [], True
+
+    def _cards_from_live_tour_api(self, query: dict) -> tuple[list[TourismPlaceCard], bool]:
+        if not self._can_use_live_tour_api(query):
+            return [], False
+
+        cache_key = self._live_cache_key(query)
+        if cache_key in self._live_cards_cache:
+            return list(self._live_cards_cache[cache_key]), False
+
+        api = self.tour_api_service
+        assert api is not None
+        try:
+            list_items = api.accessible_area_based_list(
+                area_code=str(query.get("area_code") or ""),
+                sigungu_code=str(query.get("sigungu_code")) if query.get("sigungu_code") else None,
+                num_of_rows=self.settings.tourism_live_rows,
+            )
+            cards = self._normalize_live_items(list_items)
+        except (TourAPIError, TimeoutError, ValueError) as exc:
+            logger.warning("관광 live TourAPI 조회 실패, RAG fallback 사용: %s", exc.__class__.__name__)
+            return [], True
+
+        self._live_cards_cache[cache_key] = self._deduplicate(cards)
+        return list(self._live_cards_cache[cache_key]), False
+
+    def _can_use_live_tour_api(self, query: dict) -> bool:
+        if not self.settings.tourism_live_lookup_enabled:
+            return False
+        if not self.tour_api_service:
+            return False
+        if not query.get("area_code"):
+            return False
+        return bool(self.settings.tour_api_service_key)
+
+    def _normalize_live_items(self, list_items: list[dict]) -> list[TourismPlaceCard]:
+        cards = []
+        detail_calls = 0
+        max_detail_calls = max(self.settings.tourism_live_max_detail_calls, 0)
+        api = self.tour_api_service
+        assert api is not None
+
+        for item in list_items:
+            content_id = str(item.get("contentid") or "").strip()
+            if not content_id or detail_calls + 2 > max_detail_calls:
+                continue
+            try:
+                detail_calls += 1
+                common = api.detail_common(content_id) or item
+                detail_calls += 1
+                accessible = api.detail_with_tour(content_id)
+            except TourAPIError as exc:
+                logger.info("관광 live 상세 조회 일부 실패: %s (%s)", content_id, exc.__class__.__name__)
+                continue
+            card = self.normalizer.normalize_place(common, accessible)
+            if card.raw_fields:
+                cards.append(card)
+        return cards
+
+    @staticmethod
+    def _live_cache_key(query: dict) -> str:
+        return ":".join([str(query.get("area_code") or ""), str(query.get("sigungu_code") or "")])
 
     def _cards_from_contexts(self, contexts: list[dict]) -> list[TourismPlaceCard]:
         cards = []
@@ -105,7 +192,7 @@ class TourismChatService:
                 query,
                 filter_region=False,
             )
-            if len(region_cards) >= 3 or not query.get("allow_region_expansion"):
+            if not query.get("allow_region_expansion"):
                 return region_cards[:5], False
 
             area_name = query.get("area_name")
@@ -262,7 +349,7 @@ class TourismChatService:
     def _build_warnings(query: dict, degraded: bool) -> list[str]:
         warnings = []
         if degraded:
-            warnings.append("검색 인덱스를 사용할 수 없어 로컬 샘플 기반 fallback 응답을 사용했습니다.")
+            warnings.append("live TourAPI 또는 검색 인덱스를 사용할 수 없어 캐시/로컬 샘플 기반 fallback 응답을 사용했습니다.")
         cache_warning = query.get("region_cache_warning")
         if cache_warning:
             warnings.append(str(cache_warning))

@@ -1,18 +1,18 @@
 # TODOS
 
-## Hybrid live TourAPI fallback for no-result regions
+## Persistent TourAPI response cache
 
-What: Add an offline-first live TourAPI fallback path for `/tourism/chat` when indexed samples return no usable cards.
+What: Persist live TourAPI candidate/detail responses beyond the current process memory cache.
 
-Why: The backend MVP intentionally uses indexed samples for request-time reliability. A live fallback would improve freshness and regional coverage after the stable contract is proven.
+Why: `/tourism/chat` now uses live TourAPI lookup first when a region is resolved, then falls back to Chroma/Markdown samples. The current cache is per-process only, so server restarts can repeat the same API calls.
 
-Pros: Gives users a path to fresh public data for regions missing from the local index. Keeps the current demo-stable offline path as the default.
+Pros: Reduces daily quota usage, improves repeated demo latency, and keeps live freshness without re-calling the same region repeatedly.
 
-Cons: Adds network latency, TourAPI quota/key failure modes, duplicate-card handling, and cache invalidation complexity.
+Cons: Requires TTL/invalidation rules and care around stale accessibility details.
 
-Context: Start from `TourAPIService`, `TourismNormalizer`, and `TourismChatService`. Preserve the current offline-index behavior first, then call live TourAPI only when retrieval and sample fallback produce no cards.
+Context: Start from `TourismChatService._live_cards_cache`, `TourAPIService`, and `data/generated/tour_api/`. Keep Chroma/Markdown fallback behavior intact.
 
-Depends on / blocked by: Backend safe error handling, degraded-mode diagnostics, and the shared tourism card Markdown codec.
+Depends on / blocked by: Deciding a TTL and whether the cache should live in SQLite, JSON files, or refreshed Markdown samples.
 
 ## Tourism eval dataset and model comparison
 

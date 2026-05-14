@@ -11,7 +11,7 @@
       <section class="workspace" aria-label="무장애 관광 챗봇">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Tourism RAG UI Check</p>
+            <p class="eyebrow">Tourism Live API UI Check</p>
             <h1>무장애 관광 추천 확인</h1>
           </div>
           <div class="topbar-actions">
@@ -30,25 +30,25 @@
 
         <section class="coverage-panel" aria-label="현재 테스트 지역">
           <div>
-            <p class="eyebrow">Current MVP Coverage</p>
-            <h2>현재 테스트 지역</h2>
+            <p class="eyebrow">Current Service Flow</p>
+            <h2>현재 응답 방식</h2>
           </div>
           <div class="coverage-grid">
             <div>
-              <strong>서울</strong>
-              <span>강남구, 송파구, 양천구, 마포구, 광진구, 용산구, 성동구</span>
+              <strong>1. 질문 구조화</strong>
+              <span>지역, 시군구, 휠체어/유아차/주차/화장실 조건, 근처 확장 의도를 먼저 분리합니다.</span>
             </div>
             <div>
-              <strong>부산</strong>
-              <span>중구, 금정구, 해운대구, 남구, 연제구, 부산진구</span>
+              <strong>2. Live API 우선</strong>
+              <span>지역이 확정되면 TourAPI 후보를 소량 조회하고 접근성 상세로 카드를 만듭니다.</span>
             </div>
             <div>
-              <strong>강릉</strong>
-              <span>강릉시 샘플 7건</span>
+              <strong>3. Fallback 안전망</strong>
+              <span>API 장애나 결과 없음이면 Chroma 색인과 지역별 Markdown 샘플을 사용합니다.</span>
             </div>
           </div>
           <p class="coverage-note">
-            서울/부산/강릉 live 수집 15건과 curated fallback 샘플을 기준으로 확인합니다. 다른 지역은 후속 수집 전까지 결과가 적거나 없을 수 있습니다.
+            fallback 샘플은 전국 전체 장소 DB가 아니라, 광역권별 약 20장 수준의 최소 안전망입니다. 실제 방문 전에는 공식 안내와 현장 정보를 다시 확인해야 합니다.
           </p>
         </section>
 
@@ -60,6 +60,8 @@
             <button type="button" data-region="서울 용산구">서울 용산구</button>
             <button type="button" data-region="부산">부산</button>
             <button type="button" data-region="부산 중구">부산 중구</button>
+            <button type="button" data-region="인천 중구">인천 중구</button>
+            <button type="button" data-region="제주">제주</button>
             <button type="button" data-region="강릉">강릉</button>
           </div>
 
@@ -69,6 +71,7 @@
             <button type="button" data-prompt="중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘">중구 모호성</button>
             <button type="button" data-prompt="서울에서 유아차로 가기 좋은 관광지 추천해줘">서울 유아차</button>
             <button type="button" data-prompt="부산에서 가족과 가기 좋은 무장애 관광지 추천해줘">부산 가족</button>
+            <button type="button" data-prompt="제주에서 휠체어 접근 가능한 관광지 추천해줘">제주 휠체어</button>
           </div>
 
           <form id="chatForm" class="chat-form">
@@ -141,6 +144,7 @@
             <ul>
               <li>지역 버튼으로 먼저 범위를 잡거나, 질문 입력창에 자유롭게 문장을 입력합니다.</li>
               <li>`중구`처럼 여러 시도에 있는 지명은 추천 대신 지역 선택 후속 버튼을 보여줍니다.</li>
+              <li>응답 상태에는 live API, 색인 검색, 샘플 fallback 중 어떤 경로를 썼는지 표시됩니다.</li>
               <li>Swagger, ReDoc, OpenAPI JSON 링크로 현재 API 계약을 바로 확인할 수 있습니다.</li>
             </ul>
           </section>
@@ -148,8 +152,8 @@
           <section>
             <h3>테스트 범위</h3>
             <ul>
-              <li>현재 MVP 샘플은 서울, 부산, 강릉 중심입니다.</li>
-              <li>다른 지역은 결과가 없거나 fallback 안내가 나올 수 있습니다.</li>
+              <li>기본 응답은 지역 확정 후 live TourAPI 후보 조회를 먼저 사용합니다.</li>
+              <li>fallback 샘플은 광역권별 약 20장 수준의 최소 안전망입니다.</li>
               <li>휠체어, 유아차, 접근로, 화장실, 주차 같은 조건을 명시하면 카드 정렬에 반영됩니다.</li>
             </ul>
           </section>

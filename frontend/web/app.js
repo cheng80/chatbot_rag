@@ -75,8 +75,6 @@ form.addEventListener("submit", async (event) => {
   }
 
   setLoading(true);
-  setState("요청 중");
-  diagnostics.replaceChildren();
   suggestions.replaceChildren();
 
   try {
@@ -131,6 +129,10 @@ function defaultApiBase() {
 function setLoading(isLoading) {
   submitButton.disabled = isLoading;
   submitButton.textContent = isLoading ? "조회 중" : "조회";
+  if (isLoading) {
+    setState("질문 분석 + TourAPI 조회 중");
+    diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화한 뒤 live TourAPI 후보를 조회합니다."));
+  }
 }
 
 function setState(text, tone = "") {
@@ -140,10 +142,11 @@ function setState(text, tone = "") {
 
 function renderResponse(payload) {
   const cards = Array.isArray(payload.cards) ? payload.cards : [];
-  setState(payload.degraded ? "Fallback 응답" : "정상 응답", payload.degraded ? "warn" : "ok");
+  const mode = payload.lookup_mode || "unknown";
+  setState(modeLabel(mode, payload.degraded), modeTone(mode, payload.degraded));
 
-  const notes = [];
-  if (payload.degraded) notes.push("검색 인덱스 대신 로컬 샘플 fallback을 사용했습니다.");
+  const notes = [modeDescription(mode)];
+  if (payload.degraded) notes.push("live API 또는 검색 인덱스 대신 fallback 안전망을 사용했습니다.");
   if (Array.isArray(payload.warnings)) notes.push(...payload.warnings);
   diagnostics.replaceChildren(...notes.map(createDiagnostic));
 
@@ -152,6 +155,29 @@ function renderResponse(payload) {
   renderSuggestions(payload.suggested_messages || []);
   cardCount.textContent = `${cards.length}개`;
   cardsGrid.replaceChildren(...cards.map(renderCard));
+}
+
+function modeLabel(mode, degraded) {
+  if (mode === "live") return "Live API 응답";
+  if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
+  if (mode === "sample") return "샘플 fallback";
+  if (mode === "clarification") return "지역 선택 필요";
+  return degraded ? "Fallback 응답" : "정상 응답";
+}
+
+function modeTone(mode, degraded) {
+  if (mode === "clarification") return "warn";
+  if (mode === "sample" || degraded) return "warn";
+  if (mode === "live" || mode === "indexed") return "ok";
+  return "";
+}
+
+function modeDescription(mode) {
+  if (mode === "live") return "지역이 확정되어 TourAPI 후보와 접근성 상세를 live로 조회했습니다.";
+  if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
+  if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
+  if (mode === "clarification") return "동명이 지역이라 추천 전에 광역 지역 선택이 필요합니다.";
+  return "응답 생성 경로를 확인하지 못했습니다.";
 }
 
 function renderError(status, payload) {

@@ -1,6 +1,32 @@
 # Web Frontend
 
-현재 기준 프론트는 Flutter 앱으로 맞춘다.
-API 동작 검증은 Jupyter Notebook에서 Python `requests`로 테스트한다.
+`/tourism/chat` 백엔드 응답을 눈으로 확인하기 위한 정적 웹 UI다.
+빌드 도구 없이 HTML/CSS/JS만 사용한다.
 
-Web UI는 필요해질 때 React/Vue/Svelte 등으로 별도 추가한다.
+## 실행
+
+터미널 1:
+
+```bash
+.venv/bin/uvicorn app.main:app --reload
+```
+
+터미널 2:
+
+```bash
+cd frontend/web
+python3 -m http.server 5173
+```
+
+브라우저에서 `http://127.0.0.1:5173`을 연다.
+
+기본 API 주소는 `http://127.0.0.1:8000`이다. 서버 포트를 바꿨다면 화면 상단의 API 입력값만 수정한다.
+
+## 확인할 것
+
+- 강남구 휠체어 추천이 카드로 보이는지 확인한다.
+- "근처" 질문에서 상위 지역 확장 결과가 보이는지 확인한다.
+- `중구`처럼 여러 시도에 있는 지명은 추천 카드 대신 지역 선택 후속 버튼을 보여주는지 확인한다.
+- `부산 중구`처럼 광역 지역을 함께 선택하거나 입력하면 해당 시군구 카드만 보이는지 확인한다.
+- `degraded=true`일 때 fallback 진단 문구가 보이는지 확인한다.
+- 빈 입력, API 연결 실패, 백엔드 오류가 화면에서 구분되는지 확인한다.

@@ -28,6 +28,16 @@ class TourismChatService:
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
+        if query.get("ambiguous_region"):
+            return TourismChatResponse(
+                answer=self._build_region_clarification_answer(query),
+                cards=[],
+                sources=[],
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                suggested_messages=self._build_region_clarification_suggestions(query),
+            )
+
         contexts, degraded = self._retrieve(message)
         cards = self._cards_from_contexts(contexts)
 
@@ -90,7 +100,7 @@ class TourismChatService:
         region = query.get("region")
         if region and query.get("is_sigungu"):
             region_cards = self._rank_cards(
-                self._filter_cards_by_region(cards, region),
+                self._filter_cards_by_query_region(cards, query),
                 message,
                 query,
                 filter_region=False,
@@ -153,6 +163,20 @@ class TourismChatService:
             return cards
         return [card for card in cards if region in f"{card.title} {card.address or ''}"]
 
+    @staticmethod
+    def _filter_cards_by_query_region(cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
+        region = query.get("region")
+        sigungu_name = query.get("sigungu_name")
+        if not region:
+            return cards
+        terms = [sigungu_name] if sigungu_name else [region]
+        filtered = []
+        for card in cards:
+            haystack = f"{card.title} {card.address or ''}"
+            if all(term in haystack for term in terms):
+                filtered.append(card)
+        return filtered
+
     def _build_answer(self, cards: list[TourismPlaceCard], query: dict, expanded: bool = False) -> str:
         region = query.get("region") or "요청 지역"
         conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
@@ -171,6 +195,38 @@ class TourismChatService:
             lines.append(f"{index}. {card.title}: {basis}. 출처는 {card.source_name}입니다.")
         lines.append("OpenAPI에 없는 편의정보는 추측하지 않고 카드에 '확인 필요'로 남겼습니다.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_region_clarification_answer(query: dict) -> str:
+        alias = query.get("ambiguous_region") or "해당 지역"
+        candidates = query.get("ambiguous_region_candidates") or []
+        options = []
+        for candidate in candidates:
+            area_name = candidate.get("area_name")
+            sigungu_name = candidate.get("sigungu_name") or alias
+            if area_name and sigungu_name:
+                options.append(f"{area_name} {sigungu_name}")
+        option_text = ", ".join(dict.fromkeys(options))
+        if not option_text:
+            return f"'{alias}' 지역이 여러 곳에 있어 어느 지역인지 먼저 알려 주세요."
+        return (
+            f"'{alias}'는 여러 시도에 있는 지명이라 바로 추천하기 어렵습니다. "
+            f"어느 지역인지 함께 적어 주세요. 예: {option_text}"
+        )
+
+    @staticmethod
+    def _build_region_clarification_suggestions(query: dict) -> list[str]:
+        alias = query.get("ambiguous_region") or ""
+        candidates = query.get("ambiguous_region_candidates") or []
+        conditions = query.get("conditions") or ["무장애"]
+        condition_text = " ".join(str(condition) for condition in conditions[:2])
+        suggestions = []
+        for candidate in candidates:
+            area_name = candidate.get("area_name")
+            sigungu_name = candidate.get("sigungu_name") or alias
+            if area_name and sigungu_name:
+                suggestions.append(f"{area_name} {sigungu_name}에서 {condition_text} 관광지 추천해줘")
+        return list(dict.fromkeys(suggestions))
 
     def _build_sources(self, contexts: list[dict], cards: list[TourismPlaceCard]) -> list[Source]:
         sources = []

@@ -41,3 +41,4 @@ class TourismChatResponse(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     degraded: bool = Field(default=False, description="검색/인덱스 장애로 fallback 응답을 사용했는지 여부")
     warnings: list[str] = Field(default_factory=list, description="응답 품질이나 설정 상태에 대한 진단 메시지")
+    suggested_messages: list[str] = Field(default_factory=list, description="지역 선택 등 후속 질문 후보")

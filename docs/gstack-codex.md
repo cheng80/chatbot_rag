@@ -9,10 +9,17 @@
 npx gstack-codex@latest init --project
 ```
 
-- 설치된 버전: `0.2.0`
+- 설치된 버전: `0.2.3`
+- 설치 기준:
+  - `gstack-codex`: `0.2.3`
+  - upstream `gstack`: `1.31.1.0`
+  - upstream commit: `49cc4ff9c99e9b24f39aa7dcbfc456e840be29a8`
 - 추가된 위치:
   - `AGENTS.md`의 `gstack-codex` 관리 블록
   - `.agents/skills/`의 gstack 스킬 파일들
+  - `.agents/skills/.gstack-codex-manifest.json`
+
+현재 설치는 `https://github.com/phd-peter/gstack-codex`의 `v0.2.3` 릴리스와 같은 계열이다. 2026-05-15 확인 기준 GitHub 최신 릴리스와 npm latest가 모두 `0.2.3`이다.
 
 ## 기본 사용법
 
@@ -27,6 +34,8 @@ slash command가 보이지 않으면 Codex에게 이렇게 요청한다.
 ```text
 office hours를 시작해줘
 ```
+
+Codex CLI에서는 slash command가 정상적으로 동작했다. IDE/확장 화면에서는 스킬 파일은 보이더라도 gstack의 interactive 질문 도구가 노출되지 않을 수 있다. 이 경우 정식 `/plan-*` 리뷰는 CLI에서 실행하는 쪽이 안전하다.
 
 ## 자주 쓰는 명령
 
@@ -122,7 +131,7 @@ office hours를 시작해줘
 
 ```text
 /plan-eng-review
-START_HERE.md와 docs/planning/goal/OVERALL_GOAL_PROGRESS.md를 먼저 읽고, 현재 다음 구현 후보를 확인한 뒤 최소 변경 계획을 검토해줘.
+docs/GOAL.md와 docs/accessible_tourism_mvp_plan.md를 먼저 읽고, 현재 관광 챗봇 backend MVP 범위의 구조, 실패 처리, 테스트 계획을 검토해줘.
 ```
 
 ```text
@@ -167,22 +176,55 @@ npx gstack-codex@latest init --project
 /gstack-upgrade
 ```
 
+재설치나 갱신 후에는 아래 값을 확인한다.
+
+```bash
+sed -n '1,40p' .agents/skills/.gstack-codex-manifest.json
+git status --short
+```
+
+`installed_at`만 바뀌는 경우는 gstack 설치 메타데이터 갱신이다. 기능 스킬 내용이 바뀌었는지 확인한 뒤 커밋 여부를 판단한다.
+
 ## 사용 팁
 
 - 큰 구현 전에 `/plan-eng-review` 또는 `/plan-ceo-review`로 범위와 구조를 먼저 잠근다.
+- `/plan-eng-review`에서 `Yes, implement this plan`을 선택하면 계획 모드를 끝내고 실제 코드 수정이 시작된다. 계획만 보고 싶으면 `No, stay in Plan mode`를 선택한다.
 - UI 작업은 구현 후 `/browse`, `/qa`, `/design-review`로 실제 화면을 본다.
 - 긴 작업은 중간에 `/context-save`로 맥락을 남긴다.
 - 커밋/푸시 전에는 `/review` 또는 `/ship` 흐름을 사용한다.
 - 이 프로젝트에서는 저장 가능한 runtime state와 transient presentation state를 분리한다. gstack에게 작업을 시킬 때도 “save/continue 기준은 runtime state”라고 명시한다.
+- gstack 질문이 영어로 나오면 선택지를 이 대화에 붙여 한국어로 확인한 뒤 진행한다.
+- 텔레메트리는 현재 `off`로 두었다. 프로젝트 자료와 API 키를 다루므로 외부 메타데이터 전송은 기본적으로 끈다.
+- proactive skill suggestion은 켜두었다. 리뷰/QA/조사 흐름을 놓치지 않기 위한 로컬 워크플로 보조 기능이다.
+- `CLAUDE.md` routing 자동 추가는 거절했다. 해당 흐름은 영어 커밋 메시지로 자동 커밋할 수 있어, 이 프로젝트의 “커밋 메시지는 한글” 규칙과 충돌할 수 있다.
 
 ## 주의사항
 
 - `gstack-codex`가 관리하는 `AGENTS.md` 블록 안은 직접 수정하지 않는다.
 - 프로젝트 규칙은 기존 `AGENTS.md` 내용이 우선이며, gstack은 추가 워크플로로 사용한다.
 - 공식 README 기준 권장 환경은 Node.js `18.17+`, Codex CLI `0.122.0+`이다.
-- 이 PC의 `codex-cli`는 Homebrew cask로 `0.125.0`까지 업데이트했다.
+- 2026-05-15 확인 시 Codex CLI는 `0.130.0` 화면에서 동작했다.
+- 커밋 메시지는 항상 한글로 작성한다. gstack 자동 커밋 흐름을 사용할 때 영어 커밋 메시지가 제안되면 중단하고 수동 커밋으로 처리한다.
+- `.env`, `.vscode/`, `data/generated/`, `data/vector_store/chroma/`는 커밋하지 않는다.
+- gstack 실행 중 `~/.gstack` 아래에 테스트 계획 artifact가 만들어질 수 있다. 이는 로컬 gstack 산출물이며 프로젝트 커밋 대상이 아니다.
+- 현재 설치된 project-local 스킬은 `.agents/skills/gstack-*` 형태다. `gstack-review-log` 같은 일부 helper binary가 없을 수 있으며, 그 경우 리뷰 로그 대시보드 기록은 실패해도 실제 리뷰 결정과 구현 계획 자체는 사용할 수 있다.
+
+## 2026-05-15 사용 기록
+
+- `/plan-eng-review`를 CLI에서 실행했다.
+- `/office-hours` 선행은 생략하고 `docs/GOAL.md`, `docs/accessible_tourism_mvp_plan.md`, 현재 구현을 기준으로 표준 engineering review를 진행했다.
+- 검토 범위는 backend MVP로 축소했다.
+- 결정 사항:
+  - `/tourism/chat`은 request-time live TourAPI가 아니라 offline-index 기반으로 명시한다.
+  - live TourAPI fallback, 20문항 eval/model comparison, frontend card display는 `TODOS.md` 후속 작업으로 분리한다.
+  - safe error contract, shared Markdown codec, region cache health, degraded fallback diagnostics, sample-card cache를 backend 안정화 범위로 채택했다.
+- review 결과로 `~/.gstack/projects/chatbot_rag/cheng80-main-eng-review-test-plan-20260515-034952.md` 테스트 계획 artifact가 생성됐다.
+- 이후 구현 커밋:
+  - `8c9314c 관광 챗봇 백엔드 계약 안정화`
+  - `30931fe gstack 설치 메타데이터 갱신`
 
 ## 참고 링크
 
 - GitHub: https://github.com/phd-peter/gstack-codex
 - 설치 문서: https://github.com/phd-peter/gstack-codex/blob/main/docs/install.md
+- npm: https://www.npmjs.com/package/gstack-codex

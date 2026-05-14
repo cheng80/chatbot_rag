@@ -28,16 +28,16 @@ Context: Use the backend response contract from `/tourism/chat`, current indexed
 
 Depends on / blocked by: Stable backend response schema and rebuilt Chroma index for the tourism sample set.
 
-## Frontend tourism card display
+## Frontend tourism UI polish and QA
 
-What: Build a web or Flutter client view that renders `TourismPlaceCard[]` with accessibility tags, family tags, source, and “확인 필요” states.
+What: Polish and QA the web tourism check UI, then decide whether to keep it as the demo surface or port the interaction to Flutter.
 
-Why: The MVP is easier to demo when users can scan structured cards instead of reading API JSON or plain text answers.
+Why: A minimal static web UI now renders `/tourism/chat` responses, but demo readiness still needs responsive QA, copy review, and visual checks around card density and “확인 필요” states.
 
-Pros: Validates the response schema against a real client and makes accessibility evidence visible to non-technical users.
+Pros: Keeps the API contract visible during development and makes accessibility evidence understandable to non-technical users.
 
-Cons: Adds UI design, responsive behavior, and browser/mobile QA scope that should stay separate from backend stabilization.
+Cons: Adds UI design, responsive behavior, and browser/mobile QA scope beyond backend correctness.
 
-Context: Follow the existing design direction: quiet practical chat tool, cards more prominent than answer prose, one mobile column and up to two desktop columns.
+Context: Start from `frontend/web/index.html`, `frontend/web/styles.css`, and `frontend/web/app.js`. The current version is intentionally build-free and focused on backend behavior visibility.
 
 Depends on / blocked by: Stable `/tourism/chat` backend contract and a design/QA pass before demo use.

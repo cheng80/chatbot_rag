@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from app.core.config import Settings
 from app.schemas.tourism import TourismPlaceCard
@@ -87,6 +88,116 @@ def test_tourism_chat_expands_sigungu_when_user_asks_nearby():
     assert response.cards[0].title == "서울어린이대공원"
     assert any("서울" in (card.address or "") for card in response.cards)
     assert "서울 범위 후보를 함께 포함했습니다" in response.answer
+
+
+def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "region_index": {
+                    "서울": {
+                        "area_code": "1",
+                        "sigungu_code": None,
+                        "area_name": "서울",
+                        "sigungu_name": None,
+                    },
+                    "부산": {
+                        "area_code": "6",
+                        "sigungu_code": None,
+                        "area_name": "부산",
+                        "sigungu_name": None,
+                    },
+                },
+                "ambiguous_region_aliases": {
+                    "중구": [
+                        {
+                            "area_code": "1",
+                            "sigungu_code": "24",
+                            "area_name": "서울",
+                            "sigungu_name": "중구",
+                        },
+                        {
+                            "area_code": "6",
+                            "sigungu_code": "15",
+                            "area_name": "부산",
+                            "sigungu_name": "중구",
+                        },
+                    ]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService(area_code_cache_path=cache_path))
+
+    response = service.answer("중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘")
+
+    assert response.cards == []
+    assert "'중구'는 여러 시도에 있는 지명" in response.answer
+    assert "서울 중구" in response.answer
+    assert "부산 중구" in response.answer
+    assert response.suggested_messages == [
+        "서울 중구에서 휠체어 관광지 추천해줘",
+        "부산 중구에서 휠체어 관광지 추천해줘",
+    ]
+
+
+def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    sample = Path("data/raw/tourism_accessible/부산_2609623.md").read_text(encoding="utf-8")
+    (sample_dir / "busan_junggu.md").write_text(sample, encoding="utf-8")
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "region_index": {
+                    "부산": {
+                        "area_code": "6",
+                        "sigungu_code": None,
+                        "area_name": "부산",
+                        "sigungu_name": None,
+                    },
+                },
+                "ambiguous_region_aliases": {
+                    "중구": [
+                        {
+                            "area_code": "1",
+                            "sigungu_code": "24",
+                            "area_name": "서울",
+                            "sigungu_name": "중구",
+                        },
+                        {
+                            "area_code": "6",
+                            "sigungu_code": "15",
+                            "area_name": "부산",
+                            "sigungu_name": "중구",
+                        },
+                    ]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class EmptyRetriever:
+        def retrieve(self, message: str):
+            return []
+
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(area_code_cache_path=cache_path),
+    )
+
+    response = service.answer("부산 중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘")
+
+    assert len(response.cards) == 1
+    assert response.cards[0].title == "개미집 본점"
+    assert "부산 중구 기준" in response.answer
 
 
 def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):

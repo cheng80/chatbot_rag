@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>무장애 관광 챗봇 확인</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-label="무장애 관광 챗봇">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Tourism RAG UI Check</p>
+            <h1>무장애 관광 추천 확인</h1>
+          </div>
+          <div class="api-control">
+            <label for="apiBase">API</label>
+            <input id="apiBase" type="url" value="http://127.0.0.1:8000" spellcheck="false" />
+          </div>
+        </header>
+
+        <section class="composer" aria-label="질문 입력">
+          <div class="selector-row" aria-label="지역 선택">
+            <span>지역</span>
+            <button type="button" data-region="서울">서울</button>
+            <button type="button" data-region="서울 강남구">서울 강남구</button>
+            <button type="button" data-region="서울 용산구">서울 용산구</button>
+            <button type="button" data-region="부산">부산</button>
+            <button type="button" data-region="부산 중구">부산 중구</button>
+            <button type="button" data-region="강릉">강릉</button>
+          </div>
+
+          <div class="quick-prompts" aria-label="빠른 질문">
+            <button type="button" data-prompt="서울 강남구에서 휠체어 관광지 추천해줘">강남구 휠체어</button>
+            <button type="button" data-prompt="서울 강남구 근처에서 휠체어 관광지 추천해줘">강남구 근처</button>
+            <button type="button" data-prompt="중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘">중구 모호성</button>
+            <button type="button" data-prompt="서울에서 유아차로 가기 좋은 관광지 추천해줘">서울 유아차</button>
+            <button type="button" data-prompt="부산에서 가족과 가기 좋은 무장애 관광지 추천해줘">부산 가족</button>
+          </div>
+
+          <form id="chatForm" class="chat-form">
+            <label for="message">질문</label>
+            <div class="input-row">
+              <textarea id="message" rows="3" placeholder="예: 서울 강남구 근처에서 휠체어 관광지 추천해줘"></textarea>
+              <button id="submitButton" type="submit">조회</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="status-strip" aria-live="polite">
+          <div id="requestState" class="state-pill">대기 중</div>
+          <div id="diagnostics" class="diagnostics"></div>
+        </section>
+
+        <section class="response-layout">
+          <article class="answer-panel" aria-label="챗봇 답변">
+            <div class="section-header">
+              <h2>답변</h2>
+              <button id="clearButton" type="button" title="화면 비우기">비우기</button>
+            </div>
+            <p id="answerText" class="empty">질문을 보내면 답변과 추천 카드가 여기에 표시됩니다.</p>
+            <div id="suggestions" class="suggestions" aria-label="후속 질문 후보"></div>
+          </article>
+
+          <article class="cards-panel" aria-label="추천 관광지 카드">
+            <div class="section-header">
+              <h2>추천 카드</h2>
+              <span id="cardCount">0개</span>
+            </div>
+            <div id="cards" class="cards-grid"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <template id="cardTemplate">
+      <article class="place-card">
+        <div class="card-media"></div>
+        <div class="card-body">
+          <div class="card-title-row">
+            <h3></h3>
+            <span class="source-chip">공공데이터</span>
+          </div>
+          <p class="address"></p>
+          <p class="reason"></p>
+          <div class="tag-group accessibility-tags"></div>
+          <dl class="details"></dl>
+        </div>
+      </article>
+    </template>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

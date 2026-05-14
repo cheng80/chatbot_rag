@@ -31,7 +31,7 @@ Production readiness [██░░░░░░░░] 20%
 | `/tourism/chat` API | 92% | 안정화 | live 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장 정책 반영 |
 | 카드 응답 schema | 85% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages` 반환 |
 | 웹 확인 UI | 70% | 시연 가능 | `/tourism-ui/`, 지역 버튼, 자유 입력, Help, Swagger 링크, 터널 확인 |
-| 테스트 | 75% | 주요 회귀 커버 | `pytest` 30개 통과, backend 정책 중심 |
+| 테스트 | 75% | 주요 회귀 커버 | `pytest` 33개 통과, backend 정책 중심 |
 | 모델 품질 평가 | 30% | 미완 | 20문항 eval/model comparison TODO |
 | 운영/배포 | 20% | 임시 확인 | Cloudflare Quick Tunnel로 외부 임시 확인 가능, 정식 배포 아님 |
 
@@ -78,15 +78,24 @@ Production readiness [██░░░░░░░░] 20%
 
 ## 빠른 확인 명령
 
+장시간 실행 서버는 Codex 백그라운드 세션으로 조용히 띄우지 않는다. 에디터의 새 터미널에서 실행해 로그와 종료 상태를 직접 확인한다.
+
+오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 fallback-only로 실행한다.
+
 ```bash
 cd /Users/cheng80/Desktop/chatbot_rag
 .venv/bin/python -m pytest -q
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-cloudflared tunnel --url http://127.0.0.1:8000
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 외부 확인 URL 형식:
 
 ```text
 https://...trycloudflare.com/tourism-ui/
+```
+
+외부 터널이 필요하면 FastAPI 서버와 별도 터미널에서 실행한다.
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
 ```

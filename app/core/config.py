@@ -34,12 +34,42 @@ class Settings(BaseSettings):
 
     top_k: int = Field(default=5, alias="TOP_K")
 
+    tour_api_service_key: str | None = Field(default=None, alias="TOUR_API_SERVICE_KEY")
+    tour_api_accessible_service_key: str | None = Field(default=None, alias="TOUR_API_ACCESSIBLE_SERVICE_KEY")
+    tour_api_base_url: str = Field(default="https://apis.data.go.kr/B551011/KorService2", alias="TOUR_API_BASE_URL")
+    tour_api_accessible_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/KorWithService2",
+        alias="TOUR_API_ACCESSIBLE_BASE_URL",
+    )
+    tour_api_mobile_os: str = Field(default="ETC", alias="TOUR_API_MOBILE_OS")
+    tour_api_mobile_app: str = Field(default="chatbot_rag", alias="TOUR_API_MOBILE_APP")
+    tour_api_timeout: float = Field(default=20.0, alias="TOUR_API_TIMEOUT")
+    tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
     )
+
+    @property
+    def resolved_chroma_path(self) -> Path:
+        return self._resolve_project_path(self.chroma_path)
+
+    @property
+    def resolved_raw_data_path(self) -> Path:
+        return self._resolve_project_path(self.raw_data_path)
+
+    @property
+    def resolved_tourism_sample_path(self) -> Path:
+        return self._resolve_project_path(self.tourism_sample_path)
+
+    @staticmethod
+    def _resolve_project_path(path: Path) -> Path:
+        if path.is_absolute():
+            return path
+        return PROJECT_ROOT / path
 
     @property
     def cors_origin_list(self) -> List[str]:

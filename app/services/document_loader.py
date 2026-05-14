@@ -3,6 +3,7 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
+from app.core.config import PROJECT_ROOT
 from app.utils.text_utils import normalize_text
 
 
@@ -48,7 +49,7 @@ class DocumentLoader:
         return [
             LoadedDocument(
                 text=text,
-                source=str(path),
+                source=self._display_path(path),
                 metadata={"extension": path.suffix.lower()},
             )
         ]
@@ -66,10 +67,17 @@ class DocumentLoader:
             documents.append(
                 LoadedDocument(
                     text=text,
-                    source=str(path),
+                    source=self._display_path(path),
                     page=page_index,
                     metadata={"extension": ".pdf"},
                 )
             )
 
         return documents
+
+    @staticmethod
+    def _display_path(path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(PROJECT_ROOT))
+        except ValueError:
+            return str(path)

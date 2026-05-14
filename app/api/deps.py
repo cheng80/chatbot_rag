@@ -1,4 +1,5 @@
 from functools import lru_cache
+from threading import Lock
 
 from app.core.config import Settings, get_settings
 from app.services.citation_service import CitationService
@@ -10,7 +11,13 @@ from app.services.prompt_builder import PromptBuilder
 from app.services.rag_service import RAGService
 from app.services.retriever import Retriever
 from app.services.text_splitter import TextSplitter
+from app.services.tourism_chat_service import TourismChatService
+from app.services.tourism_query_service import TourismQueryService
 from app.services.vector_store import VectorStore
+
+
+_vector_store_lock = Lock()
+_vector_store: VectorStore | None = None
 
 
 @lru_cache(maxsize=1)
@@ -18,9 +25,12 @@ def get_embedding_service() -> EmbeddingService:
     return EmbeddingService(get_settings())
 
 
-@lru_cache(maxsize=1)
 def get_vector_store() -> VectorStore:
-    return VectorStore(get_settings())
+    global _vector_store
+    with _vector_store_lock:
+        if _vector_store is None:
+            _vector_store = VectorStore(get_settings())
+        return _vector_store
 
 
 @lru_cache(maxsize=1)
@@ -69,4 +79,18 @@ def get_ingestion_service() -> IngestionService:
         ),
         embedding_service=get_embedding_service(),
         vector_store=get_vector_store(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_tourism_query_service() -> TourismQueryService:
+    return TourismQueryService()
+
+
+@lru_cache(maxsize=1)
+def get_tourism_chat_service() -> TourismChatService:
+    return TourismChatService(
+        settings=get_settings(),
+        retriever=get_retriever(),
+        query_service=get_tourism_query_service(),
     )

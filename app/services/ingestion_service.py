@@ -24,7 +24,7 @@ class IngestionService:
         self.vector_store = vector_store
 
     def ingest_directory(self, directory: Path | None = None, clear_existing: bool = False) -> dict[str, Any]:
-        raw_data_path = Path(directory or self.settings.raw_data_path)
+        raw_data_path = Path(directory) if directory else self.settings.resolved_raw_data_path
         raw_data_path.mkdir(parents=True, exist_ok=True)
 
         if clear_existing:
@@ -57,5 +57,5 @@ class IngestionService:
             "document_count": len(documents),
             "chunk_count": len(chunks),
             "collection_name": self.vector_store.collection_name,
-            "raw_data_path": str(raw_data_path),
+            "raw_data_path": str(directory or self.settings.raw_data_path),
         }

@@ -177,6 +177,8 @@ analysis/leveling/data/raw/
 **/*.dump
 **/*.sql~
 data/vector_store/chroma/
+data/generated/nanobanana-images/
+data/generated/tour_api/
 
 ############################################################
 # Symbols / Debug

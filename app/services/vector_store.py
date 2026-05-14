@@ -9,7 +9,7 @@ from app.core.config import Settings
 class VectorStore:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.persist_path = Path(settings.chroma_path)
+        self.persist_path = settings.resolved_chroma_path
         self.persist_path.mkdir(parents=True, exist_ok=True)
 
         self.client = chromadb.PersistentClient(path=str(self.persist_path))
@@ -72,5 +72,5 @@ class VectorStore:
         return {
             "collection_name": self.settings.chroma_collection,
             "document_count": self.collection.count(),
-            "persist_path": str(self.persist_path),
+            "persist_path": str(self.settings.chroma_path),
         }

@@ -65,3 +65,8 @@ Installed release: `0.2.3`
 
 Before starting a new work session in this repository, read `docs/next_session_prompt.md`.
 It contains the current startup order, local Python environment notes, and the continuation prompt for this project.
+
+## Commit Message Rule
+
+When committing work in this repository, write commit messages in Korean and summarize the change clearly.
+Prefer a concise subject plus a short body when the commit includes multiple areas such as API, data, tests, and docs.

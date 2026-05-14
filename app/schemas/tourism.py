@@ -1,0 +1,41 @@
+from pydantic import BaseModel, Field
+
+from app.schemas.chat import Source
+
+
+class AccessibilityInfo(BaseModel):
+    wheelchair: str | None = Field(default=None, description="휠체어 접근/대여/동선 정보")
+    parking: str | None = Field(default=None, description="장애인 주차 또는 일반 주차 정보")
+    restroom: str | None = Field(default=None, description="장애인 화장실 또는 화장실 정보")
+    stroller: str | None = Field(default=None, description="유모차 대여/이동 정보")
+    nursing_room: str | None = Field(default=None, description="수유실 정보")
+    elevator: str | None = Field(default=None, description="엘리베이터 또는 승강 설비 정보")
+    route: str | None = Field(default=None, description="접근로/관람 동선 정보")
+
+
+class TourismPlaceCard(BaseModel):
+    content_id: str
+    title: str
+    address: str | None = None
+    image_url: str | None = None
+    tel: str | None = None
+    map_x: float | None = None
+    map_y: float | None = None
+    recommendation_reason: str
+    accessibility: AccessibilityInfo = Field(default_factory=AccessibilityInfo)
+    family_tags: list[str] = Field(default_factory=list)
+    accessibility_tags: list[str] = Field(default_factory=list)
+    source_name: str = "한국관광공사 무장애 여행 정보 OpenAPI"
+    source_url: str | None = None
+    raw_fields: dict[str, str] = Field(default_factory=dict)
+
+
+class TourismChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="사용자 관광 상담 질문")
+    session_id: str | None = Field(default=None, description="선택 대화 세션 ID")
+
+
+class TourismChatResponse(BaseModel):
+    answer: str
+    cards: list[TourismPlaceCard] = Field(default_factory=list)
+    sources: list[Source] = Field(default_factory=list)

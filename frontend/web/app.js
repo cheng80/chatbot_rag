@@ -10,6 +10,12 @@ const cardsGrid = document.querySelector("#cards");
 const cardCount = document.querySelector("#cardCount");
 const clearButton = document.querySelector("#clearButton");
 const cardTemplate = document.querySelector("#cardTemplate");
+const swaggerLink = document.querySelector("#swaggerLink");
+const redocLink = document.querySelector("#redocLink");
+const openapiLink = document.querySelector("#openapiLink");
+const helpButton = document.querySelector("#helpButton");
+const helpModal = document.querySelector("#helpModal");
+const closeHelpButton = document.querySelector("#closeHelpButton");
 
 const accessibilityLabels = {
   wheelchair: "휠체어",
@@ -20,6 +26,18 @@ const accessibilityLabels = {
   elevator: "엘리베이터",
   route: "동선",
 };
+
+apiBaseInput.value = defaultApiBase();
+syncApiDocLinks();
+apiBaseInput.addEventListener("input", syncApiDocLinks);
+helpButton.addEventListener("click", openHelp);
+closeHelpButton.addEventListener("click", closeHelp);
+helpModal.addEventListener("click", (event) => {
+  if (event.target === helpModal) closeHelp();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !helpModal.hidden) closeHelp();
+});
 
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -90,6 +108,24 @@ form.addEventListener("submit", async (event) => {
 
 function normalizedApiBase() {
   return apiBaseInput.value.replace(/\/+$/, "");
+}
+
+function syncApiDocLinks() {
+  const base = normalizedApiBase() || defaultApiBase();
+  swaggerLink.href = `${base}/docs`;
+  redocLink.href = `${base}/redoc`;
+  openapiLink.href = `${base}/openapi.json`;
+}
+
+function defaultApiBase() {
+  const { protocol, hostname } = window.location;
+  if (protocol === "file:") {
+    return "http://127.0.0.1:8000";
+  }
+  if (["127.0.0.1", "localhost"].includes(hostname) && window.location.port === "5173") {
+    return "http://127.0.0.1:8000";
+  }
+  return window.location.origin;
 }
 
 function setLoading(isLoading) {
@@ -238,4 +274,16 @@ function createDiagnostic(text) {
   note.className = "diagnostic";
   note.textContent = text;
   return note;
+}
+
+function openHelp() {
+  helpModal.hidden = false;
+  document.body.classList.add("modal-open");
+  closeHelpButton.focus();
+}
+
+function closeHelp() {
+  helpModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  helpButton.focus();
 }

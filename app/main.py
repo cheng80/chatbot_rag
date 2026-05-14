@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import chat, documents, health, tourism
-from app.core.config import get_settings
+from app.core.config import PROJECT_ROOT, get_settings
 
 
 def create_app() -> FastAPI:
@@ -26,6 +27,14 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/chat", tags=["chat"])
     app.include_router(tourism.router, prefix="/tourism", tags=["tourism"])
     app.include_router(documents.router, prefix="/documents", tags=["documents"])
+
+    web_frontend_path = PROJECT_ROOT / "frontend" / "web"
+    if web_frontend_path.exists():
+        app.mount(
+            "/tourism-ui",
+            StaticFiles(directory=web_frontend_path, html=True),
+            name="tourism-ui",
+        )
 
     return app
 

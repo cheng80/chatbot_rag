@@ -14,11 +14,43 @@
             <p class="eyebrow">Tourism RAG UI Check</p>
             <h1>무장애 관광 추천 확인</h1>
           </div>
-          <div class="api-control">
-            <label for="apiBase">API</label>
-            <input id="apiBase" type="url" value="http://127.0.0.1:8000" spellcheck="false" />
+          <div class="topbar-actions">
+            <button id="helpButton" class="help-button" type="button" aria-haspopup="dialog">Help</button>
+            <div class="api-control">
+              <label for="apiBase">API</label>
+              <input id="apiBase" type="url" spellcheck="false" />
+              <nav class="api-links" aria-label="API 문서">
+                <a id="swaggerLink" href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+                <a id="redocLink" href="/redoc" target="_blank" rel="noreferrer">ReDoc</a>
+                <a id="openapiLink" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI JSON</a>
+              </nav>
+            </div>
           </div>
         </header>
+
+        <section class="coverage-panel" aria-label="현재 테스트 지역">
+          <div>
+            <p class="eyebrow">Current MVP Coverage</p>
+            <h2>현재 테스트 지역</h2>
+          </div>
+          <div class="coverage-grid">
+            <div>
+              <strong>서울</strong>
+              <span>강남구, 송파구, 양천구, 마포구, 광진구, 용산구, 성동구</span>
+            </div>
+            <div>
+              <strong>부산</strong>
+              <span>중구, 금정구, 해운대구, 남구, 연제구, 부산진구</span>
+            </div>
+            <div>
+              <strong>강릉</strong>
+              <span>강릉시 샘플 7건</span>
+            </div>
+          </div>
+          <p class="coverage-note">
+            서울/부산/강릉 live 수집 15건과 curated fallback 샘플을 기준으로 확인합니다. 다른 지역은 후속 수집 전까지 결과가 적거나 없을 수 있습니다.
+          </p>
+        </section>
 
         <section class="composer" aria-label="질문 입력">
           <div class="selector-row" aria-label="지역 선택">
@@ -89,6 +121,50 @@
         </div>
       </article>
     </template>
+
+    <div id="helpModal" class="modal-backdrop" hidden>
+      <section
+        class="help-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="helpTitle"
+        tabindex="-1"
+      >
+        <div class="section-header">
+          <h2 id="helpTitle">사용법과 유의점</h2>
+          <button id="closeHelpButton" type="button" title="닫기">닫기</button>
+        </div>
+
+        <div class="help-content">
+          <section>
+            <h3>사용법</h3>
+            <ul>
+              <li>지역 버튼으로 먼저 범위를 잡거나, 질문 입력창에 자유롭게 문장을 입력합니다.</li>
+              <li>`중구`처럼 여러 시도에 있는 지명은 추천 대신 지역 선택 후속 버튼을 보여줍니다.</li>
+              <li>Swagger, ReDoc, OpenAPI JSON 링크로 현재 API 계약을 바로 확인할 수 있습니다.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h3>테스트 범위</h3>
+            <ul>
+              <li>현재 MVP 샘플은 서울, 부산, 강릉 중심입니다.</li>
+              <li>다른 지역은 결과가 없거나 fallback 안내가 나올 수 있습니다.</li>
+              <li>휠체어, 유아차, 접근로, 화장실, 주차 같은 조건을 명시하면 카드 정렬에 반영됩니다.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h3>유의점</h3>
+            <ul>
+              <li>OpenAPI에 없는 편의정보는 추측하지 않고 `확인 필요`로 남깁니다.</li>
+              <li>`아빠`, `어머니`, `부모님` 같은 관계 호칭만으로 나이를 추정하지 않습니다.</li>
+              <li>실제 방문 전에는 공식 안내, 전화, 현장 정보를 다시 확인해야 합니다.</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+    </div>
 
     <script src="./app.js" defer></script>
   </body>

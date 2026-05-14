@@ -60,3 +60,8 @@ This repo currently has the `full` pack installed.
 Repo installs include the full generated skill pack. Heavy browser/runtime binaries stay machine-local in v1.
 Installed release: `0.2.3`
 <!-- END GSTACK-CODEX MANAGED BLOCK -->
+
+## Local Project Handoff
+
+Before starting a new work session in this repository, read `docs/next_session_prompt.md`.
+It contains the current startup order, local Python environment notes, and the continuation prompt for this project.

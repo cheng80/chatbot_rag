@@ -1,6 +1,8 @@
 # chatbot_rag
 
-FastAPI + ChromaDB + Ollama 기반의 로컬 RAG 챗봇 코드 뼈대입니다.
+FastAPI + ChromaDB + Ollama 기반의 로컬 RAG 챗봇입니다.
+
+현재 1차 MVP는 한국관광공사 무장애 여행 정보 OpenAPI 샘플을 RAG로 색인하고, 사용자의 자연어 질문에 접근성·가족 친화 근거가 있는 관광지 카드를 반환하는 관광 상담 챗봇입니다.
 
 이 프로젝트는 ChatGPT/Gemini API 없이 다음 구조로 동작합니다.
 
@@ -16,6 +18,20 @@ ChromaDB Vector DB에서 관련 문서 검색
 Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
   ↓
 답변 + 출처 반환
+```
+
+관광 챗봇 흐름은 request-time live TourAPI 호출이 아니라, 미리 수집한 TourAPI 샘플과 로컬 Markdown fallback을 사용한다.
+
+```text
+TourAPI 샘플 수집
+  ↓
+관광지 카드 Markdown 생성
+  ↓
+ChromaDB 재색인
+  ↓
+POST /tourism/chat
+  ↓
+답변 + TourismPlaceCard[] + 출처 + 진단 정보 반환
 ```
 
 ## 1. 폴더 구조
@@ -164,18 +180,50 @@ python scripts/rebuild_index.py
 
 ```bash
 source .venv/bin/activate
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+관광 챗봇 확인 UI:
+
+```text
+http://127.0.0.1:8000/tourism-ui/
 ```
 
 Swagger UI:
 
 ```text
-http://localhost:8000/docs
+http://127.0.0.1:8000/docs
+```
+
+ReDoc:
+
+```text
+http://127.0.0.1:8000/redoc
 ```
 
 ## 7. 질문 테스트
 
-기본 테스트는 Jupyter Notebook에서 Python `requests`로 `/chat`, `/health`, `/documents/stats` API를 호출해 확인한다. 빠른 확인이 필요하면 아래 `curl`도 사용할 수 있다.
+브라우저에서 `/tourism-ui/`를 열면 채팅 입력, 지역 선택 버튼, 추천 카드, Swagger/ReDoc 링크를 한 화면에서 확인할 수 있다.
+
+관광 챗봇 API를 직접 확인하려면:
+
+```bash
+curl -X POST http://127.0.0.1:8000/tourism/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"서울 강남구에서 휠체어 관광지 추천해줘"}'
+```
+
+동명이 시군구 확인:
+
+```bash
+curl -X POST http://127.0.0.1:8000/tourism/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"중구에서 휠체어 관광지 추천해줘"}'
+```
+
+`중구`처럼 여러 시도에 있는 지명은 추천 카드 대신 `suggested_messages`로 지역 선택 후보를 반환한다. `부산 중구에서 ...`처럼 광역 지역을 함께 말하면 해당 시군구로 확정한다.
+
+일반 RAG API 확인이 필요하면 아래 `curl`을 사용할 수 있다.
 
 ```bash
 curl -X POST http://localhost:8000/chat \
@@ -206,10 +254,48 @@ curl -X POST http://localhost:8000/chat \
 |---|---|---|
 | GET | `/health` | 서버 상태 확인 |
 | POST | `/chat` | RAG 질문 답변 |
+| POST | `/tourism/chat` | 무장애 관광 상담 답변 + 관광지 카드 |
+| GET | `/tourism-ui/` | 관광 챗봇 정적 확인 UI |
 | POST | `/documents/reindex` | `data/raw/` 문서 재색인 |
 | GET | `/documents/stats` | Chroma collection 상태 |
 
-## 9. 기준 스택
+## 9. 관광 MVP 데이터와 정책
+
+현재 테스트 지역은 서울, 부산, 강릉이다.
+
+| 지역 | 현재 샘플 범위 |
+|---|---|
+| 서울 | 강남구, 송파구, 양천구, 마포구, 광진구, 용산구, 성동구 |
+| 부산 | 중구, 금정구, 해운대구, 남구, 연제구, 부산진구 |
+| 강릉 | 강릉시 샘플 |
+
+주요 정책:
+
+- 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
+- 결과가 3개 미만이어도 사용자가 `근처`, `주변`, `가까운`, `인근`을 말하지 않으면 상위 광역 지역으로 확장하지 않는다.
+- `중구`, `남구`, `동구`, `서구`, `북구`처럼 여러 시도에 있는 지명은 먼저 지역 선택 후보를 반환한다.
+- `아빠`, `어머니`, `부모님` 같은 관계 호칭만으로 나이를 추정하지 않는다.
+- OpenAPI에 없는 편의정보는 추측하지 않고 `확인 필요`로 남긴다.
+
+## 10. 외부 임시 확인
+
+Mac mini 등 로컬 머신에서 외부 확인이 필요하면 Cloudflare Quick Tunnel을 사용할 수 있다.
+
+```bash
+brew install cloudflared
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+출력된 `https://...trycloudflare.com` 주소 뒤에 `/tourism-ui/`를 붙여 접속한다.
+
+```text
+https://...trycloudflare.com/tourism-ui/
+```
+
+Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uvicorn`을 종료한다.
+
+## 11. 기준 스택
 
 | 역할 | 선택 |
 |---|---|
@@ -218,21 +304,30 @@ curl -X POST http://localhost:8000/chat \
 | 임베딩 | bge-m3 |
 | RAG / Vector DB | ChromaDB |
 | 일반 DB | SQLite |
-| 외부 접속 | Cloudflare Tunnel 또는 ngrok |
-| 프론트 테스트 | Flutter 앱 |
-| API 테스트 | Jupyter Notebook의 Python requests |
+| 외부 접속 | Cloudflare Quick Tunnel |
+| 프론트 확인 | `/tourism-ui/` 정적 웹 UI |
+| API 테스트 | Swagger/ReDoc, curl, Jupyter Notebook의 Python requests |
 
-## 10. 개발 순서
+## 12. 개발 순서
 
 1. `data/raw/`에 문서 추가
 2. `source .venv/bin/activate`로 프로젝트 가상환경 진입
 3. `python scripts/ingest_all.py` 실행
 4. `python -m uvicorn app.main:app --reload` 실행
-5. Jupyter Notebook 또는 Flutter 앱에서 `/chat` API 호출
+5. `/tourism-ui/`, Swagger, curl, Jupyter Notebook에서 API 호출
 6. 검색 품질이 낮으면 `CHUNK_SIZE`, `CHUNK_OVERLAP`, `TOP_K` 조정
 7. 문서가 많아지면 reranker, hybrid search, 권한 필터링 추가
 
-## 11. 모델 비교 실험 순서
+관광 샘플을 갱신할 때:
+
+```bash
+python scripts/fetch_tour_area_codes.py
+python scripts/fetch_accessible_tourism_samples.py
+python scripts/rebuild_index.py
+python -m pytest
+```
+
+## 13. 모델 비교 실험 순서
 
 비교 대상은 `supergemma4-e4b-abliterated Q4_K_M`와 `gemma3:4b-it-q4_K_M` 두 개로 제한한다. 임베딩은 `bge-m3`로 고정해 LLM 답변 품질만 비교한다.
 
@@ -275,7 +370,7 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 
 6. 채택 기준은 품질 우선이다. `supergemma4`가 한국어와 상담 품질에서 확실히 앞서고, 환각이 늘지 않으면 메인 모델로 유지한다. 환각이나 지시 불이행이 늘면 `gemma3:4b-it-q4_K_M` 또는 공식 `gemma4:4b-q4_K_M`를 기준선으로 되돌린다.
 
-## 12. 참고 문서
+## 14. 참고 문서
 
 - FastAPI Bigger Applications: https://fastapi.tiangolo.com/tutorial/bigger-applications/
 - Chroma Persistent Client: https://docs.trychroma.com/docs/run-chroma/clients
@@ -283,3 +378,4 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 - Ollama API: https://docs.ollama.com/api
 - Ollama Generate API: https://docs.ollama.com/api/generate
 - Ollama Embed API: https://docs.ollama.com/api/embed
+- Cloudflare Tunnel: https://developers.cloudflare.com/tunnel/

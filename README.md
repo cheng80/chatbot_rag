@@ -20,7 +20,7 @@ Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
 답변 + 출처 반환
 ```
 
-관광 챗봇은 live TourAPI 조회 결과를 Markdown 캐시에 저장하고, 같은 지역 요청은 캐시를 먼저 확인한다. 캐시에 없으면 live TourAPI를 조회하며, API 키 없음·쿼터·네트워크 장애·결과 없음 상황에서는 기존 Chroma 색인과 로컬 Markdown 샘플을 fallback으로 사용한다.
+관광 챗봇은 같은 지역 요청에서 저장된 live 카드를 먼저 확인하고, 그다음 Chroma 색인과 로컬 Markdown fallback을 확인한다. 둘 다 없을 때만 live TourAPI를 조회하며, live 결과는 `data/generated/tour_api/live_markdown/`에 Markdown으로 저장한다. 데이터 신선도는 MVP에서는 요청 중 live 재조회가 아니라 추후 주기적 갱신 배치로 해결한다.
 
 ```text
 사용자 질문
@@ -31,15 +31,15 @@ Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
   ↓
 이전 live 조회 Markdown 캐시 확인
   ↓
+Chroma 색인과 로컬 Markdown fallback 확인
+  ↓
 TourAPI areaBasedList2 후보 소량 조회
   ↓
 상위 후보 detailCommon2 + detailWithTour2 조회
   ↓
 TourismPlaceCard 정규화
   ↓
-live 결과를 Markdown 캐시에 저장
-  ↓
-캐시/Chroma/Markdown fallback과 함께 랭킹
+live 결과를 live_markdown에 저장
   ↓
 답변 + TourismPlaceCard[] + 출처 + warnings 반환
 ```
@@ -145,6 +145,8 @@ ollama pull bge-m3
 cp .env.example .env
 ```
 
+공공데이터포털 인증키는 `.env`에만 넣고 커밋하지 않는다. 오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 `.env` 또는 실행 명령에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`를 사용한다.
+
 주요 값:
 
 ```env
@@ -156,6 +158,13 @@ CHROMA_COLLECTION=manual_documents
 DATABASE_URL=sqlite:///./data/app.sqlite3
 RAW_DATA_PATH=./data/raw
 TOP_K=5
+TOUR_API_SERVICE_KEY=
+TOUR_API_ACCESSIBLE_SERVICE_KEY=
+TOURISM_LIVE_LOOKUP_ENABLED=true
+TOURISM_LIVE_CACHE_PATH=./data/generated/tour_api/live_markdown
+TOURISM_SAMPLE_PATH=./data/raw/tourism_accessible
+TOURISM_QUERY_EVENT_LOG_ENABLED=true
+TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=false
 ```
 
 ## 4. 문서 넣기
@@ -301,12 +310,15 @@ fallback 데이터 분할 수집 계획은 [무장애 관광 데이터 분할 �
 주요 정책:
 
 - 지역이 확정되면 먼저 이전 live 조회 Markdown 캐시를 확인한다.
-- 캐시에 같은 지역 카드가 없고 TourAPI 키가 있으면 request-time live TourAPI 후보 조회를 사용한다.
+- live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 먼저 확인한다.
+- 캐시/fallback에 같은 지역 카드가 없고 TourAPI 키가 있으면 request-time live TourAPI 후보 조회를 사용한다.
 - live 조회는 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 같은 지역 반복 호출을 줄인다.
-- live 조회가 실패하거나 결과가 없으면 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용하고 `warnings`에 진단을 남긴다.
+- Chroma/Markdown에도 없고 live 조회가 실패하거나 결과가 없으면 no-results 응답을 반환하고 `warnings`에 진단을 남긴다.
 - 응답의 `lookup_mode`는 `cache`, `live`, `indexed`, `sample`, `clarification` 중 하나로 현재 응답 경로를 나타낸다.
-- 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다.
-- 장기 권장 구조는 `live-first + 영속 캐시 + fallback`이다. offline-index 우선은 비상/시연 안정 모드로 남긴다.
+- `/tourism/chat` 응답은 `data/generated/tour_api/query_card_events.jsonl`에 JSONL 이벤트로 남긴다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다.
+- 원문 질문까지 저장해야 할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`를 켠다.
+- 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다.
+- 장기 권장 구조는 `cache/fallback-first + 주기적 갱신 + live-on-miss`이다. 신선도는 Post-MVP 갱신 배치로 보완한다.
 - 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
 - 결과가 3개 미만이어도 사용자가 `근처`, `주변`, `가까운`, `인근`을 말하지 않으면 상위 광역 지역으로 확장하지 않는다.
 - `중구`, `남구`, `동구`, `서구`, `북구`처럼 여러 시도에 있는 지명은 먼저 지역 선택 후보를 반환한다.
@@ -362,7 +374,8 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 | 일반 DB | SQLite |
 | 외부 접속 | Cloudflare Quick Tunnel |
 | 프론트 확인 | `/tourism-ui/` 정적 웹 UI |
-| API 테스트 | Swagger/ReDoc, curl, Jupyter Notebook의 Python requests |
+| API 테스트 | Swagger/ReDoc, curl, pytest |
+| 로그 분석 | `notebooks/tourism_event_log_analysis.ipynb` |
 
 ## 12. 개발 순서
 
@@ -370,7 +383,7 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 2. `source .venv/bin/activate`로 프로젝트 가상환경 진입
 3. `python scripts/ingest_all.py` 실행
 4. `python -m uvicorn app.main:app --reload` 실행
-5. `/tourism-ui/`, Swagger, curl, Jupyter Notebook에서 API 호출
+5. `/tourism-ui/`, Swagger, curl, pytest로 API 확인
 6. 검색 품질이 낮으면 `CHUNK_SIZE`, `CHUNK_OVERLAP`, `TOP_K` 조정
 7. 문서가 많아지면 reranker, hybrid search, 권한 필터링 추가
 
@@ -382,6 +395,8 @@ python scripts/fetch_accessible_tourism_samples.py --preset mvp --rows 20 --max-
 python scripts/rebuild_index.py
 python -m pytest
 ```
+
+수집 스크립트는 `data/raw/tourism_accessible/`와 `data/generated/tour_api/live_markdown/`에 이미 있는 `콘텐츠ID`를 먼저 읽고, 같은 카드는 상세 API 호출 전에 건너뛴다. live 폴더는 질문 중 생성된 카드 캐시이고, raw 폴더는 계획 수집한 fallback/색인 후보로 본다.
 
 전국권 샘플을 넓힐 때는 일일 트래픽을 확인한 뒤 명시적으로 실행한다.
 
@@ -420,7 +435,7 @@ OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 ```
 
-4. `notebooks/model_comparison_template.ipynb`에서 같은 질문 세트를 실행한다. 단일 API 확인은 `notebooks/api_test.ipynb`를 사용한다.
+4. `notebooks/model_comparison_template.ipynb`에서 같은 질문 세트를 실행한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
 
 5. 각 응답을 아래 기준으로 1~5점 평가한다.
 
@@ -428,6 +443,22 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 |---|---|
 | 한국어 자연스러움 | 문장이 어색하지 않고 상담형 톤을 유지하는가 |
 | 근거 준수 | 검색된 문서와 출처 범위 안에서 답하는가 |
+
+## 14. 관광 이벤트 로그 분석
+
+`/tourism/chat` 응답 이벤트는 기본적으로 아래 JSONL 파일에 쌓인다.
+
+```text
+data/generated/tour_api/query_card_events.jsonl
+```
+
+분석은 다음 노트북을 사용한다.
+
+```text
+notebooks/tourism_event_log_analysis.ipynb
+```
+
+이 노트북은 `matplotlib` 차트를 포함하고, macOS `AppleGothic` 등 설치된 한글 폰트를 자동 선택해 한글 깨짐을 줄인다. 확인 항목은 `lookup_mode` 비율, live API 호출 여부, 지역/조건별 질문 수, 카드 노출 Top N, degraded/warnings 이벤트다.
 | 모름 처리 | 근거가 없을 때 추측하지 않는가 |
 | 관광 상담 적합성 | 여행 조건, 지역, 동행자 맥락을 잘 반영하는가 |
 | 응답 속도 | `/chat` 전체 응답 시간이 실사용 가능한가 |

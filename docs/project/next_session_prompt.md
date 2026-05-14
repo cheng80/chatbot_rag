@@ -27,7 +27,8 @@
 - 임베딩 모델: `bge-m3`
 - Vector DB: ChromaDB
 - API: FastAPI
-- 클라이언트 후보: Flutter, Jupyter Notebook requests 테스트
+- 클라이언트 후보: 웹 확인 UI 우선, Flutter는 후순위
+- 노트북: `notebooks/tourism_event_log_analysis.ipynb`는 `/tourism/chat` 이벤트 로그 분석용, `model_comparison_template.ipynb`는 20문항 eval/model comparison 보조용
 
 ## 기본 작업 순서
 
@@ -140,9 +141,10 @@ curl -X POST http://localhost:8000/chat \
 .venv/bin/python scripts/fetch_tour_area_codes.py
 ```
 
-- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. 캐시에 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용하고, live 조회 실패/쿼터/결과 없음은 Chroma 또는 로컬 Markdown 샘플 fallback으로 처리한다.
-- 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `live-first + 영속 캐시 + fallback`이다.
-- offline-index 우선 방식과 live-first 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.
+- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
+- `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
+- 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 신선도는 Post-MVP 주기적 갱신 배치로 해결한다.
+- offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.
 - 2026-05-15 수집은 중단했다. 추가 수집 전에는 `docs/tourism/tourism_data_collection_plan.md`의 호출량 메모와 내일 이어갈 때 섹션을 먼저 확인한다.
 - fallback 데이터는 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치 수집을 완료했다. `data/raw/tourism_accessible` 기준 366개 Markdown, Chroma 기준 367개 문서/청크가 색인됐다.
 - 내일은 무작정 추가 수집하지 말고 샘플 품질 QA와 20문항 eval 작성을 우선한다. 부족한 지역만 `--regions`와 `--max-api-calls 100` 이하로 좁혀 보강한다.

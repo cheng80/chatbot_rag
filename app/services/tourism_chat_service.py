@@ -10,6 +10,7 @@ from app.services.retriever import Retriever
 from app.services.tour_api_service import TourAPIError, TourAPIService
 from app.services.tourism_card_codec import TourismCardMarkdownCodec
 from app.services.tourism_normalizer import TourismNormalizer
+from app.services.tourism_query_event_logger import TourismQueryEventLogger
 from app.services.tourism_query_service import TourismQueryService
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class TourismChatService:
         tour_api_service: TourAPIService | None = None,
         normalizer: TourismNormalizer | None = None,
         card_codec: TourismCardMarkdownCodec | None = None,
+        event_logger: TourismQueryEventLogger | None = None,
     ):
         self.settings = settings
         self.retriever = retriever
@@ -31,6 +33,7 @@ class TourismChatService:
         self.tour_api_service = tour_api_service
         self.normalizer = normalizer or TourismNormalizer()
         self.card_codec = card_codec or TourismCardMarkdownCodec()
+        self.event_logger = event_logger
         self._sample_cards_cache: list[TourismPlaceCard] | None = None
         self._live_cards_cache: dict[str, list[TourismPlaceCard]] = {}
         self._live_markdown_cards_cache: list[TourismPlaceCard] | None = None
@@ -38,7 +41,7 @@ class TourismChatService:
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
         if query.get("ambiguous_region"):
-            return TourismChatResponse(
+            response = TourismChatResponse(
                 answer=self._build_region_clarification_answer(query),
                 cards=[],
                 sources=[],
@@ -47,37 +50,50 @@ class TourismChatService:
                 warnings=self._build_warnings(query, degraded=False),
                 suggested_messages=self._build_region_clarification_suggestions(query),
             )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            return response
 
-        contexts: list[dict] = []
-        cards = self._cards_from_live_markdown_cache(query)
         degraded = False
-        lookup_mode = "cache" if cards else "unknown"
+        lookup_mode = "unknown"
+        contexts: list[dict] = []
+        source_contexts: list[dict] = []
+        cards: list[TourismPlaceCard] = []
+        expanded = False
+        live_api_called = False
 
-        if not cards:
-            cards, degraded = self._cards_from_live_tour_api(query)
-            lookup_mode = "live" if cards else "unknown"
+        candidates = self._cards_from_live_markdown_cache(query)
+        cards, expanded = self._select_stage_cards(candidates, message, query)
+        if cards:
+            lookup_mode = "cache"
 
         if not cards:
             contexts, retrieve_degraded = self._retrieve(message)
             degraded = degraded or retrieve_degraded
-            cards = self._cards_from_contexts(contexts)
+            candidates = self._cards_from_contexts(contexts)
+            cards, expanded = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "indexed"
+                source_contexts = contexts
 
         if not cards:
-            cards = self._cards_from_markdown_samples()
-            degraded = degraded or bool(cards)
+            candidates = self._cards_from_markdown_samples()
+            cards, expanded = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "sample"
-        elif query.get("allow_region_expansion"):
-            cards = self._deduplicate([*cards, *self._cards_from_markdown_samples()])
 
-        cards, expanded = self._select_cards(cards, message, query)
-        sources = self._build_sources(contexts, cards)
+        if not cards:
+            candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
+            live_api_called = live_api_called or api_called
+            degraded = degraded or live_degraded
+            cards, expanded = self._select_stage_cards(candidates, message, query)
+            if cards:
+                lookup_mode = "live"
+
+        sources = self._build_sources(source_contexts, cards)
         warnings = self._build_warnings(query, degraded)
 
         if not cards:
-            return TourismChatResponse(
+            response = TourismChatResponse(
                 answer="조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요.",
                 cards=[],
                 sources=sources,
@@ -85,9 +101,11 @@ class TourismChatService:
                 degraded=degraded,
                 warnings=warnings,
             )
+            self._log_event(message, session_id, query, response, live_api_called)
+            return response
 
         answer = self._build_answer(cards, query, expanded=expanded)
-        return TourismChatResponse(
+        response = TourismChatResponse(
             answer=answer,
             cards=cards,
             sources=sources,
@@ -95,6 +113,20 @@ class TourismChatService:
             degraded=degraded,
             warnings=warnings,
         )
+        self._log_event(message, session_id, query, response, live_api_called)
+        return response
+
+    def _select_stage_cards(
+        self,
+        candidates: list[TourismPlaceCard],
+        message: str,
+        query: dict,
+    ) -> tuple[list[TourismPlaceCard], bool]:
+        if not candidates:
+            return [], False
+        if query.get("allow_region_expansion"):
+            candidates = self._deduplicate([*candidates, *self._cards_from_markdown_samples()])
+        return self._select_cards(candidates, message, query)
 
     def _retrieve(self, message: str) -> tuple[list[dict], bool]:
         try:
@@ -103,13 +135,13 @@ class TourismChatService:
             logger.warning("관광 RAG 검색 실패, 로컬 샘플 fallback 사용: %s", exc.__class__.__name__)
             return [], True
 
-    def _cards_from_live_tour_api(self, query: dict) -> tuple[list[TourismPlaceCard], bool]:
+    def _cards_from_live_tour_api(self, query: dict) -> tuple[list[TourismPlaceCard], bool, bool]:
         if not self._can_use_live_tour_api(query):
-            return [], False
+            return [], False, False
 
         cache_key = self._live_cache_key(query)
         if cache_key in self._live_cards_cache:
-            return list(self._live_cards_cache[cache_key]), False
+            return list(self._live_cards_cache[cache_key]), False, False
 
         api = self.tour_api_service
         assert api is not None
@@ -122,11 +154,28 @@ class TourismChatService:
             cards = self._normalize_live_items(list_items)
         except (TourAPIError, TimeoutError, ValueError) as exc:
             logger.warning("관광 live TourAPI 조회 실패, RAG fallback 사용: %s", exc.__class__.__name__)
-            return [], True
+            return [], True, True
 
         self._live_cards_cache[cache_key] = self._deduplicate(cards)
         self._persist_live_cards(query, self._live_cards_cache[cache_key])
-        return list(self._live_cards_cache[cache_key]), False
+        return list(self._live_cards_cache[cache_key]), False, True
+
+    def _log_event(
+        self,
+        message: str,
+        session_id: str | None,
+        query: dict,
+        response: TourismChatResponse,
+        live_api_called: bool,
+    ) -> None:
+        if self.event_logger:
+            self.event_logger.log(
+                message=message,
+                session_id=session_id,
+                query=query,
+                response=response,
+                live_api_called=live_api_called,
+            )
 
     def _can_use_live_tour_api(self, query: dict) -> bool:
         if not self.settings.tourism_live_lookup_enabled:

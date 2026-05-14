@@ -51,6 +51,15 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "live_markdown",
         alias="TOURISM_LIVE_CACHE_PATH",
     )
+    tourism_query_event_log_enabled: bool = Field(default=True, alias="TOURISM_QUERY_EVENT_LOG_ENABLED")
+    tourism_query_event_log_include_message: bool = Field(
+        default=False,
+        alias="TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE",
+    )
+    tourism_query_event_log_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "query_card_events.jsonl",
+        alias="TOURISM_QUERY_EVENT_LOG_PATH",
+    )
     tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
 
     model_config = SettingsConfigDict(
@@ -75,6 +84,10 @@ class Settings(BaseSettings):
     @property
     def resolved_tourism_live_cache_path(self) -> Path:
         return self._resolve_project_path(self.tourism_live_cache_path)
+
+    @property
+    def resolved_tourism_query_event_log_path(self) -> Path:
+        return self._resolve_project_path(self.tourism_query_event_log_path)
 
     @staticmethod
     def _resolve_project_path(path: Path) -> Path:

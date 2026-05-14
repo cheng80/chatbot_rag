@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.core.config import get_settings  # noqa: E402
 from app.services.tour_api_service import TourAPIError, TourAPIService  # noqa: E402
+from app.services.tourism_card_codec import TourismCardMarkdownCodec  # noqa: E402
 from app.services.tourism_normalizer import TourismNormalizer  # noqa: E402
 from app.services.tourism_query_service import TourismQueryService  # noqa: E402
 
@@ -55,6 +56,10 @@ def main() -> None:
     output_dir = settings.resolved_tourism_sample_path
     output_dir.mkdir(parents=True, exist_ok=True)
     RAW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    existing_content_ids = collect_existing_content_ids(
+        [output_dir, settings.resolved_tourism_live_cache_path],
+        TourismCardMarkdownCodec(),
+    )
 
     if not settings.tour_api_service_key:
         print("TOUR_API_SERVICE_KEY가 없어 live TourAPI 샘플 수집은 건너뜁니다.")
@@ -75,6 +80,7 @@ def main() -> None:
         region_cards = []
         field_hits = {field: 0 for field in IMPORTANT_FIELDS}
         accessible_errors = 0
+        skipped_existing = 0
         skipped_without_accessibility = 0
 
         try:
@@ -95,6 +101,9 @@ def main() -> None:
             for item in list_items:
                 content_id = str(item.get("contentid") or "").strip()
                 if not content_id:
+                    continue
+                if content_id in existing_content_ids:
+                    skipped_existing += 1
                     continue
                 if api_calls + 2 > args.max_api_calls:
                     skipped_without_accessibility += 1
@@ -118,13 +127,13 @@ def main() -> None:
                     continue
 
                 region_cards.append(card)
+                existing_content_ids.add(card.content_id)
 
             if region_cards:
-                for old_path in output_dir.glob(f"{region}_*.md"):
-                    old_path.unlink()
                 for card in region_cards:
                     markdown_path = output_dir / f"{region}_{card.content_id}.md"
-                    markdown_path.write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+                    if not markdown_path.exists():
+                        markdown_path.write_text(normalizer.card_to_markdown(card), encoding="utf-8")
 
             normalized_path = RAW_OUTPUT_DIR / f"{region}_normalized_cards.json"
             normalized_path.write_text(
@@ -135,6 +144,7 @@ def main() -> None:
                 "listed": len(list_items),
                 "cards": len(region_cards),
                 "accessible_errors": accessible_errors,
+                "skipped_existing": skipped_existing,
                 "skipped_without_accessibility": skipped_without_accessibility,
                 "api_calls_used": api_calls,
                 **field_hits,
@@ -190,6 +200,18 @@ def preset_regions(preset: str) -> list[str]:
     if preset == "broad":
         return BROAD_TARGET_REGIONS
     return MVP_TARGET_REGIONS
+
+
+def collect_existing_content_ids(paths: list[Path], codec: TourismCardMarkdownCodec) -> set[str]:
+    content_ids: set[str] = set()
+    for directory in paths:
+        if not directory.exists():
+            continue
+        for path in directory.glob("*.md"):
+            card = codec.from_markdown(path.read_text(encoding="utf-8"))
+            if card and card.content_id:
+                content_ids.add(card.content_id)
+    return content_ids
 
 
 if __name__ == "__main__":

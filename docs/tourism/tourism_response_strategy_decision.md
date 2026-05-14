@@ -4,7 +4,7 @@
 
 ## 왜 남기는가
 
-초기 engineering review에서는 `/tourism/chat`을 offline-index 기반으로 고정하는 방향을 선택했다. 이후 실제 서비스 요구를 다시 검토하면서, 현재 구현은 **live TourAPI 우선 + Chroma/Markdown fallback** 방식으로 바뀌었다.
+초기 engineering review에서는 `/tourism/chat`을 offline-index 기반으로 고정하는 방향을 선택했다. 이후 실제 서비스 요구와 호출량 제한을 다시 검토하면서, 현재 구현은 **cache/fallback-first + live-on-miss** 방식으로 바뀌었다.
 
 이 문서는 나중에 품질, 쿼터, 속도, 시연 안정성을 다시 검토할 때 어느 방식으로 돌아갈지 판단하기 위한 비교 기록이다.
 
@@ -24,30 +24,30 @@ TourAPI 샘플 수집
 
 요청 시점에는 외부 TourAPI를 호출하지 않는다. 미리 수집해 둔 Markdown과 Chroma 인덱스가 사실상 응답 재료다.
 
-### 현재 방식: cache-first live + fallback
+### 현재 방식: cache/fallback-first + live-on-miss
 
 ```text
 사용자 질문
   -> 지역/조건/확장 의도 구조화
   -> 동명이 지역이면 지역 선택 후보 반환
   -> 이전 live 조회 Markdown 캐시 확인
+  -> Chroma 색인과 로컬 Markdown fallback 확인
   -> TourAPI areaBasedList2 후보 조회
   -> 상위 후보 detailCommon2 + detailWithTour2 조회
   -> TourismPlaceCard 정규화
-  -> live 결과를 Markdown 캐시에 저장
-  -> 실패/결과 없음이면 Chroma/Markdown fallback
+  -> live 결과를 live_markdown에 저장
   -> 답변 반환
 ```
 
-이전에 live로 조회한 같은 지역 카드가 있으면 Markdown 캐시를 먼저 사용한다. 캐시에 없을 때만 요청 시점에 live TourAPI를 사용한다. 같은 서버 프로세스 안에서는 메모리 캐시도 함께 사용하고, API 장애나 결과 없음에는 수집해 둔 fallback 데이터를 사용한다.
+이전에 live로 조회한 같은 지역 카드가 있으면 Markdown 캐시를 먼저 사용한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 먼저 확인한다. 그래도 같은 지역 카드가 없을 때만 요청 시점에 live TourAPI를 사용한다. live 성공 카드는 `data/generated/tour_api/live_markdown/`에 저장하고, `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다. 데이터 신선도는 MVP 이후 주기적 갱신 배치로 보완한다.
 
 ## 핵심 차이
 
-| 항목 | offline-index 우선 | cache-first live + fallback |
+| 항목 | offline-index 우선 | cache/fallback-first + live-on-miss |
 |---|---|---|
-| 데이터 신선도 | 수집 시점에 고정 | 요청 시점 기준으로 더 신선함 |
-| 지역 커버리지 | 수집한 지역/파일에 제한 | TourAPI가 지원하는 지역까지 확장 가능 |
-| API 호출량 | 요청 중 0회 | 캐시 miss 때만 후보/상세 호출 발생 |
+| 데이터 신선도 | 수집 시점에 고정 | 캐시/fallback은 수집 시점 기준, miss 때만 live |
+| 지역 커버리지 | 수집한 지역/파일에 제한 | fallback miss 지역은 TourAPI로 확장 가능 |
+| API 호출량 | 요청 중 0회 | cache/fallback miss 때만 후보/상세 호출 발생 |
 | 응답 속도 | 빠르고 예측 가능 | 네트워크와 API 상태에 영향 |
 | 장애 대응 | API 장애와 무관하게 안정 | fallback 없으면 API 장애 영향 큼 |
 | 구현 복잡도 | 낮음 | 캐시 저장, 쿼터, timeout, fallback 상태 필요 |
@@ -71,20 +71,20 @@ TourAPI 샘플 수집
 - 데이터가 오래되면 실제 공공데이터와 다를 수 있다.
 - 답변 품질 문제가 모델 문제가 아니라 수집 범위 문제인데도 사용자에게는 구분되지 않는다.
 
-## cache-first live + fallback의 장점
+## cache/fallback-first + live-on-miss의 장점
 
-- 사용자가 묻는 지역을 기준으로 바로 후보를 가져와 지역 커버리지가 넓다.
-- “현재 공공데이터 기반 추천”이라는 제품 설명과 더 잘 맞는다.
+- 저장된 live 캐시와 fallback을 먼저 사용해 API 호출량을 줄인다.
 - 한 번 live로 조회한 지역은 Markdown 캐시를 재사용해 같은 지역 반복 호출을 줄인다.
+- fallback에 없는 지역만 live로 보강해 지역 커버리지를 넓힌다.
 - fallback 데이터는 전국 전체 DB가 아니라 최소 안전망만 있으면 된다.
 - 동명이 지역 선택, 시군구 확장, 조건 랭킹 같은 상담 흐름과 잘 맞는다.
 - 나중에 캐시를 SQLite/JSON으로 확장하면 호출량과 신선도 균형을 더 정교하게 잡을 수 있다.
 
-## cache-first live + fallback의 단점
+## cache/fallback-first + live-on-miss의 단점
 
 - `areaBasedList2`, `detailCommon2`, `detailWithTour2` 호출량이 누적된다.
 - 공공데이터포털 일일 트래픽 제한에 직접 영향을 받는다.
-- 요청 속도가 API 응답 시간에 묶인다.
+- fallback miss 요청은 API 응답 시간에 묶인다.
 - API timeout이나 502 같은 외부 실패가 사용자 경험에 들어올 수 있다.
 - 테스트가 더 복잡하다. live 성공, live 실패, Chroma fallback, Markdown fallback, 지역 선택 경로를 모두 고정해야 한다.
 - Markdown 캐시는 수동 TTL/만료 정책이 아직 없어 오래된 공공데이터를 계속 쓸 수 있다.
@@ -99,33 +99,33 @@ TourAPI 샘플 수집
 
 ## 현재 선택
 
-현재 선택은 **cache-first live + Chroma/Markdown fallback**이다.
+현재 선택은 **cache/fallback-first + live-on-miss**이다.
 
 단, 무조건 live-only가 아니라 조건부 권장안이다.
 
 | 상황 | 권장 모드 |
 |---|---|
-| 개발/QA/시연 전 준비 | cache-first live + fallback |
+| 개발/QA/시연 전 준비 | cache/fallback-first + live-on-miss |
 | 공공데이터 호출량이 불안정함 | fallback-only 또는 live 제한 |
 | 시연장 네트워크가 불안함 | `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only |
-| 장기 운영 | cache-first live + TTL/영속 캐시 + fallback |
+| 장기 운영 | cache/fallback-first + 주기적 갱신 + live-on-miss |
 
 이유:
 
 - 2026-06-10 전까지 앱보다 기본 서비스 완성이 우선이다.
 - 사용자는 선택형 카드뿐 아니라 자유 채팅으로 지역과 조건을 입력한다.
 - 전국 모든 장소를 미리 쌓는 방식은 시간과 호출량 대비 효율이 낮다.
-- 지역별 fallback은 최소 안전망으로 충분하고, 실제 응답은 live 조회가 더 자연스럽다.
+- 지역별 fallback은 최소 안전망으로 충분하고, 부족한 지역만 live 조회로 보강하는 편이 호출량 대비 효율적이다.
 
 최종 권장 구조:
 
 ```text
 1. 질문 구조화
 2. 이전 live 조회 Markdown 캐시 확인
-3. 캐시에 없으면 live TourAPI 조회
-4. 결과를 TourismPlaceCard로 카드화
-5. 결과를 Markdown/영속 캐시에 저장
-6. 실패하면 Chroma/Markdown fallback
+3. Chroma 색인과 로컬 Markdown fallback 확인
+4. 그래도 없으면 live TourAPI 조회
+5. 결과를 TourismPlaceCard로 카드화
+6. 결과를 live_markdown에 저장
 ```
 
 offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모드**로 남긴다.
@@ -152,6 +152,11 @@ offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모
 ## 현재 후속 과제
 
 - Markdown live 캐시에 TTL/만료 정책을 둘지 검토한다.
+- Post-MVP 주기적 TourAPI 갱신 배치와 재색인 절차를 설계한다.
 - `lookup_mode`별 응답 품질을 20문항 eval에 포함한다.
 - live 결과가 음식점 위주로 치우치는지 확인하고, 관광지 content type 또는 키워드 필터가 필요한지 검토한다.
 - 외부 터널 시연 중 live 호출을 켤지, fallback-only로 둘지 데모 전에 결정한다.
+- fallback 수집 스크립트는 live Markdown 캐시와 fallback raw에 이미 있는 `콘텐츠ID`를 중복 수집하지 않는다.
+- 질문, lookup_mode, 카드 노출 순위, content_id를 연결하는 응답 이벤트 로그는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다.
+- JSONL 로그 분석은 `notebooks/tourism_event_log_analysis.ipynb`에서 수행한다. matplotlib 차트와 한글 폰트 설정을 포함한다.
+- 이벤트 로그 분석이 많아지면 Post-MVP에서 SQLite로 흡수한다.

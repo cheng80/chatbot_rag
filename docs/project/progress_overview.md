@@ -17,7 +17,7 @@ Quality/eval         [███░░░░░░░] 30%
 Production readiness [██░░░░░░░░] 20%
 ```
 
-현재 상태는 **live TourAPI 우선 조회 + RAG/Markdown fallback + 웹 확인 UI** 단계다.  
+현재 상태는 **live 캐시/색인/fallback 우선 + live TourAPI on miss + 웹 확인 UI** 단계다.
 공개 데모 품질로 올리려면 데이터 커버리지, 20문항 eval, UI QA가 남아 있다.
 
 ## 영역별 상태
@@ -25,10 +25,10 @@ Production readiness [██░░░░░░░░] 20%
 | 영역 | 진행도 | 상태 | 근거 |
 |---|---:|---|---|
 | TourAPI 연결 | 85% | 동작 | `KorWithService2` live 후보 조회, 지역 코드 캐시, 호출 상한 확인 |
-| live 후보 조회 | 70% | 동작 | 지역 확정 후 TourAPI 후보와 접근성 상세를 카드화, 프로세스 캐시 사용 |
+| live 후보 조회 | 70% | 동작 | 캐시/색인/fallback miss 때 TourAPI 후보와 접근성 상세를 카드화, 프로세스 캐시 사용 |
 | 샘플 데이터 | 80% | fallback | 광역권별 약 20장 수준 Markdown fallback + curated fallback |
-| RAG 색인 | 75% | fallback | live 실패/결과 없음 시 Markdown 샘플을 Chroma에서 검색 |
-| `/tourism/chat` API | 92% | 안정화 | live 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장 정책 반영 |
+| RAG 색인 | 75% | fallback | live API 호출 전 Markdown 샘플을 Chroma에서 검색 |
+| `/tourism/chat` API | 92% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장 정책 반영 |
 | 카드 응답 schema | 85% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages` 반환 |
 | 웹 확인 UI | 70% | 시연 가능 | `/tourism-ui/`, 지역 버튼, 자유 입력, Help, Swagger 링크, 터널 확인 |
 | 테스트 | 75% | 주요 회귀 커버 | `pytest` 33개 통과, backend 정책 중심 |
@@ -38,7 +38,7 @@ Production readiness [██░░░░░░░░] 20%
 ## 완료된 핵심 항목
 
 - 한국관광공사 무장애 여행 정보 OpenAPI 호출 확인
-- live TourAPI 후보 조회를 `/tourism/chat`의 우선 경로로 추가
+- cache/fallback miss 때 live TourAPI 후보 조회를 사용하는 경로 추가
 - 같은 지역 반복 요청을 줄이는 프로세스 메모리 캐시 추가
 - mvp/fallback-1/fallback-2/fallback-3 분할 수집 완료
 - `data/raw/tourism_accessible` 기준 366개 Markdown fallback 확보

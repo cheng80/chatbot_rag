@@ -164,6 +164,7 @@ analysis/leveling/data/raw/
 # Environment files
 **/.env
 **/.env.*
+!.env.example
 
 # Firebase 서비스 계정 키 (절대 커밋하지 않음!)
 **/serviceAccountKey.json

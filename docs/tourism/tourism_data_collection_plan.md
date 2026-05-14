@@ -66,7 +66,8 @@ ps -ef | rg 'fetch_accessible_tourism_samples|uvicorn|cloudflared' | rg -v rg
 2. 음식점/비관광 후보가 과하게 섞였는지 확인한다.
 3. 부족한 지역만 `--regions`로 좁혀 보강한다.
 4. 보강 수집은 한 번에 `--max-api-calls 100` 이하로 시작한다.
-5. 수집 후에는 `scripts/rebuild_index.py`와 `pytest`를 실행한다.
+5. 수집 스크립트는 `data/raw/tourism_accessible/`와 `data/generated/tour_api/live_markdown/`의 기존 `콘텐츠ID`를 먼저 읽고 중복 카드는 상세 API 호출 전에 건너뛴다. live 폴더는 질문 중 생성된 카드 캐시이고, raw 폴더는 계획 수집한 fallback/색인 후보로 본다.
+6. 수집 후에는 `scripts/rebuild_index.py`와 `pytest`를 실행한다.
 
 예시:
 
@@ -108,7 +109,7 @@ MVP 배치가 통과한 뒤 시간이 허용되는 순서대로 진행한다.
 
 | 기간 | 목표 |
 |---|---|
-| 5/15-5/18 | live TourAPI 우선 응답 경로와 fallback 배치 수집 안정화 |
+| 5/15-5/18 | cache/fallback 우선 응답 경로와 fallback 배치 수집 안정화 |
 | 5/19-5/24 | fallback-1, fallback-2 수집 및 지역/조건 QA |
 | 5/25-5/31 | fallback-3 수집, 20문항 eval, 오류/속도 보강 |
 | 6/1-6/7 | 기본 서비스 고정, 웹 UI QA, 외부 터널 시연 검증 |

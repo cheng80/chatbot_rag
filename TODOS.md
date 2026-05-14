@@ -4,7 +4,7 @@
 
 What: Persist live TourAPI candidate/detail responses beyond the current process memory cache.
 
-Why: `/tourism/chat` now uses live TourAPI lookup first when a region is resolved, then falls back to Chroma/Markdown samples. The current cache is per-process only, so server restarts can repeat the same API calls.
+Why: `/tourism/chat` now uses live Markdown cache and Chroma/Markdown fallback before calling live TourAPI. The current in-process live cache is per-process only, so server restarts can repeat API calls for regions missing from persisted Markdown cache.
 
 Pros: Reduces daily quota usage, improves repeated demo latency, and keeps live freshness without re-calling the same region repeatedly.
 
@@ -13,6 +13,20 @@ Cons: Requires TTL/invalidation rules and care around stale accessibility detail
 Context: Start from `TourismChatService._live_cards_cache`, `TourAPIService`, and `data/generated/tour_api/`. Keep Chroma/Markdown fallback behavior intact.
 
 Depends on / blocked by: Deciding a TTL and whether the cache should live in SQLite, JSON files, or refreshed Markdown samples.
+
+## Move tourism event logs to SQLite when needed
+
+What: Move `/tourism/chat` JSONL response events into SQLite when filtering, dashboards, retention, or multi-session analysis becomes awkward with flat files.
+
+Why: MVP now writes local JSONL events to `data/generated/tour_api/query_card_events.jsonl`. That is enough for append-only inspection, but SQLite will be better once event volume grows or queries need grouping by region, card, lookup mode, and date.
+
+Pros: Easier aggregate queries, retention policies, deduplication, and future admin/debug views.
+
+Cons: Adds schema migrations, DB lifecycle decisions, and more care around local user question privacy.
+
+Context: Start from `TourismQueryEventLogger`. Preserve the current JSONL event fields: timestamp, message/message_hash, region, area, sigungu, conditions, lookup_mode, degraded, live_api_called, and ranked cards.
+
+Depends on / blocked by: Enough event volume or dashboard need to justify moving beyond JSONL.
 
 ## Tourism eval dataset and model comparison
 

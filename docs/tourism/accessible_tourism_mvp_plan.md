@@ -52,11 +52,11 @@ NOT in scope:
   -> 지역/조건/확장 의도 구조화
   -> 동명이 지역이면 지역 선택 후보 반환
   -> 이전 live 조회 Markdown 캐시 확인
+  -> Chroma 색인과 로컬 Markdown fallback 확인
   -> TourAPI areaBasedList2 후보 소량 조회
   -> 상위 후보 detailCommon2 + detailWithTour2 조회
   -> 응답 정규화
-  -> live 결과를 Markdown 캐시에 저장
-  -> 캐시/Chroma/로컬 샘플 fallback과 함께 랭킹
+  -> live 결과를 live_markdown에 저장
   -> 답변 + 관광지 카드 + 출처 + 진단 정보 반환
 ```
 
@@ -64,15 +64,17 @@ NOT in scope:
 
 ```text
 `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다.
-캐시에 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다.
-반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 줄이고,
-API 실패/쿼터/결과 없음 상황에서는 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용한다.
+live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다.
+그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다.
+반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 줄인다.
+`data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지하고,
+데이터 신선도는 MVP 이후 주기적 갱신 배치로 해결한다.
 ```
 
 이유:
 
-- 미리 모든 지역 답변 재료를 쌓는 방식보다 지역 커버리지가 넓다.
-- 질문 구조화 후 필요한 지역 후보만 가져와 일일 호출량을 통제할 수 있다.
+- 저장된 live 캐시, Chroma, Markdown fallback을 먼저 써서 일일 호출량을 줄인다.
+- fallback에 없는 지역만 live API로 보강해 지역 커버리지를 넓힌다.
 - 저장된 샘플/Chroma fallback을 유지해 API 장애 중에도 시연 가능성을 남긴다.
 - OpenAPI에 없는 편의정보는 여전히 추측하지 않고 `확인 필요`로 남긴다.
 
@@ -137,11 +139,13 @@ POST /tourism/chat
 
 MVP에서는 기존 `/chat`을 유지하고 `/tourism/chat`을 별도 추가하는 쪽을 권장한다. 기존 일반 RAG 테스트와 관광 챗봇 테스트를 분리할 수 있기 때문이다.
 
+응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 기록한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장하며, 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다. 이벤트 로그 분석은 `notebooks/tourism_event_log_analysis.ipynb`에서 수행한다. 이 노트북은 `matplotlib` 차트와 한글 폰트 설정을 포함한다. 이벤트 양이 많아지거나 대시보드가 필요해지면 Post-MVP에서 SQLite로 흡수한다.
+
 실패 처리:
 
 | 실패 | 처리 |
 |---|---|
-| TourAPI 키 없음 | live 조회를 건너뛰고 Chroma/로컬 샘플 fallback |
+| TourAPI 키 없음 | live 조회를 건너뛰고 cache/Chroma/로컬 샘플 fallback |
 | TourAPI timeout/쿼터 | `degraded=true`, `warnings` 진단, 기존 캐시/로컬 샘플 유지 |
 | 결과 없음 | “조건에 맞는 관광지를 확인하지 못했습니다” + 조건 완화 제안 |
 | 시군구 결과 3개 미만 | 자동 확장하지 않고 확인된 결과만 반환 + 근처/주변 질문 제안 |

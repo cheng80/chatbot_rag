@@ -13,6 +13,7 @@ from app.services.retriever import Retriever
 from app.services.text_splitter import TextSplitter
 from app.services.tour_api_service import TourAPIService
 from app.services.tourism_chat_service import TourismChatService
+from app.services.tourism_query_event_logger import TourismQueryEventLogger
 from app.services.tourism_query_service import TourismQueryService
 from app.services.vector_store import VectorStore
 
@@ -94,10 +95,16 @@ def get_tour_api_service() -> TourAPIService:
 
 
 @lru_cache(maxsize=1)
+def get_tourism_query_event_logger() -> TourismQueryEventLogger:
+    return TourismQueryEventLogger(get_settings())
+
+
+@lru_cache(maxsize=1)
 def get_tourism_chat_service() -> TourismChatService:
     return TourismChatService(
         settings=get_settings(),
         retriever=get_retriever(),
         query_service=get_tourism_query_service(),
         tour_api_service=get_tour_api_service(),
+        event_logger=get_tourism_query_event_logger(),
     )

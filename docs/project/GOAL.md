@@ -44,14 +44,14 @@
 - `TourAPIService.area_based_list("1", num_of_rows=3)`는 서울 관광정보 3건을 정상 수신했다.
 - 2026-05-15 공공데이터포털 화면에서 `한국관광공사_무장애 여행 정보` 개발계정 승인을 확인했고, 반영 후 `KorWithService2/areaCode2`, `detailWithTour2`, `areaBasedList2` 호출이 200 OK로 확인됐다.
 - 전국 시군구 코드는 `scripts/fetch_tour_area_codes.py`로 `data/processed/tour_area_codes.json` 캐시를 생성해 사용한다. 시군구 코드를 전국 수동 맵으로 하드코딩하지 않는다.
-- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. 캐시에 없고 API 키가 있으면 `KorWithService2/areaBasedList2` 후보를 조회하고, 상위 후보에 대해 `detailCommon2`와 `detailWithTour2`를 호출해 카드를 만든다.
-- 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용해 일일 호출량을 줄인다.
-- live 조회 실패, 쿼터, API 키 없음, 결과 없음 상황에서는 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용한다.
-- 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `live-first + 영속 캐시 + fallback`이다.
+- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 `KorWithService2/areaBasedList2` 후보를 조회하고, 상위 후보에 대해 `detailCommon2`와 `detailWithTour2`를 호출해 카드를 만든다.
+- 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용해 일일 호출량을 줄인다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
+- 데이터 신선도는 MVP에서는 요청 중 재조회가 아니라 Post-MVP 주기적 갱신 배치로 해결한다.
+- 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `cache/fallback-first + 주기적 갱신 + live-on-miss`이다.
 - 수집 스크립트는 캐시/시연 안정화용으로 유지한다. 기본값은 서울/부산/강릉 각 20건, 실행당 최대 150 API 호출이다.
 - fallback 수집은 `docs/tourism/tourism_data_collection_plan.md`의 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치로 나눠 진행한다.
 - 2026-05-15 기준 fallback 분할 수집을 완료했다. `data/raw/tourism_accessible`에는 366개 Markdown이 있고, Chroma에는 전체 raw 기준 367개 문서/청크가 색인됐다.
-- offline-index 우선 방식과 live-first 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`에 기록한다.
+- offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`에 기록한다.
 - curated 샘플은 API 실패 대비와 테스트용 fallback으로 유지한다.
 - 지역 응답 정책은 2026-05-15에 코드와 테스트로 반영했다. 예: `서울 강남구에서 휠체어 관광지 추천해줘`는 강남구 2건만 반환하고 부족 안내를 제공한다. `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 서울 범위 확장 안내와 함께 5건을 반환한다.
 - 동명이 시군구 정책도 2026-05-15에 반영했다. 예: `중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘`는 추천을 바로 생성하지 않고 서울/인천/대전/대구/부산/울산 중구 선택 후보를 반환한다. `부산 중구에서 ...`처럼 광역 지역을 함께 말하면 부산 중구로 확정해 추천한다.

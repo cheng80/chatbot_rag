@@ -6,6 +6,7 @@ from app.schemas.tourism import TourismPlaceCard
 from app.services.tour_api_service import TourAPIError
 from app.services.tourism_chat_service import TourismChatService
 from app.services.tourism_normalizer import TourismNormalizer
+from app.services.tourism_query_event_logger import TourismQueryEventLogger
 from app.services.tourism_query_service import TourismQueryService
 
 
@@ -82,6 +83,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
             tourism_live_rows=2,
             tourism_live_max_detail_calls=4,
             tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
         ),
         EmptyRetriever(),
         TourismQueryService(),
@@ -97,6 +99,35 @@ def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
     assert tour_api.list_calls == 1
     assert tour_api.detail_common_calls == 2
     assert tour_api.detail_with_tour_calls == 2
+
+
+def test_tourism_chat_uses_indexed_cards_before_live_tour_api(tmp_path):
+    class CountingTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": "should-not-call"}]
+
+    tour_api = CountingTourAPI()
+    service = TourismChatService(
+        Settings(
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천")
+
+    assert response.lookup_mode == "indexed"
+    assert response.cards[0].title == "서울어린이대공원"
+    assert tour_api.list_calls == 0
 
 
 def test_tourism_chat_caches_live_tour_api_region_results(tmp_path):
@@ -120,6 +151,7 @@ def test_tourism_chat_caches_live_tour_api_region_results(tmp_path):
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
         ),
         EmptyRetriever(),
         TourismQueryService(),
@@ -157,6 +189,7 @@ def test_tourism_chat_reads_persisted_live_markdown_before_api_call(tmp_path):
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=live_cache_dir,
+            tourism_sample_path=tmp_path / "samples",
         ),
         EmptyRetriever(),
         TourismQueryService(),
@@ -188,6 +221,7 @@ def test_tourism_chat_persists_live_tour_api_cards_to_markdown(tmp_path):
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=live_cache_dir,
+            tourism_sample_path=tmp_path / "samples",
         ),
         EmptyRetriever(),
         TourismQueryService(),
@@ -202,16 +236,52 @@ def test_tourism_chat_persists_live_tour_api_cards_to_markdown(tmp_path):
     assert "저장 대상 관광지" in cached_files[0].read_text(encoding="utf-8")
 
 
-def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
+def test_tourism_chat_logs_query_card_event(tmp_path):
+    log_path = tmp_path / "events.jsonl"
+    service = TourismChatService(
+        Settings(
+            tourism_query_event_log_path=log_path,
+            tourism_query_event_log_enabled=True,
+            tourism_query_event_log_include_message=False,
+            tour_api_service_key=None,
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        event_logger=TourismQueryEventLogger(
+            Settings(
+                tourism_query_event_log_path=log_path,
+                tourism_query_event_log_enabled=True,
+                tourism_query_event_log_include_message=False,
+            )
+        ),
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천", session_id="test-session")
+
+    payload = json.loads(log_path.read_text(encoding="utf-8"))
+    assert response.lookup_mode == "indexed"
+    assert payload["session_id"] == "test-session"
+    assert payload["message"] is None
+    assert payload["lookup_mode"] == "indexed"
+    assert payload["live_api_called"] is False
+    assert payload["cards"][0]["title"] == "서울어린이대공원"
+
+
+def test_tourism_chat_uses_local_samples_before_live_tour_api(tmp_path):
     sample_dir = tmp_path / "tourism"
     sample_dir.mkdir()
     sample = Path("data/raw/tourism_accessible/gangneung_sample_001.md").read_text(encoding="utf-8")
     (sample_dir / "gangneung.md").write_text(sample, encoding="utf-8")
 
     class BrokenTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
         def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
             raise TourAPIError("quota exhausted")
 
+    tour_api = BrokenTourAPI()
     service = TourismChatService(
         Settings(
             tourism_sample_path=sample_dir,
@@ -221,7 +291,7 @@ def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
         ),
         EmptyRetriever(),
         TourismQueryService(),
-        tour_api_service=BrokenTourAPI(),
+        tour_api_service=tour_api,
     )
 
     response = service.answer("강릉 휠체어 관광지")
@@ -229,8 +299,9 @@ def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
     assert len(response.cards) == 1
     assert response.cards[0].title == "오죽헌"
     assert response.lookup_mode == "sample"
-    assert response.degraded is True
-    assert "fallback" in response.warnings[0]
+    assert response.degraded is False
+    assert response.warnings == []
+    assert tour_api.list_calls == 0
 
 
 def test_tourism_chat_falls_back_to_local_samples(tmp_path):
@@ -436,7 +507,11 @@ def test_tourism_chat_sample_cards_are_cached(tmp_path):
 
     codec = CountingCodec()
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
         EmptyRetriever(),
         TourismQueryService(),
         card_codec=codec,

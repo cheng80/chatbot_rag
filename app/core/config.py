@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     tourism_live_lookup_enabled: bool = Field(default=True, alias="TOURISM_LIVE_LOOKUP_ENABLED")
     tourism_live_rows: int = Field(default=10, alias="TOURISM_LIVE_ROWS")
     tourism_live_max_detail_calls: int = Field(default=10, alias="TOURISM_LIVE_MAX_DETAIL_CALLS")
+    tourism_live_cache_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "live_markdown",
+        alias="TOURISM_LIVE_CACHE_PATH",
+    )
     tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
 
     model_config = SettingsConfigDict(
@@ -67,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def resolved_tourism_sample_path(self) -> Path:
         return self._resolve_project_path(self.tourism_sample_path)
+
+    @property
+    def resolved_tourism_live_cache_path(self) -> Path:
+        return self._resolve_project_path(self.tourism_live_cache_path)
 
     @staticmethod
     def _resolve_project_path(path: Path) -> Path:

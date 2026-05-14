@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.core.config import Settings
 from app.schemas.chat import Source
@@ -32,6 +33,7 @@ class TourismChatService:
         self.card_codec = card_codec or TourismCardMarkdownCodec()
         self._sample_cards_cache: list[TourismPlaceCard] | None = None
         self._live_cards_cache: dict[str, list[TourismPlaceCard]] = {}
+        self._live_markdown_cards_cache: list[TourismPlaceCard] | None = None
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
@@ -47,8 +49,13 @@ class TourismChatService:
             )
 
         contexts: list[dict] = []
-        cards, degraded = self._cards_from_live_tour_api(query)
-        lookup_mode = "live" if cards else "unknown"
+        cards = self._cards_from_live_markdown_cache(query)
+        degraded = False
+        lookup_mode = "cache" if cards else "unknown"
+
+        if not cards:
+            cards, degraded = self._cards_from_live_tour_api(query)
+            lookup_mode = "live" if cards else "unknown"
 
         if not cards:
             contexts, retrieve_degraded = self._retrieve(message)
@@ -118,6 +125,7 @@ class TourismChatService:
             return [], True
 
         self._live_cards_cache[cache_key] = self._deduplicate(cards)
+        self._persist_live_cards(query, self._live_cards_cache[cache_key])
         return list(self._live_cards_cache[cache_key]), False
 
     def _can_use_live_tour_api(self, query: dict) -> bool:
@@ -177,6 +185,49 @@ class TourismChatService:
                 cards.append(card)
         self._sample_cards_cache = self._deduplicate(cards)
         return list(self._sample_cards_cache)
+
+    def _cards_from_live_markdown_cache(self, query: dict) -> list[TourismPlaceCard]:
+        if not query.get("area_code"):
+            return []
+        cards = self._filter_cards_by_query_region(self._load_live_markdown_cards(), query)
+        return self._deduplicate(cards)
+
+    def _load_live_markdown_cards(self) -> list[TourismPlaceCard]:
+        if self._live_markdown_cards_cache is not None:
+            return list(self._live_markdown_cards_cache)
+
+        cache_path = self.settings.resolved_tourism_live_cache_path
+        cards = []
+        if cache_path.exists():
+            for path in sorted(cache_path.glob("*.md")):
+                card = self.card_codec.from_markdown(path.read_text(encoding="utf-8"))
+                if card:
+                    cards.append(card)
+        self._live_markdown_cards_cache = self._deduplicate(cards)
+        return list(self._live_markdown_cards_cache)
+
+    def _persist_live_cards(self, query: dict, cards: list[TourismPlaceCard]) -> None:
+        if not cards:
+            return
+        cache_path = self.settings.resolved_tourism_live_cache_path
+        try:
+            cache_path.mkdir(parents=True, exist_ok=True)
+            for card in cards:
+                path = cache_path / self._live_card_cache_filename(query, card)
+                if not path.exists():
+                    path.write_text(self.card_codec.to_markdown(card), encoding="utf-8")
+            self._live_markdown_cards_cache = None
+        except OSError as exc:
+            logger.warning("관광 live Markdown 캐시 저장 실패: %s", exc.__class__.__name__)
+
+    @staticmethod
+    def _live_card_cache_filename(query: dict, card: TourismPlaceCard) -> str:
+        area_name = str(query.get("area_name") or query.get("area_code") or "area")
+        sigungu_name = str(query.get("sigungu_name") or query.get("sigungu_code") or "")
+        region = "_".join(part for part in [area_name, sigungu_name] if part)
+        safe_region = re.sub(r"[^0-9A-Za-z가-힣_-]+", "_", region).strip("_") or "area"
+        safe_content_id = re.sub(r"[^0-9A-Za-z_-]+", "_", card.content_id).strip("_") or "unknown"
+        return f"{safe_region}_{safe_content_id}.md"
 
     def _select_cards(
         self,

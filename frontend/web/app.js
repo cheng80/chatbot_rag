@@ -159,6 +159,7 @@ function renderResponse(payload) {
 
 function modeLabel(mode, degraded) {
   if (mode === "live") return "Live API 응답";
+  if (mode === "cache") return "Live 캐시 응답";
   if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
   if (mode === "sample") return "샘플 fallback";
   if (mode === "clarification") return "지역 선택 필요";
@@ -168,12 +169,13 @@ function modeLabel(mode, degraded) {
 function modeTone(mode, degraded) {
   if (mode === "clarification") return "warn";
   if (mode === "sample" || degraded) return "warn";
-  if (mode === "live" || mode === "indexed") return "ok";
+  if (mode === "cache" || mode === "live" || mode === "indexed") return "ok";
   return "";
 }
 
 function modeDescription(mode) {
   if (mode === "live") return "지역이 확정되어 TourAPI 후보와 접근성 상세를 live로 조회했습니다.";
+  if (mode === "cache") return "이전에 live 조회해 저장한 Markdown 캐시에서 같은 지역 관광 카드를 찾았습니다.";
   if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
   if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
   if (mode === "clarification") return "동명이 지역이라 추천 전에 광역 지역 선택이 필요합니다.";

@@ -80,6 +80,10 @@ Production readiness [██░░░░░░░░] 20%
 
 장시간 실행 서버는 Codex 백그라운드 세션으로 조용히 띄우지 않는다. 에디터의 새 터미널에서 실행해 로그와 종료 상태를 직접 확인한다.
 
+FastAPI와 Cloudflare는 같은 명령이 아니다. 외부 확인이 필요하면 터미널을 2개 연다.
+
+터미널 1: FastAPI 서버
+
 오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 fallback-only로 실행한다.
 
 ```bash
@@ -94,7 +98,7 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --hos
 https://...trycloudflare.com/tourism-ui/
 ```
 
-외부 터널이 필요하면 FastAPI 서버와 별도 터미널에서 실행한다.
+터미널 2: Cloudflare Quick Tunnel
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8000

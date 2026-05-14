@@ -91,8 +91,24 @@ ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 - 에디터의 새 터미널을 열고 사용자가 로그와 종료 상태를 볼 수 있게 실행한다.
 - FastAPI 서버와 Cloudflare 터널은 서로 다른 터미널에서 실행한다.
 
+FastAPI와 Cloudflare는 같은 명령이 아니다. 외부 확인이 필요하면 터미널을 2개 연다.
+
+터미널 1: FastAPI 서버
+
 ```bash
-.venv/bin/python -m uvicorn app.main:app --reload
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 fallback-only로 실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+터미널 2: Cloudflare Quick Tunnel
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
 ```
 
 8. API 확인
@@ -124,7 +140,7 @@ curl -X POST http://localhost:8000/chat \
 .venv/bin/python scripts/fetch_tour_area_codes.py
 ```
 
-- `/tourism/chat`은 지역이 확정되고 API 키가 있으면 live TourAPI 후보 조회를 먼저 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시를 사용하고, live 조회 실패/쿼터/결과 없음은 Chroma 또는 로컬 Markdown 샘플 fallback으로 처리한다.
+- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. 캐시에 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용하고, live 조회 실패/쿼터/결과 없음은 Chroma 또는 로컬 Markdown 샘플 fallback으로 처리한다.
 - 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `live-first + 영속 캐시 + fallback`이다.
 - offline-index 우선 방식과 live-first 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.
 - 2026-05-15 수집은 중단했다. 추가 수집 전에는 `docs/tourism/tourism_data_collection_plan.md`의 호출량 메모와 내일 이어갈 때 섹션을 먼저 확인한다.

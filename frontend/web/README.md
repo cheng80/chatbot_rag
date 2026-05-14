@@ -14,7 +14,7 @@
 권장 실행:
 
 ```bash
-.venv/bin/uvicorn app.main:app --reload
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 브라우저에서 `http://127.0.0.1:8000/tourism-ui/`를 연다.
@@ -37,11 +37,21 @@ python3 -m http.server 5173
 
 Mac mini에서 FastAPI를 먼저 실행한다.
 
+FastAPI와 Cloudflare는 같은 명령이 아니다. 터미널을 2개 열어 각각 실행한다.
+
+터미널 1: FastAPI 서버
+
 ```bash
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-다른 터미널에서 Cloudflare Quick Tunnel을 실행한다.
+오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 fallback-only로 실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+터미널 2: Cloudflare Quick Tunnel
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8000
@@ -58,9 +68,9 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 ## 확인할 것
 
 - 강남구 휠체어 추천이 카드로 보이는지 확인한다.
-- 상태 표시가 `Live API 응답`, `색인 응답`, `샘플 fallback`, `지역 선택 필요`를 구분하는지 확인한다.
+- 상태 표시가 `Live 캐시 응답`, `Live API 응답`, `색인 응답`, `샘플 fallback`, `지역 선택 필요`를 구분하는지 확인한다.
 - "근처" 질문에서 상위 지역 확장 결과가 보이는지 확인한다.
-- 현재 응답 방식 안내가 질문 구조화, live API 우선, fallback 안전망을 보여주는지 확인한다.
+- 현재 응답 방식 안내가 질문 구조화, live 캐시 우선, live API 조회, fallback 안전망을 보여주는지 확인한다.
 - Help 버튼이 사용법, 테스트 범위, 유의점을 모달로 보여주는지 확인한다.
 - `중구`처럼 여러 시도에 있는 지명은 추천 카드 대신 지역 선택 후속 버튼을 보여주는지 확인한다.
 - `부산 중구`처럼 광역 지역을 함께 선택하거나 입력하면 해당 시군구 카드만 보이는지 확인한다.

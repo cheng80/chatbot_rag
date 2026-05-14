@@ -20,7 +20,7 @@ Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
 답변 + 출처 반환
 ```
 
-관광 챗봇은 live TourAPI 조회를 우선 사용하고, API 키 없음·쿼터·네트워크 장애·결과 없음 상황에서는 기존 Chroma 색인과 로컬 Markdown 샘플을 fallback으로 사용한다.
+관광 챗봇은 live TourAPI 조회 결과를 Markdown 캐시에 저장하고, 같은 지역 요청은 캐시를 먼저 확인한다. 캐시에 없으면 live TourAPI를 조회하며, API 키 없음·쿼터·네트워크 장애·결과 없음 상황에서는 기존 Chroma 색인과 로컬 Markdown 샘플을 fallback으로 사용한다.
 
 ```text
 사용자 질문
@@ -29,11 +29,15 @@ Ollama supergemma4-e4b-abliterated Q4_K_M 로컬 LLM으로 답변 생성
   ↓
 동명이 지역이면 지역 선택 후보 반환
   ↓
+이전 live 조회 Markdown 캐시 확인
+  ↓
 TourAPI areaBasedList2 후보 소량 조회
   ↓
 상위 후보 detailCommon2 + detailWithTour2 조회
   ↓
 TourismPlaceCard 정규화
+  ↓
+live 결과를 Markdown 캐시에 저장
   ↓
 캐시/Chroma/Markdown fallback과 함께 랭킹
   ↓
@@ -296,10 +300,11 @@ fallback 데이터 분할 수집 계획은 [무장애 관광 데이터 분할 �
 
 주요 정책:
 
-- 지역이 확정되고 TourAPI 키가 있으면 request-time live TourAPI 후보 조회를 먼저 사용한다.
-- live 조회는 프로세스 메모리 캐시를 사용해 같은 지역 반복 호출을 줄인다.
+- 지역이 확정되면 먼저 이전 live 조회 Markdown 캐시를 확인한다.
+- 캐시에 같은 지역 카드가 없고 TourAPI 키가 있으면 request-time live TourAPI 후보 조회를 사용한다.
+- live 조회는 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 같은 지역 반복 호출을 줄인다.
 - live 조회가 실패하거나 결과가 없으면 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용하고 `warnings`에 진단을 남긴다.
-- 응답의 `lookup_mode`는 `live`, `indexed`, `sample`, `clarification` 중 하나로 현재 응답 경로를 나타낸다.
+- 응답의 `lookup_mode`는 `cache`, `live`, `indexed`, `sample`, `clarification` 중 하나로 현재 응답 경로를 나타낸다.
 - 개발/QA 기본 모드는 `live-first + fallback`이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다.
 - 장기 권장 구조는 `live-first + 영속 캐시 + fallback`이다. offline-index 우선은 비상/시연 안정 모드로 남긴다.
 - 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
@@ -312,9 +317,29 @@ fallback 데이터 분할 수집 계획은 [무장애 관광 데이터 분할 �
 
 Mac mini 등 로컬 머신에서 외부 확인이 필요하면 Cloudflare Quick Tunnel을 사용할 수 있다.
 
+FastAPI와 Cloudflare는 같은 명령이 아니다. 터미널을 2개 열어 각각 실행한다.
+
+최초 1회만 Cloudflare CLI를 설치한다.
+
 ```bash
 brew install cloudflared
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+터미널 1: FastAPI 서버
+
+```bash
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+오늘처럼 TourAPI 호출을 더 쓰지 않을 때는 FastAPI 서버를 fallback-only로 실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+터미널 2: Cloudflare Quick Tunnel
+
+```bash
 cloudflared tunnel --url http://127.0.0.1:8000
 ```
 

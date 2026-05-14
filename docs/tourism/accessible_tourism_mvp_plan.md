@@ -51,9 +51,11 @@ NOT in scope:
 사용자 질문
   -> 지역/조건/확장 의도 구조화
   -> 동명이 지역이면 지역 선택 후보 반환
+  -> 이전 live 조회 Markdown 캐시 확인
   -> TourAPI areaBasedList2 후보 소량 조회
   -> 상위 후보 detailCommon2 + detailWithTour2 조회
   -> 응답 정규화
+  -> live 결과를 Markdown 캐시에 저장
   -> 캐시/Chroma/로컬 샘플 fallback과 함께 랭킹
   -> 답변 + 관광지 카드 + 출처 + 진단 정보 반환
 ```
@@ -61,8 +63,9 @@ NOT in scope:
 권장 1차 구현 접근:
 
 ```text
-`/tourism/chat`은 지역이 확정되고 API 키가 있으면 live TourAPI 후보 조회를 먼저 사용한다.
-반복 요청은 프로세스 메모리 캐시로 줄이고,
+`/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다.
+캐시에 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다.
+반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 줄이고,
 API 실패/쿼터/결과 없음 상황에서는 Chroma 색인과 로컬 Markdown 샘플 fallback을 사용한다.
 ```
 
@@ -126,7 +129,7 @@ POST /tourism/chat
     answer: string
     cards: TourismPlaceCard[]
     sources: Source[]
-    lookup_mode: "live" | "indexed" | "sample" | "clarification" | "unknown"
+    lookup_mode: "cache" | "live" | "indexed" | "sample" | "clarification" | "unknown"
     degraded: boolean
     warnings: string[]
     suggested_messages: string[]

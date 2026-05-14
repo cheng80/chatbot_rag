@@ -51,7 +51,7 @@ def test_tourism_chat_returns_cards_and_sources():
     assert "출처" in response.answer
 
 
-def test_tourism_chat_prefers_live_tour_api_when_available():
+def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
     class FakeTourAPI:
         def __init__(self):
             self.list_calls = 0
@@ -81,6 +81,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available():
             tour_api_accessible_service_key="test",
             tourism_live_rows=2,
             tourism_live_max_detail_calls=4,
+            tourism_live_cache_path=tmp_path / "live_cache",
         ),
         EmptyRetriever(),
         TourismQueryService(),
@@ -98,7 +99,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available():
     assert tour_api.detail_with_tour_calls == 2
 
 
-def test_tourism_chat_caches_live_tour_api_region_results():
+def test_tourism_chat_caches_live_tour_api_region_results(tmp_path):
     class FakeTourAPI:
         def __init__(self):
             self.list_calls = 0
@@ -115,7 +116,11 @@ def test_tourism_chat_caches_live_tour_api_region_results():
 
     tour_api = FakeTourAPI()
     service = TourismChatService(
-        Settings(tour_api_service_key="test", tour_api_accessible_service_key="test"),
+        Settings(
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+        ),
         EmptyRetriever(),
         TourismQueryService(),
         tour_api_service=tour_api,
@@ -124,6 +129,77 @@ def test_tourism_chat_caches_live_tour_api_region_results():
     assert service.answer("서울 휠체어 관광지").cards[0].title == "Live 캐시 관광지"
     assert service.answer("서울 유모차 관광지").cards[0].title == "Live 캐시 관광지"
     assert tour_api.list_calls == 1
+
+
+def test_tourism_chat_reads_persisted_live_markdown_before_api_call(tmp_path):
+    live_cache_dir = tmp_path / "live_cache"
+    live_cache_dir.mkdir()
+    card = TourismPlaceCard(
+        content_id="persisted-live",
+        title="저장된 라이브 관광지",
+        address="서울 중구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    (live_cache_dir / "서울_persisted-live.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+
+    class CountingTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": "should-not-call"}]
+
+    tour_api = CountingTourAPI()
+    service = TourismChatService(
+        Settings(
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=live_cache_dir,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천")
+
+    assert response.cards[0].title == "저장된 라이브 관광지"
+    assert response.lookup_mode == "cache"
+    assert tour_api.list_calls == 0
+
+
+def test_tourism_chat_persists_live_tour_api_cards_to_markdown(tmp_path):
+    live_cache_dir = tmp_path / "live_cache"
+
+    class FakeTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            return [{"contentid": "live-persist"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "저장 대상 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        Settings(
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=live_cache_dir,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=FakeTourAPI(),
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천")
+
+    assert response.lookup_mode == "live"
+    cached_files = list(live_cache_dir.glob("*.md"))
+    assert len(cached_files) == 1
+    assert "저장 대상 관광지" in cached_files[0].read_text(encoding="utf-8")
 
 
 def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
@@ -139,6 +215,7 @@ def test_tourism_chat_falls_back_when_live_tour_api_fails(tmp_path):
     service = TourismChatService(
         Settings(
             tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
         ),

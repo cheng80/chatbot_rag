@@ -33,6 +33,7 @@ SIGUNGU_CODES = {
 }
 
 DEFAULT_AREA_CODE_CACHE_PATH = PROJECT_ROOT / "data" / "processed" / "tour_area_codes.json"
+DEFAULT_ADMIN_REGION_ALIAS_PATH = PROJECT_ROOT / "data" / "processed" / "admin_region_aliases.json"
 
 CONDITION_KEYWORDS = {
     "휠체어": ["휠체어", "장애인", "무장애", "접근성", "이동약자"],
@@ -50,8 +51,13 @@ logger = logging.getLogger(__name__)
 
 
 class TourismQueryService:
-    def __init__(self, area_code_cache_path: Path | None = None):
+    def __init__(
+        self,
+        area_code_cache_path: Path | None = None,
+        admin_region_alias_path: Path | None = None,
+    ):
         self.area_code_cache_path = area_code_cache_path or DEFAULT_AREA_CODE_CACHE_PATH
+        self.admin_region_alias_path = admin_region_alias_path or DEFAULT_ADMIN_REGION_ALIAS_PATH
         self.cache_status = "loaded"
         self.cache_warning: str | None = None
         self.ambiguous_region_aliases: dict[str, list[dict[str, str | None]]] = {}
@@ -139,4 +145,60 @@ class TourismQueryService:
                 if area_name:
                     loaded_index.setdefault(f"{area_name} {alias}", candidate)
                     loaded_index.setdefault(f"{area_name} {sigungu_name}", candidate)
+        self._merge_admin_region_aliases(loaded_index)
         return loaded_index
+
+    def _merge_admin_region_aliases(self, loaded_index: dict[str, dict[str, str | None]]) -> None:
+        if not self.admin_region_alias_path.exists():
+            return
+        try:
+            payload = json.loads(self.admin_region_alias_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("행정동/법정동 매칭 데이터를 읽을 수 없습니다: %s (%s)", self.admin_region_alias_path, exc)
+            return
+
+        aliases = payload.get("aliases", {})
+        if isinstance(aliases, dict):
+            self._merge_alias_candidates(aliases, loaded_index)
+        dong_aliases = payload.get("dong_aliases", {})
+        if isinstance(dong_aliases, dict):
+            self._merge_alias_candidates(dong_aliases, loaded_index)
+
+    def _merge_alias_candidates(
+        self,
+        aliases: dict,
+        loaded_index: dict[str, dict[str, str | None]],
+    ) -> None:
+        for alias, raw_candidates in aliases.items():
+            if not isinstance(raw_candidates, list):
+                continue
+            candidates = [self._normalize_admin_alias_candidate(candidate) for candidate in raw_candidates]
+            candidates = [candidate for candidate in candidates if candidate.get("area_code")]
+            if not candidates:
+                continue
+            unique_candidates = self._unique_region_candidates(candidates)
+            if len(unique_candidates) == 1:
+                loaded_index.setdefault(str(alias), unique_candidates[0])
+            else:
+                self.ambiguous_region_aliases.setdefault(str(alias), unique_candidates)
+
+    @staticmethod
+    def _normalize_admin_alias_candidate(candidate: dict) -> dict[str, str | None]:
+        return {
+            "area_code": candidate.get("area_code") or candidate.get("tour_area_code"),
+            "sigungu_code": candidate.get("sigungu_code") or candidate.get("tour_sigungu_code"),
+            "area_name": candidate.get("area_name"),
+            "sigungu_name": candidate.get("sigungu_name"),
+        }
+
+    @staticmethod
+    def _unique_region_candidates(candidates: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
+        result = []
+        seen = set()
+        for candidate in candidates:
+            key = (candidate.get("area_code"), candidate.get("sigungu_code"))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(candidate)
+        return result

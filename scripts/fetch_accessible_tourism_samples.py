@@ -47,6 +47,7 @@ DEFAULT_ROWS_PER_REGION = 20
 DEFAULT_MAX_API_CALLS = 150
 IMPORTANT_FIELDS = ["wheelchair", "parking", "restroom", "stroller", "lactationroom", "elevator", "route"]
 RAW_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api"
+AREA_CODE_CACHE_PATH = PROJECT_ROOT / "data" / "processed" / "tour_area_codes.json"
 
 
 def main() -> None:
@@ -56,10 +57,21 @@ def main() -> None:
     output_dir = settings.resolved_tourism_sample_path
     output_dir.mkdir(parents=True, exist_ok=True)
     RAW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    existing_content_ids = collect_existing_content_ids(
+    existing_content_id_paths = collect_existing_content_id_paths(
         [output_dir, settings.resolved_tourism_live_cache_path],
         TourismCardMarkdownCodec(),
     )
+    existing_content_ids = set(existing_content_id_paths)
+    duplicate_existing_ids = {
+        content_id: paths
+        for content_id, paths in existing_content_id_paths.items()
+        if len(paths) > 1
+    }
+    if duplicate_existing_ids:
+        print(
+            "주의: 기존 raw/live Markdown에 같은 콘텐츠ID가 있습니다. "
+            f"{len(duplicate_existing_ids)}개 ID는 새 수집에서 재사용하지 않습니다."
+        )
 
     if not settings.tour_api_service_key:
         print("TOUR_API_SERVICE_KEY가 없어 live TourAPI 샘플 수집은 건너뜁니다.")
@@ -70,6 +82,18 @@ def main() -> None:
     api = TourAPIService(settings)
     normalizer = TourismNormalizer()
     query_service = TourismQueryService()
+    if args.sigungu_fallback:
+        summary = collect_sigungu_fallback(
+            args=args,
+            api=api,
+            normalizer=normalizer,
+            output_dir=output_dir,
+            existing_content_ids=existing_content_ids,
+            codec=normalizer.codec,
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return
+
     summary: dict[str, dict[str, int]] = {}
     api_calls = 0
 
@@ -187,6 +211,31 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_API_CALLS,
         help=f"이번 실행에서 허용할 TourAPI 호출 상한. 기본값은 {DEFAULT_MAX_API_CALLS}입니다.",
     )
+    parser.add_argument(
+        "--sigungu-fallback",
+        action="store_true",
+        help="전국/선택 광역의 시군구별 부족분만 fallback Markdown으로 수집합니다.",
+    )
+    parser.add_argument(
+        "--cards-per-sigungu",
+        type=int,
+        default=3,
+        help="시군구별 목표 fallback 카드 수입니다.",
+    )
+    parser.add_argument(
+        "--areas",
+        default="",
+        help="시군구 fallback 수집 대상 광역 목록입니다. 비우면 현재 지역 코드 캐시의 전체 광역을 대상으로 합니다.",
+    )
+    parser.add_argument(
+        "--daily-endpoint-budget",
+        type=int,
+        default=500,
+        help="오늘 수집에서 허용할 엔드포인트별 안전 호출 한도입니다.",
+    )
+    parser.add_argument("--used-area-based", type=int, default=0, help="오늘 이미 사용한 areaBasedList2 추정 호출 수입니다.")
+    parser.add_argument("--used-detail-common", type=int, default=0, help="오늘 이미 사용한 detailCommon2 추정 호출 수입니다.")
+    parser.add_argument("--used-detail-with-tour", type=int, default=0, help="오늘 이미 사용한 detailWithTour2 추정 호출 수입니다.")
     return parser.parse_args()
 
 
@@ -203,15 +252,186 @@ def preset_regions(preset: str) -> list[str]:
 
 
 def collect_existing_content_ids(paths: list[Path], codec: TourismCardMarkdownCodec) -> set[str]:
-    content_ids: set[str] = set()
+    return set(collect_existing_content_id_paths(paths, codec))
+
+
+def collect_existing_content_id_paths(paths: list[Path], codec: TourismCardMarkdownCodec) -> dict[str, list[str]]:
+    content_id_paths: dict[str, list[str]] = {}
     for directory in paths:
         if not directory.exists():
             continue
-        for path in directory.glob("*.md"):
+        for path in sorted(directory.glob("*.md")):
             card = codec.from_markdown(path.read_text(encoding="utf-8"))
             if card and card.content_id:
-                content_ids.add(card.content_id)
-    return content_ids
+                content_id_paths.setdefault(card.content_id, []).append(path.as_posix())
+    return content_id_paths
+
+
+def collect_sigungu_fallback(
+    *,
+    args: argparse.Namespace,
+    api: TourAPIService,
+    normalizer: TourismNormalizer,
+    output_dir: Path,
+    existing_content_ids: set[str],
+    codec: TourismCardMarkdownCodec,
+) -> dict[str, object]:
+    targets = load_sigungu_targets(parse_regions(args.areas) if args.areas else None)
+    coverage = count_sigungu_coverage(output_dir, codec)
+    remaining = {
+        "area_based": max(args.daily_endpoint_budget - args.used_area_based, 0),
+        "detail_common": max(args.daily_endpoint_budget - args.used_detail_common, 0),
+        "detail_with_tour": max(args.daily_endpoint_budget - args.used_detail_with_tour, 0),
+    }
+    calls_used = {"area_based": 0, "detail_common": 0, "detail_with_tour": 0}
+    summary: dict[str, dict[str, int]] = {}
+    stopped_by_budget = False
+
+    for target in targets:
+        key = (target["area_name"], target["sigungu_name"])
+        existing_count = coverage.get(key, 0)
+        needed = max(args.cards_per_sigungu - existing_count, 0)
+        label = f"{target['area_name']} {target['sigungu_name']}"
+        if needed <= 0:
+            summary[label] = {"existing": existing_count, "cards": 0, "skipped_filled": 1}
+            continue
+        if remaining["area_based"] <= 0:
+            summary[label] = {"existing": existing_count, "cards": 0, "skipped_by_budget": 1}
+            stopped_by_budget = True
+            break
+
+        remaining["area_based"] -= 1
+        calls_used["area_based"] += 1
+        list_items = api.accessible_area_based_list(
+            area_code=target["area_code"],
+            sigungu_code=target["sigungu_code"],
+            num_of_rows=max(args.rows, needed),
+        )
+        raw_path = RAW_OUTPUT_DIR / f"{target['area_name']}_{target['sigungu_name']}_area_based_raw.json"
+        raw_path.write_text(json.dumps(list_items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        cards = []
+        skipped_existing = 0
+        skipped_without_accessibility = 0
+        accessible_errors = 0
+        for item in list_items:
+            if len(cards) >= needed:
+                break
+            content_id = str(item.get("contentid") or "").strip()
+            if not content_id:
+                continue
+            if content_id in existing_content_ids:
+                skipped_existing += 1
+                continue
+            if remaining["detail_common"] <= 0 or remaining["detail_with_tour"] <= 0:
+                stopped_by_budget = True
+                break
+            remaining["detail_common"] -= 1
+            calls_used["detail_common"] += 1
+            common = api.detail_common(content_id) or item
+            try:
+                remaining["detail_with_tour"] -= 1
+                calls_used["detail_with_tour"] += 1
+                accessible = api.detail_with_tour(content_id)
+            except TourAPIError as exc:
+                accessible_errors += 1
+                accessible = {}
+                print(f"{label} {content_id} 무장애 상세 조회 실패: {exc}")
+            card = normalizer.normalize_place(common, accessible)
+            if not card.raw_fields:
+                skipped_without_accessibility += 1
+                continue
+            cards.append(card)
+            existing_content_ids.add(card.content_id)
+            coverage[key] = coverage.get(key, 0) + 1
+
+        for card in cards:
+            markdown_path = output_dir / f"{target['area_name']}_{target['sigungu_name']}_{card.content_id}.md"
+            if not markdown_path.exists():
+                markdown_path.write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+
+        normalized_path = RAW_OUTPUT_DIR / f"{target['area_name']}_{target['sigungu_name']}_normalized_cards.json"
+        normalized_path.write_text(
+            json.dumps([card.model_dump() for card in cards], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        summary[label] = {
+            "existing": existing_count,
+            "needed": needed,
+            "listed": len(list_items),
+            "cards": len(cards),
+            "skipped_existing": skipped_existing,
+            "skipped_without_accessibility": skipped_without_accessibility,
+            "accessible_errors": accessible_errors,
+        }
+        if stopped_by_budget:
+            break
+
+    return {
+        "mode": "sigungu_fallback",
+        "cards_per_sigungu": args.cards_per_sigungu,
+        "target_count": len(targets),
+        "calls_used": calls_used,
+        "remaining_budget": remaining,
+        "stopped_by_budget": stopped_by_budget,
+        "summary": summary,
+    }
+
+
+def load_sigungu_targets(areas: list[str] | None = None) -> list[dict[str, str]]:
+    data = json.loads(AREA_CODE_CACHE_PATH.read_text(encoding="utf-8"))
+    targets: list[dict[str, str]] = []
+    area_filter = set(areas or [])
+    for area_name, area_info in data.get("area_codes", {}).items():
+        if area_filter and area_name not in area_filter:
+            continue
+        for sigungu_name, sigungu_code in area_info.get("sigungu", {}).items():
+            targets.append(
+                {
+                    "area_name": area_name,
+                    "area_code": str(area_info["area_code"]),
+                    "sigungu_name": sigungu_name,
+                    "sigungu_code": str(sigungu_code),
+                }
+            )
+    return targets
+
+
+def count_sigungu_coverage(sample_dir: Path, codec: TourismCardMarkdownCodec) -> dict[tuple[str, str], int]:
+    targets = load_sigungu_targets()
+    coverage: dict[tuple[str, str], int] = {}
+    for path in sorted(sample_dir.glob("*.md")):
+        card = codec.from_markdown(path.read_text(encoding="utf-8"))
+        if not card:
+            continue
+        haystack = f"{card.title} {card.address or ''} {path.stem}"
+        matched = match_sigungu_target(haystack, targets)
+        if matched:
+            key = (matched["area_name"], matched["sigungu_name"])
+            coverage[key] = coverage.get(key, 0) + 1
+    return coverage
+
+
+def match_sigungu_target(haystack: str, targets: list[dict[str, str]]) -> dict[str, str] | None:
+    matches = []
+    for target in targets:
+        area_aliases = area_name_aliases(target["area_name"])
+        if target["sigungu_name"] in haystack and any(alias in haystack for alias in area_aliases):
+            matches.append(target)
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: len(item["sigungu_name"]), reverse=True)[0]
+
+
+def area_name_aliases(area_name: str) -> set[str]:
+    return {
+        area_name,
+        area_name.replace("특별자치도", ""),
+        area_name.replace("특별자치시", ""),
+        area_name.replace("광역시", ""),
+        area_name.replace("특별시", ""),
+        area_name.replace("도", ""),
+    }
 
 
 if __name__ == "__main__":

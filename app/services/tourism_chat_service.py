@@ -48,7 +48,7 @@ class TourismChatService:
                 lookup_mode="clarification",
                 degraded=False,
                 warnings=self._build_warnings(query, degraded=False),
-                suggested_messages=self._build_region_clarification_suggestions(query),
+                suggested_messages=self._build_region_clarification_suggestions(query, message),
             )
             self._log_event(message, session_id, query, response, live_api_called=False)
             return response
@@ -402,7 +402,7 @@ class TourismChatService:
         )
 
     @staticmethod
-    def _build_region_clarification_suggestions(query: dict) -> list[str]:
+    def _build_region_clarification_suggestions(query: dict, message: str) -> list[str]:
         alias = query.get("ambiguous_region") or ""
         candidates = query.get("ambiguous_region_candidates") or []
         conditions = query.get("conditions") or ["무장애"]
@@ -412,7 +412,11 @@ class TourismChatService:
             area_name = candidate.get("area_name")
             sigungu_name = candidate.get("sigungu_name") or alias
             if area_name and sigungu_name:
-                suggestions.append(f"{area_name} {sigungu_name}에서 {condition_text} 관광지 추천해줘")
+                region_text = f"{area_name} {sigungu_name}"
+                if alias and alias in message:
+                    suggestions.append(message.replace(alias, region_text, 1))
+                else:
+                    suggestions.append(f"{region_text}에서 {condition_text} 관광지 추천해줘")
         return list(dict.fromkeys(suggestions))
 
     def _build_sources(self, contexts: list[dict], cards: list[TourismPlaceCard]) -> list[Source]:

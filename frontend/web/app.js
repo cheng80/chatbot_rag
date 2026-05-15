@@ -5,6 +5,7 @@ const submitButton = document.querySelector("#submitButton");
 const requestState = document.querySelector("#requestState");
 const diagnostics = document.querySelector("#diagnostics");
 const answerText = document.querySelector("#answerText");
+const clarificationBanner = document.querySelector("#clarificationBanner");
 const suggestions = document.querySelector("#suggestions");
 const cardsGrid = document.querySelector("#cards");
 const cardCount = document.querySelector("#cardCount");
@@ -57,7 +58,9 @@ document.querySelectorAll("[data-region]").forEach((button) => {
 clearButton.addEventListener("click", () => {
   setState("대기 중");
   diagnostics.replaceChildren();
+  clarificationBanner.hidden = true;
   suggestions.replaceChildren();
+  suggestions.classList.remove("clarification-options");
   answerText.textContent = "질문을 보내면 답변과 추천 카드가 여기에 표시됩니다.";
   answerText.classList.add("empty");
   cardsGrid.replaceChildren();
@@ -76,6 +79,8 @@ form.addEventListener("submit", async (event) => {
 
   setLoading(true);
   suggestions.replaceChildren();
+  clarificationBanner.hidden = true;
+  suggestions.classList.remove("clarification-options");
 
   try {
     const response = await fetch(`${normalizedApiBase()}/tourism/chat`, {
@@ -97,6 +102,8 @@ form.addEventListener("submit", async (event) => {
     answerText.textContent = `API 서버에 연결하지 못했습니다.\n${error.message}`;
     answerText.classList.remove("empty");
     suggestions.replaceChildren();
+    clarificationBanner.hidden = true;
+    suggestions.classList.remove("clarification-options");
     cardsGrid.replaceChildren();
     cardCount.textContent = "0개";
   } finally {
@@ -152,6 +159,7 @@ function renderResponse(payload) {
 
   answerText.textContent = payload.answer || "답변 문장이 비어 있습니다.";
   answerText.classList.toggle("empty", !payload.answer);
+  clarificationBanner.hidden = mode !== "clarification";
   renderSuggestions(payload.suggested_messages || []);
   cardCount.textContent = `${cards.length}개`;
   cardsGrid.replaceChildren(...cards.map(renderCard));
@@ -193,13 +201,16 @@ function renderError(status, payload) {
 
   answerText.textContent = `${message}${code}`;
   answerText.classList.remove("empty");
+  clarificationBanner.hidden = true;
   suggestions.replaceChildren();
+  suggestions.classList.remove("clarification-options");
   cardsGrid.replaceChildren();
   cardCount.textContent = "0개";
 }
 
 function renderSuggestions(messages) {
   suggestions.replaceChildren();
+  suggestions.classList.toggle("clarification-options", !clarificationBanner.hidden && messages.length > 0);
   messages.forEach((message) => {
     const button = document.createElement("button");
     button.type = "button";

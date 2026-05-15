@@ -86,7 +86,7 @@ chatbot_rag/
 ### 프로젝트 진입
 
 ```bash
-cd /Users/cheng80/Desktop/chatbot_rag
+# 프로젝트 루트로 이동한 뒤 아래 명령을 실행한다.
 ```
 
 ### Python 가상환경
@@ -96,8 +96,6 @@ cd /Users/cheng80/Desktop/chatbot_rag
 Mac:
 
 ```bash
-cd /Users/cheng80/Desktop/chatbot_rag
-
 # 최초 1회: 이 프로젝트에서 사용할 pyenv Python 지정
 pyenv local 3.13.7
 
@@ -398,6 +396,14 @@ python -m pytest
 
 수집 스크립트는 `data/raw/tourism_accessible/`와 `data/generated/tour_api/live_markdown/`에 이미 있는 `콘텐츠ID`를 먼저 읽고, 같은 카드는 상세 API 호출 전에 건너뛴다. live 폴더는 질문 중 생성된 카드 캐시이고, raw 폴더는 계획 수집한 fallback/색인 후보로 본다.
 
+fallback Markdown 샘플 분포와 누락 필드는 아래 명령으로 감사한다.
+
+```bash
+.venv/bin/python scripts/audit_tourism_samples.py
+```
+
+기본 리포트는 `data/generated/tour_api/tourism_sample_audit.md`에 생성되며 커밋하지 않는다. 자세한 기준은 `docs/tourism/tourism_sample_quality.md`를 본다.
+
 전국권 샘플을 넓힐 때는 일일 트래픽을 확인한 뒤 명시적으로 실행한다.
 
 ```bash
@@ -435,9 +441,19 @@ OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 ```
 
-4. `notebooks/model_comparison_template.ipynb`에서 같은 질문 세트를 실행한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
+4. 평가 질문 원본은 `data/eval/tourism_20_questions.jsonl`이고, 사람이 읽는 설명은 `docs/tourism/tourism_eval_questions.md`에 있다.
 
-5. 각 응답을 아래 기준으로 1~5점 평가한다.
+5. 서버를 띄운 뒤 같은 질문 세트를 실행한다.
+
+```bash
+.venv/bin/python scripts/eval_tourism_chat.py
+```
+
+기본 결과 파일은 `data/generated/tour_api/eval_runs/` 아래에 생성된다. 이 산출물은 커밋하지 않는다.
+
+6. `notebooks/model_comparison_template.ipynb`에서 두 모델 결과를 비교한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
+
+7. 각 응답을 아래 기준으로 1~5점 평가한다.
 
 | 평가 항목 | 기준 |
 |---|---|

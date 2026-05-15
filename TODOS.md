@@ -28,19 +28,19 @@ Context: Start from `TourismQueryEventLogger`. Preserve the current JSONL event 
 
 Depends on / blocked by: Enough event volume or dashboard need to justify moving beyond JSONL.
 
-## Tourism eval dataset and model comparison
+## Tourism model comparison run
 
-What: Create a 20-question tourism evaluation set and compare `supergemma4` against `gemma3` on grounded answer quality.
+What: Run the committed 20-question tourism evaluation set and compare `supergemma4` against `gemma3` on grounded answer quality.
 
 Why: The endpoint can return structured cards, but public-demo answer quality needs repeatable evidence instead of manual spot checks.
 
 Pros: Catches prompt/model regressions and gives a defensible basis for the default local LLM choice.
 
-Cons: Requires maintaining eval questions, expected qualities, and model-specific run notes.
+Cons: Requires running both local models, saving result summaries, and manually scoring answer quality.
 
-Context: Use the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow already described in `README.md`.
+Context: Use `data/eval/tourism_20_questions.jsonl`, `scripts/eval_tourism_chat.py`, the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow already described in `README.md`.
 
-Depends on / blocked by: Stable backend response schema and rebuilt Chroma index for the tourism sample set.
+Depends on / blocked by: Rebuilt Chroma index for the tourism sample set and both local Ollama models being available.
 
 ## Frontend tourism UI polish and QA
 
@@ -55,3 +55,17 @@ Cons: Adds UI design, responsive behavior, and browser/mobile QA scope beyond ba
 Context: Start from `frontend/web/index.html`, `frontend/web/styles.css`, and `frontend/web/app.js`. The current version is intentionally build-free and focused on backend behavior visibility.
 
 Depends on / blocked by: Stable `/tourism/chat` backend contract and a design/QA pass before demo use.
+
+## Expand admin/legal dong alias QA and product target list
+
+What: Expand QA around `data/processed/admin_region_aliases.json` and decide the product-level 250 실사용 지역 target list.
+
+Why: `TourismQueryService` now reads admin/legal dong aliases, but some names still need product policy. Examples: general-gu names such as `마산합포구` and dong names that can map differently from common expectation.
+
+Pros: Better region clarification, fewer wrong broad-region matches, and a clearer path from nationwide fallback collection to real user language.
+
+Cons: Needs careful ambiguity handling so common names do not silently resolve to the wrong city.
+
+Context: Start from `scripts/build_admin_region_aliases.py`, `data/processed/admin_region_aliases.json`, and `TourismQueryService`.
+
+Depends on / blocked by: Deciding product-level target regions for the 250 실사용 지역 list.

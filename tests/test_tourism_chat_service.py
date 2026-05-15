@@ -392,16 +392,17 @@ def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
     )
     service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService(area_code_cache_path=cache_path))
 
-    response = service.answer("중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘")
+    response = service.answer("중구에서 휠체어 타시는 아버지와 갈 관광지 추천")
 
     assert response.cards == []
     assert response.lookup_mode == "clarification"
     assert "'중구'는 여러 시도에 있는 지명" in response.answer
+    assert "어느 지역인지" in response.answer
     assert "서울 중구" in response.answer
     assert "부산 중구" in response.answer
     assert response.suggested_messages == [
-        "서울 중구에서 휠체어 관광지 추천해줘",
-        "부산 중구에서 휠체어 관광지 추천해줘",
+        "서울 중구에서 휠체어 타시는 아버지와 갈 관광지 추천",
+        "부산 중구에서 휠체어 타시는 아버지와 갈 관광지 추천",
     ]
 
 

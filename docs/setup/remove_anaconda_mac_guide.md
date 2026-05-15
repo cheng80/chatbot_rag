@@ -77,7 +77,7 @@ python --version
 `python: command not found`가 나오면 프로젝트 루트에 `.python-version`을 두거나, 전역 버전을 설정합니다.
 
 ```bash
-cd ~/Desktop/chatbot_rag
+# 프로젝트 루트에서 실행
 echo "3.13.7" > .python-version
 python --version
 ```
@@ -85,7 +85,6 @@ python --version
 ## 프로젝트 가상환경 재생성
 
 ```bash
-cd ~/Desktop/chatbot_rag
 rm -rf .venv
 python -m venv .venv
 source .venv/bin/activate

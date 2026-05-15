@@ -404,6 +404,28 @@ textarea {
   color: var(--muted);
 }
 
+.clarification-banner {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  border: 1px solid #f0d39a;
+  border-radius: 8px;
+  background: #fff7e8;
+  color: var(--warn);
+  padding: 12px;
+}
+
+.clarification-banner strong {
+  color: #7a4700;
+  font-size: 15px;
+}
+
+.clarification-banner span {
+  line-height: 1.45;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -419,6 +441,12 @@ textarea {
   padding: 8px 10px;
   font-size: 13px;
   font-weight: 800;
+}
+
+.suggestions.clarification-options button {
+  border-color: #8bb8b2;
+  background: #dff0ee;
+  min-height: 40px;
 }
 
 .cards-grid {

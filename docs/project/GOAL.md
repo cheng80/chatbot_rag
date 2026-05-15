@@ -50,18 +50,18 @@
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `cache/fallback-first + 주기적 갱신 + live-on-miss`이다.
 - 수집 스크립트는 캐시/시연 안정화용으로 유지한다. 기본값은 서울/부산/강릉 각 20건, 실행당 최대 150 API 호출이다.
 - fallback 수집은 `docs/tourism/tourism_data_collection_plan.md`의 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치로 나눠 진행한다.
-- 2026-05-15 기준 fallback 분할 수집을 완료했다. `data/raw/tourism_accessible`에는 366개 Markdown이 있고, Chroma에는 전체 raw 기준 367개 문서/청크가 색인됐다.
+- 2026-05-15 기준 광역권 fallback 분할 수집과 시군구 fallback 1차 부분 수집을 완료했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible`에는 460개 Markdown이 있고, Chroma에는 전체 raw 기준 461개 문서/463개 청크가 색인됐다.
+- 시군구 fallback은 아직 전국 실사용 지역 250개 기준 완료가 아니다. 현재 TourAPI 지역 코드 234개 중 90개 시군구가 3장 이상 확보됐고, 234개 기준 3장 목표까지 남은 부족분은 약 365장이다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`에 기록한다.
 - curated 샘플은 API 실패 대비와 테스트용 fallback으로 유지한다.
 - 지역 응답 정책은 2026-05-15에 코드와 테스트로 반영했다. 예: `서울 강남구에서 휠체어 관광지 추천해줘`는 강남구 2건만 반환하고 부족 안내를 제공한다. `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 서울 범위 확장 안내와 함께 5건을 반환한다.
 - 동명이 시군구 정책도 2026-05-15에 반영했다. 예: `중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘`는 추천을 바로 생성하지 않고 서울/인천/대전/대구/부산/울산 중구 선택 후보를 반환한다. `부산 중구에서 ...`처럼 광역 지역을 함께 말하면 부산 중구로 확정해 추천한다.
-- MVP UI는 사용자가 먼저 지역 버튼을 선택할 수 있게 돕되, 채팅 자유 입력도 항상 허용한다. 모호 지역이 들어오면 API의 `suggested_messages`를 후속 질문 버튼으로 보여준다.
+- MVP UI는 사용자가 먼저 지역 버튼을 선택할 수 있게 돕되, 채팅 자유 입력도 항상 허용한다. 모호 지역이 들어오면 API의 `suggested_messages`를 후속 질문 버튼으로 보여준다. 후속 질문은 사용자의 원래 문장에서 모호한 지역명만 확정 지역명으로 바꿔 질문 맥락을 유지한다.
 - 관계 호칭만으로 나이를 추정하지 않는다. `아빠`, `어머니`, `부모님`은 고령자 조건으로 자동 변환하지 않고, `고령자`, `어르신`, `노인`처럼 명시된 표현이 있을 때만 고령자 조건을 붙인다.
 
 ## 다음 세션 첫 확인 명령
 
 ```bash
-cd /Users/cheng80/Desktop/chatbot_rag
 .venv/bin/python scripts/fetch_tour_area_codes.py
 .venv/bin/python scripts/fetch_accessible_tourism_samples.py
 .venv/bin/python scripts/rebuild_index.py

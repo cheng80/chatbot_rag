@@ -68,7 +68,9 @@
           <div class="quick-prompts" aria-label="빠른 질문">
             <button type="button" data-prompt="서울 강남구에서 휠체어 관광지 추천해줘">강남구 휠체어</button>
             <button type="button" data-prompt="서울 강남구 근처에서 휠체어 관광지 추천해줘">강남구 근처</button>
-            <button type="button" data-prompt="중구에서 휠체어 타시는 어머니를 모시고 다닐수 있는 관광지를 추천해줘">중구 모호성</button>
+            <button type="button" data-prompt="중구에서 휠체어 타시는 아버지와 갈 관광지 추천">중구 추가질문</button>
+            <button type="button" data-prompt="해운대 좌동에서 유모차로 갈만한 관광지 추천">좌동 법정동</button>
+            <button type="button" data-prompt="창원 마산합포구에서 이동약자 관광지 추천">일반구 매칭</button>
             <button type="button" data-prompt="서울에서 유아차로 가기 좋은 관광지 추천해줘">서울 유아차</button>
             <button type="button" data-prompt="부산에서 가족과 가기 좋은 무장애 관광지 추천해줘">부산 가족</button>
             <button type="button" data-prompt="제주에서 휠체어 접근 가능한 관광지 추천해줘">제주 휠체어</button>
@@ -93,6 +95,10 @@
             <div class="section-header">
               <h2>답변</h2>
               <button id="clearButton" type="button" title="화면 비우기">비우기</button>
+            </div>
+            <div id="clarificationBanner" class="clarification-banner" hidden>
+              <strong>추가 질문 필요</strong>
+              <span>아래 후보 중 어느 지역인지 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.</span>
             </div>
             <p id="answerText" class="empty">질문을 보내면 답변과 추천 카드가 여기에 표시됩니다.</p>
             <div id="suggestions" class="suggestions" aria-label="후속 질문 후보"></div>
@@ -143,7 +149,8 @@
             <h3>사용법</h3>
             <ul>
               <li>지역 버튼으로 먼저 범위를 잡거나, 질문 입력창에 자유롭게 문장을 입력합니다.</li>
-              <li>`중구`처럼 여러 시도에 있는 지명은 추천 대신 지역 선택 후속 버튼을 보여줍니다.</li>
+              <li>`중구`처럼 여러 시도에 있는 지명은 추천 대신 “어느 지역인지” 추가 질문과 지역 선택 버튼을 보여줍니다.</li>
+              <li>`해운대 좌동`, `창원 마산합포구`처럼 법정동/행정동/일반구가 섞인 질문도 시군구 후보로 해석합니다.</li>
               <li>응답 상태에는 live 캐시, live API, 색인 검색, 샘플 fallback 중 어떤 경로를 썼는지 표시됩니다.</li>
               <li>Swagger, ReDoc, OpenAPI JSON 링크로 현재 API 계약을 바로 확인할 수 있습니다.</li>
             </ul>
@@ -154,6 +161,7 @@
             <ul>
               <li>기본 응답은 지역 확정 후 live 캐시와 fallback을 먼저 보고, 없으면 live TourAPI 후보 조회를 사용합니다.</li>
               <li>fallback 샘플은 광역권별 약 20장 수준의 최소 안전망입니다.</li>
+              <li>행정동/법정동 매칭은 행안부 주민등록주소코드 기반 가공 데이터를 사용합니다.</li>
               <li>휠체어, 유아차, 접근로, 화장실, 주차 같은 조건을 명시하면 카드 정렬에 반영됩니다.</li>
             </ul>
           </section>

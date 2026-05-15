@@ -194,7 +194,6 @@ Ollama /api/generate 호출
 ## 9. MVP 실행 순서
 
 ```bash
-cd /Users/cheng80/Desktop/chatbot_rag
 cp .env.example .env
 
 # 최초 1회 또는 .venv를 다시 만들 때

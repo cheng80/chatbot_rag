@@ -24,7 +24,7 @@ class FakeTourismChatService:
 
 class FailingTourismChatService:
     def answer(self, message: str, session_id: str | None = None):
-        raise RuntimeError("secret internal path /tmp/private")
+        raise RuntimeError("secret internal path private-dir")
 
 
 def test_tourism_chat_api_smoke():

@@ -35,6 +35,8 @@ class TourismQueryEventLogger:
             "region": query.get("region"),
             "area_name": query.get("area_name"),
             "sigungu_name": query.get("sigungu_name"),
+            "legacy_region": query.get("legacy_region"),
+            "legacy_region_replacement": query.get("legacy_region_replacement"),
             "conditions": query.get("conditions") or [],
             "allow_region_expansion": bool(query.get("allow_region_expansion")),
             "lookup_mode": response.lookup_mode,

@@ -139,7 +139,7 @@ curl -X POST http://localhost:8000/chat \
 - 공공데이터포털 화면에서 `한국관광공사_무장애 여행 정보` 개발계정 승인은 확인됐다.
 - 승인 반영 후 `KorWithService2/areaCode2`, `KorWithService2/detailWithTour2`, `KorWithService2/areaBasedList2` 호출이 200 OK로 확인됐다.
 - 전국 시군구 코드는 수동 하드코딩하지 않는다. `scripts/fetch_tour_area_codes.py`로 `data/processed/tour_area_codes.json` 캐시를 만들고 `TourismQueryService`가 이 캐시를 우선 사용한다. 중복되는 시군구 별칭은 캐시에 넣지 않는다.
-- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. 사용자가 `근처`, `주변`, `가까운`, `인근` 같은 확장 의도를 말한 경우에만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 광역 지역 질문은 3~5개 추천을 목표로 한다.
+- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. 사용자가 `근처`, `주변`, `가까운`, `인근` 같은 확장 의도를 말한 경우에만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 기본 추천은 최대 5장이다. 후보가 5장보다 많으면 `suggested_messages`에 `더 보기` 후속 질문을 넣고, 사용자가 `더 보기`, `전체`, `전부`, `20곳` 같은 의도를 말하면 확인된 후보를 가능한 만큼 반환한다.
 - 다음 세션에서 지역 코드가 이상하면 아래 캐시 재생성부터 실행한다.
 
 ```bash
@@ -148,15 +148,17 @@ curl -X POST http://localhost:8000/chat \
 
 - `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
 - `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
-- `/tourism/chat`은 복합 상황 질문에서만 LLM 추론 보조를 1회 호출할 수 있다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다. 이 기능은 `TOURISM_REASONING_ASSIST_ENABLED=false`로 끌 수 있다.
-- 2026-05-15 로컬 모델 추론 보조 벤치마크를 실행했다. 결과 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. 현재 결론은 MVP 기본 추론 보조는 `think=false`로 유지하는 것이다. `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 동작하지만 30초 이상 지연됐고, `qwen3:4b`는 현재 프롬프트에서 JSON/한국어 계약을 지키지 못했다.
+- `/tourism/chat`의 LLM 추론 보조는 기본값이 꺼져 있다. 복합 상황 질문 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켠다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
+- 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
+- 2026-05-15 로컬 모델 추론 보조 벤치마크를 실행했다. 결과 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. 현재 결론은 MVP 기본 추론 보조는 OFF이며, 켜더라도 native `think=false`로만 실험하는 것이다. `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 동작하지만 30초 이상 지연됐고, `qwen3:4b`는 현재 프롬프트에서 JSON/한국어 계약을 지키지 못했다.
 - 생성된 모델 벤치마크 원본은 `data/generated/tour_api/model_benchmarks/` 아래에 있으며 git ignore 대상이다. 필요하면 `scripts/benchmark_tourism_reasoning_models.py`로 다시 만든다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 신선도는 Post-MVP 주기적 갱신 배치로 해결한다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.
 - 2026-05-15 수집은 중단했다. 추가 수집 전에는 `docs/tourism/tourism_data_collection_plan.md`의 호출량 메모와 내일 이어갈 때 섹션을 먼저 확인한다.
-- fallback 데이터는 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치 수집과 시군구 fallback 1차 부분 수집을 완료했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible` 기준 460개 Markdown, Chroma 기준 461개 문서/463개 청크가 색인됐다.
-- 시군구 fallback은 아직 전국 실사용 지역 250개 기준 완료가 아니다. 현재 TourAPI 지역 코드 234개 중 90개 시군구가 3장 이상 확보됐고, 234개 기준 3장 목표까지 남은 부족분은 약 365장이다.
-- 20문항 fallback-only eval은 2026-05-15에 1차 실행했다. 다음에는 live-on-miss 비교 실행과 수동 채점을 우선한다. 부족한 지역만 `--areas` 또는 `--regions`와 엔드포인트별 500건 안전치 안에서 좁혀 보강한다.
+- fallback 데이터는 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치 수집과 시군구 fallback 확장 수집을 진행했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible` 기준 808개 Markdown, Chroma 기준 809개 문서/816개 청크가 색인됐다.
+- 시군구 fallback은 TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 확보됐다. 0장 지역은 청원군, 마산시, 진해시, 남제주군, 북제주군이고, 3장 미만 지역은 계룡시 1장이다. 0장 5개 지역은 폐지/통합 지명으로 보고 사용자 질문에서는 현재 행정구역명을 안내한다. 매핑은 청원군 -> 청주시, 마산시 -> 창원시, 진해시 -> 창원시 진해구 안내/TourAPI 창원시 기준, 남제주군 -> 서귀포시, 북제주군 -> 제주시다. 전국 실사용 지역 250개 기준 대상 목록 확장은 아직 남아 있다.
+- 2026-05-15에는 사용자의 명시 승인으로 엔드포인트별 500건 평시 안전치를 일시적으로 풀고 1,000건 기준까지 수집을 확장했으나, `detailCommon2` 429 응답 후 즉시 중단했다. 같은 quota window에서는 추가 수집하지 않는다.
+- 20문항 fallback-only eval은 2026-05-15에 1차 실행했다. 20문항은 smoke test 수준이므로 다음에는 `docs/project/demo_capture_scenarios.md`와 확장 eval을 함께 live-on-miss/fallback-only로 비교한다.
 - 서버 없이 현재 코드 기준 eval을 빠르게 확인할 때는 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct`를 사용한다.
 - 전국 시군구 단위 fallback을 늘릴 경우 예상 규모와 호출량은 `docs/tourism/tourism_sigungu_fallback_scale.md`를 참고한다.
 - 행정동/법정동 지역명 매칭 데이터는 `scripts/build_admin_region_aliases.py`로 생성했다. 결과는 `data/processed/admin_region_aliases.json`이고, 설계 기록은 `docs/tourism/admin_region_aliases.md`에 있다. `TourismQueryService`는 이 파일을 읽어 `부산 중구`, `해운대 좌동`, `창원 마산합포구`, `성남 분당구` 같은 예외 입력을 시군구 후보로 해석한다.
@@ -182,6 +184,7 @@ curl -X POST http://localhost:8000/chat \
 - `docs/setup/remove_anaconda_mac_guide.md`: 다른 Mac에서 conda/Anaconda 정리할 때 참고
 - `docs/tourism/관광 정보 탐색·상담형 챗봇 정리.md`: 도메인/기획 참고 문서
 - `docs/project/GOAL.md`: 현재 관광 MVP 목표와 API 판정 기준
+- `docs/project/demo_capture_scenarios.md`: 발표용 캡처와 시연 질문 시나리오
 - `docs/tourism/accessible_tourism_mvp_plan.md`: 무장애·가족 친화 관광 챗봇 구현 플랜
 - `docs/tourism/tourism_eval_questions.md`: 20문항 관광 챗봇 평가셋 설명
 - `docs/tourism/tourism_model_reasoning_benchmark.md`: 로컬 모델 추론 보조와 native thinking 비교 결과

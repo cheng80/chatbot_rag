@@ -1,8 +1,11 @@
-# 관광 챗봇 20문항 평가셋
+# 관광 챗봇 평가셋
 
-마지막 갱신: 2026-05-15
+마지막 갱신: 2026-05-16
 
-이 문서는 `/tourism/chat`의 공개 데모 품질을 반복 확인하기 위한 최소 평가셋이다. 기계가 읽는 원본은 `data/eval/tourism_20_questions.jsonl`이며, 이 문서는 사람이 검토하기 위한 요약이다.
+이 문서는 `/tourism/chat`의 품질을 반복 확인하기 위한 평가셋이다.
+
+- `data/eval/tourism_20_questions.jsonl`: 빠른 smoke test용 최소 평가셋
+- `data/eval/tourism_80_questions.jsonl`: 복합 의도, 모호 지역, 경계 요청, 저커버리지 지역을 포함한 확장 평가셋
 
 ## 평가 목적
 
@@ -11,7 +14,7 @@
 - 관계 호칭만으로 나이를 추정하지 않는지 확인한다.
 - 근거가 부족한 지역이나 잘못된 전제에서 임의로 카드를 지어내지 않는지 본다.
 - `lookup_mode`, `warnings`, `suggested_messages` 같은 진단 필드가 QA에 충분한지 확인한다.
-- 복합 상황 질문에서 `reasoning_assist_used`, `reasoning_assist_notes`가 필요한 경우에만 켜지는지 확인한다.
+- 복합 상황 질문을 추론 보조 OFF 기본 모드에서 처리했을 때 지역 해석, 조건 반영, 경계 안내가 무너지지 않는지 확인한다.
 
 ## 실행 방법
 
@@ -31,6 +34,12 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --hos
 
 ```bash
 TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct
+```
+
+확장 80문항 평가셋은 아래처럼 실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_80_questions.jsonl
 ```
 
 live 조회까지 포함해 확인할 때만 서버 실행 환경에서 `TOURISM_LIVE_LOOKUP_ENABLED=true`를 사용한다. 공공데이터포털 호출량을 아껴야 하는 날에는 fallback-only로 실행한다.
@@ -67,7 +76,7 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py 
 - `남구`처럼 여러 시도에 있는 구 이름은 특정 지역으로 추정하지 않고 후보 선택 질문을 반환한다.
 - `서울 강남구에 바닷가...`처럼 지역 전제와 장소 특성이 맞지 않으면 강남구 일반 카드를 반환하지 않는다.
 - `휠체어 대여 가격이 제일 싼 곳`처럼 MVP 범위를 벗어난 가격 비교 질문은 `unsupported`로 답하고 카드를 만들지 않는다.
-- 복합 상황 질문 4개에서만 LLM 추론 보조가 켜졌다. 현재 기본 모델의 반복 실행 기준 지연 시간은 대략 6~12초였다. 별도 모델 벤치마크에서는 native thinking 모델이 30초 이상 걸릴 수 있어 MVP 기본값으로는 보류했다.
+- 복합 상황 질문 4개에서 LLM 추론 보조가 켜졌을 때 지연 시간은 대략 6~12초였다. 같은 eval을 `TOURISM_REASONING_ASSIST_ENABLED=false`로 실행하면 해당 문항은 80ms 안팎으로 끝났고 실패는 없었다. 따라서 MVP 기본값은 추론 보조 OFF로 둔다.
 
 남은 문제와 해결책:
 
@@ -77,14 +86,14 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py 
 | TQ005 부산 중구 유모차 | 1장 반환 | 유모차/가족 태그가 있는 부산 중구 후보를 보강하거나 live 조회 결과를 캐시한다. |
 | TQ014 울릉군 휠체어 | 근거 없음 안내 | 울릉군은 fallback 부족 지역으로 남긴다. live-on-miss 실행 시 TourAPI 결과가 있는지 별도 확인한다. |
 | TQ018 강남구 바닷가 | 근거 없음 안내 | 올바른 동작이다. 향후에는 “강남구에는 바닷가 후보가 없어 한강/실내/근처 해안 지역 중 선택” 같은 대체 질문을 제안할 수 있다. |
-| TQ006/TQ007/TQ008/TQ020 복합 질문 | 추론 보조 사용, 6~12초 | `reasoning_assist_used=true`는 올바르지만, 데모 UX에서는 로딩 표시와 timeout 기준이 필요하다. native thinking은 더 느려 기본값으로 쓰지 않는다. |
+| TQ006/TQ007/TQ008/TQ020 복합 질문 | 추론 보조 ON 시 6~12초, OFF 시 약 80ms | 기본 시연은 OFF로 둔다. ON/OFF eval 결과의 카드 ID 순서, 카드 수, `lookup_mode`, `warnings`, `suggested_messages`를 비교해 질문 의도 파악 차이를 잡는다. |
 
 다음 eval 단계:
 
 1. 같은 20문항을 live-on-miss 모드로 실행해 fallback-only와 비교한다.
 2. 카드가 3장 미만인 부산 중구, 울릉군을 보강 대상 목록에 넣는다.
 3. 수동 채점표에 지역 해석, 조건 반영, 근거 준수, 상담 톤 점수를 기록한다.
-4. 추론 보조가 켜지는 문항의 허용 지연 시간을 정하고, `docs/tourism/tourism_model_reasoning_benchmark.md` 결과를 기준으로 기본 모델을 결정한다.
+4. 추론 보조 OFF 기본 모드에서 복합 질문 의도 파악이 약해지는지 ON/OFF eval 비교표로 확인한다.
 
 ## 채점 기준
 
@@ -123,3 +132,39 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py 
 | TQ018 | 잘못된 전제 | 서울 강남구에 바닷가 휠체어 관광지 추천해줘 | 바닷가 후보를 지어내지 않음 |
 | TQ019 | 범위 밖 | 휠체어 대여 가격이 제일 싼 곳 알려줘 | 가격 비교 추측 금지 |
 | TQ020 | 경로 진단 | 충북에서 휠체어 접근 가능하고 가족이 같이 가기 좋은 관광지 추천해줘 | `lookup_mode`와 warnings 확인 |
+
+## 2026-05-16 80문항 fallback-only 실행 결과
+
+실행 명령:
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_80_questions.jsonl
+```
+
+결과 파일: `data/generated/tour_api/eval_runs/tourism_eval_20260516-031323.jsonl`
+
+요약:
+
+| 항목 | 결과 |
+|---|---:|
+| 총 문항 | 80 |
+| HTTP/API 실패 | 0 |
+| `indexed` | 56 |
+| `cache` | 6 |
+| `sample` | 4 |
+| `clarification` | 10 |
+| `unsupported` | 1 |
+| `unknown` | 3 |
+| `reasoning_assist_used=true` | 0 |
+
+확인된 개선:
+
+- 지역이 없는 질문은 임의 전국 후보를 반환하지 않고 지역 확인 질문으로 보낸다.
+- 광역 지역의 잘못된 바닷가/해수욕장 전제도 후보를 지어내지 않고 `unknown`으로 처리한다.
+- 의료기관, 차량 예약, 가격순, 이동시간 계산처럼 범위 밖 요청이 부가 조건으로 섞이면 경고를 남기고 관광 접근성 카드 근거 안에서만 답한다.
+- 지하철역 바로 연결, 실시간 혼잡도처럼 범위 밖 조건이 핵심 필터인 질문은 카드 추천 전에 조건 완화 여부를 재확인한다.
+- 2026-05-16 추가 시군구 fallback 수집 후 `TQ014` 울릉군, `TQ071` 영양군, `TQ072` 신안군 같은 저커버리지 문항이 카드 반환으로 개선됐다.
+
+남은 확인 포인트:
+
+- `TQ038`의 `광주`처럼 지명이 광역시와 시군구 alias 사이에서 clarification으로 흐르는 문항은 의도한 UX인지 확인한다.

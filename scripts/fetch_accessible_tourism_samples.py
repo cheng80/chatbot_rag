@@ -302,11 +302,17 @@ def collect_sigungu_fallback(
 
         remaining["area_based"] -= 1
         calls_used["area_based"] += 1
-        list_items = api.accessible_area_based_list(
-            area_code=target["area_code"],
-            sigungu_code=target["sigungu_code"],
-            num_of_rows=max(args.rows, needed),
-        )
+        try:
+            list_items = api.accessible_area_based_list(
+                area_code=target["area_code"],
+                sigungu_code=target["sigungu_code"],
+                num_of_rows=max(args.rows, needed),
+            )
+        except TourAPIError as exc:
+            summary[label] = {"existing": existing_count, "cards": 0, "area_based_error": 1}
+            print(f"{label} 후보 목록 조회 실패: {exc}")
+            stopped_by_budget = True
+            break
         raw_path = RAW_OUTPUT_DIR / f"{target['area_name']}_{target['sigungu_name']}_area_based_raw.json"
         raw_path.write_text(json.dumps(list_items, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -314,6 +320,7 @@ def collect_sigungu_fallback(
         skipped_existing = 0
         skipped_without_accessibility = 0
         accessible_errors = 0
+        detail_common_errors = 0
         for item in list_items:
             if len(cards) >= needed:
                 break
@@ -328,7 +335,13 @@ def collect_sigungu_fallback(
                 break
             remaining["detail_common"] -= 1
             calls_used["detail_common"] += 1
-            common = api.detail_common(content_id) or item
+            try:
+                common = api.detail_common(content_id) or item
+            except TourAPIError as exc:
+                detail_common_errors += 1
+                stopped_by_budget = True
+                print(f"{label} {content_id} 공통 상세 조회 실패: {exc}")
+                break
             try:
                 remaining["detail_with_tour"] -= 1
                 calls_used["detail_with_tour"] += 1
@@ -362,6 +375,7 @@ def collect_sigungu_fallback(
             "cards": len(cards),
             "skipped_existing": skipped_existing,
             "skipped_without_accessibility": skipped_without_accessibility,
+            "detail_common_errors": detail_common_errors,
             "accessible_errors": accessible_errors,
         }
         if stopped_by_budget:

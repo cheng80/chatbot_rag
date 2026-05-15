@@ -25,6 +25,18 @@ def test_tour_api_extracts_single_item_dict():
     assert service._extract_items(payload) == [{"contentid": "1", "title": "관광지"}]
 
 
+def test_tour_api_extracts_empty_string_items_as_empty_list():
+    service = TourAPIService(Settings(tour_api_service_key="test"))
+    payload = {
+        "response": {
+            "header": {"resultCode": "0000"},
+            "body": {"items": ""},
+        }
+    }
+
+    assert service._extract_items(payload) == []
+
+
 def test_tour_api_extracts_top_level_error():
     service = TourAPIService(Settings(tour_api_service_key="test"))
 

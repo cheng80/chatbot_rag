@@ -3,9 +3,9 @@
 마지막 갱신: 2026-05-15
 
 상태: `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 수집 완료.  
-중복 콘텐츠ID 정리와 시군구 fallback 1차 부분 수집 후 `data/raw/tourism_accessible` 기준 460개 Markdown, Chroma 기준 461개 문서/463개 청크 재색인 완료.
+중복 콘텐츠ID 정리와 시군구 fallback 확장 수집 후 `data/raw/tourism_accessible` 기준 808개 Markdown 확보.
 
-2026-05-15 수집은 중단했다. 같은 날 추가 수집과 live UI 테스트를 하지 않는다.
+2026-05-15 수집은 `detailCommon2` 429 응답 후 중단했다. 같은 날 추가 수집과 live UI 테스트를 하지 않는다. 실 테스트는 2026-05-16 이후 새 quota window에서 진행한다.
 
 ## 목표
 
@@ -17,7 +17,7 @@ live TourAPI 조회를 기본 응답 경로로 쓰되, API 장애/쿼터/네트�
 - 전국을 한 번에 수집하지 않는다.
 - 한 실행은 1개 배치만 담당한다.
 - 기본 실행은 `--rows 20`, `--max-api-calls 300` 안에서 끝낸다.
-- 폴백용 수집 안전치는 엔드포인트별 500건 이하로 고정한다. 오늘 이미 쓴 호출량이 있으면 500건에서 차감한 남은 범위만 수집한다.
+- 기본 폴백용 수집 안전치는 엔드포인트별 500건 이하로 둔다. 단, 2026-05-15에는 사용자의 명시 승인으로 하루 한도 1,000건을 기준으로 일시 확장 수집했다.
 - 수집 후에는 항상 `scripts/rebuild_index.py`와 `pytest`를 실행한다.
 - API 일일 트래픽을 쓰는 작업이므로 같은 배치를 반복 실행하지 않는다.
 - 외부 터널을 열어 둔 상태에서 live UI를 누르면 TourAPI 호출이 추가된다. 수집일에는 `uvicorn`과 `cloudflared` 종료 여부를 확인한다.
@@ -78,7 +78,63 @@ FastAPI 서버와 Cloudflare 터널을 끈 뒤, 엔드포인트별 500건 안전
 
 실패한 첫 시도에서 이미 발생한 호출까지 보수적으로 포함하면 2026-05-15 누적 추정치는 `areaBasedList2` 약 70회, `detailCommon2` 약 500회, `detailWithTour2` 약 499회다. 폴백 수집 안전치인 엔드포인트별 500건 이내에서 멈췄으므로 같은 날 추가 수집은 하지 않는다.
 
+### 2026-05-15 시군구 fallback 확장 수집
+
+사용자 승인으로 이날만 엔드포인트별 500건 안전치를 일시적으로 풀고, 공공데이터포털의 엔드포인트별 일일 1,000건 한도 안에서 폴백 카드 확보를 우선했다.
+
+```bash
+.venv/bin/python scripts/fetch_accessible_tourism_samples.py --sigungu-fallback --cards-per-sigungu 3 --rows 20 --daily-endpoint-budget 1000 --used-area-based 70 --used-detail-common 500 --used-detail-with-tour 499
+```
+
+이후 추가 이어받기 실행 중 `detailCommon2`가 429를 반환해 수집을 즉시 중단했다. 같은 날 더 호출하지 않는다.
+
+결과:
+
+| 항목 | 결과 |
+|---|---:|
+| Markdown 총량 | 643개 |
+| 추가 확보 | 183개 |
+| 감사 결과 | 파싱 실패 0, 중복 0, 필수 필드 누락 0 |
+| TourAPI 지역 코드 234개 중 3장 이상 확보 | 161개 시군구 |
+| 234개 기준 3장 목표까지 남은 부족분 | 약 182장 |
+
+추가로 수집 스크립트는 TourAPI가 빈 결과를 `items: ""`처럼 반환하는 경우와 429 같은 `TourAPIError`를 만나도 전체 실행이 비정상 종료되지 않고 요약을 남기도록 보강했다.
+
 주의: 현재 수집 스크립트의 대상은 `data/processed/tour_area_codes.json`의 TourAPI 지역 코드 234개다. 사용자가 말한 전국 실사용 지역 250개 기준에는 행정시/일반구 등 보강 대상이 더 포함될 수 있으므로, 다음 단계에서 대상 목록을 확장해야 한다.
+
+### 2026-05-16 시군구 fallback 이어받기 수집
+
+새 quota window에서 평시 안전치인 엔드포인트별 500건 기준으로 남은 시군구 fallback을 이어받았다.
+
+```bash
+.venv/bin/python scripts/fetch_accessible_tourism_samples.py --sigungu-fallback --cards-per-sigungu 3 --rows 20 --daily-endpoint-budget 500
+```
+
+결과:
+
+| 항목 | 결과 |
+|---|---:|
+| 추가 실행 `areaBasedList2` | 73회 |
+| 추가 실행 `detailCommon2` | 167회 |
+| 추가 실행 `detailWithTour2` | 167회 |
+| Markdown 총량 | 808개 |
+| 감사 결과 | 파싱 실패 0, 중복 0, 필수 필드 누락 0 |
+| Chroma 재색인 | 809개 문서 / 816개 청크 |
+| TourAPI 지역 코드 234개 중 3장 이상 확보 | 228개 시군구 |
+| 0장 지역 | 청원군, 마산시, 진해시, 남제주군, 북제주군 |
+| 3장 미만 지역 | 계룡시 1장 |
+
+0장 지역 5개는 폐지/통합된 행정구역명으로 본다. 사용자 질문에서는 예전 이름을 그대로 실패 처리하지 않고 현재 행정구역명을 안내한 뒤 현재 지역 기준으로 찾는다.
+
+| 예전 입력 | 현재 안내/조회 기준 |
+| --- | --- |
+| 청원군 | 청주시 |
+| 마산시 | 창원시 |
+| 진해시 | 창원시 진해구 안내, TourAPI 조회는 창원시 기준 |
+| 남제주군 | 서귀포시 |
+| 북제주군 | 제주시 |
+
+계룡시 1장은 폐지 지명이 아니라 실제 저커버리지 지역으로 보고, 필요하면 다음 수집에서 별도 보강한다.
 
 작업 종료 시점에 `uvicorn`과 `cloudflared`는 종료했다. 내일 시작 전에는 아래처럼 프로세스가 남아 있지 않은지 먼저 확인한다.
 
@@ -86,9 +142,9 @@ FastAPI 서버와 Cloudflare 터널을 끈 뒤, 엔드포인트별 500건 안전
 ps -ef | rg 'fetch_accessible_tourism_samples|uvicorn|cloudflared' | rg -v rg
 ```
 
-### 내일 이어갈 때
+### 다음 quota window에서 이어갈 때
 
-이미 광역권별 MVP 최소 fallback과 시군구 fallback 1차 부분 수집은 끝났다. 다만 전국/주요 시군구 fallback은 아직 완성 전이며 별도 확장 작업으로 남아 있다.
+이미 광역권별 MVP 최소 fallback과 시군구 fallback 확장 수집은 진행됐다. 다만 전국/주요 시군구 fallback은 아직 완성 전이며 별도 확장 작업으로 남아 있다.
 
 1. `data/raw/tourism_accessible` 지역별 샘플 품질을 먼저 샘플링한다.
 2. 음식점/비관광 후보가 과하게 섞였는지 확인한다.
@@ -105,8 +161,8 @@ ps -ef | rg 'fetch_accessible_tourism_samples|uvicorn|cloudflared' | rg -v rg
 .venv/bin/python -m pytest -q
 ```
 
-내일의 우선순위는 추가 수집보다 `lookup_mode=live/indexed/sample`별 응답 품질 QA와 20문항 eval 실행이다.
-전국 시군구별 최소 fallback 규모를 검토할 때는 `docs/tourism/tourism_sigungu_fallback_scale.md`를 참고한다. 이 작업은 전국 실사용 지역 250개 기준으로 잡고, 엔드포인트별 500건 안전치 안에서 분할 실행한다.
+다음 우선순위는 0장/1장 지역의 행정구역 유효성을 확인하고, `lookup_mode=live/indexed/sample`별 응답 품질 QA와 확장 eval을 실행하는 것이다.
+전국 시군구별 최소 fallback 규모를 검토할 때는 `docs/tourism/tourism_sigungu_fallback_scale.md`를 참고한다. 평시에는 엔드포인트별 500건 안전치 안에서 분할 실행하고, 예외적으로 1,000건 한도를 쓸 때도 429가 나오면 즉시 멈춘다.
 
 ## 실행 순서
 

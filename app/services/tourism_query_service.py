@@ -52,6 +52,74 @@ FEATURE_KEYWORDS = {
 }
 UNSUPPORTED_INTENT_KEYWORDS = {
     "wheelchair_rental_price": ["휠체어 대여", "대여 가격", "가격이 제일 싼", "제일 싼 곳", "최저가"],
+    "medical_lookup": ["병원", "약국", "응급실", "응급의료"],
+    "transport_booking": ["리프트 차량", "예약 업체", "업체 연결", "예약 가능한 업체"],
+    "realtime_crowd": ["실시간", "지금 제일 안 붐비", "혼잡도"],
+    "price_sort": ["입장료", "가격순", "가장 싼", "싸고"],
+    "itinerary_planning": ["하루 코스", "시간표", "이동시간", "코스 시간표"],
+    "subway_direct": ["지하철역 바로 연결", "지하철 바로 연결"],
+}
+LEGACY_REGION_ALIASES = {
+    "청원군": {
+        "replacement_region": "청주시",
+        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+    },
+    "충청북도 청원군": {
+        "replacement_region": "청주시",
+        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+    },
+    "충북 청원군": {
+        "replacement_region": "청주시",
+        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+    },
+    "마산시": {
+        "replacement_region": "창원시",
+        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+    },
+    "경상남도 마산시": {
+        "replacement_region": "창원시",
+        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+    },
+    "경남 마산시": {
+        "replacement_region": "창원시",
+        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+    },
+    "진해시": {
+        "replacement_region": "창원시",
+        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+    },
+    "경상남도 진해시": {
+        "replacement_region": "창원시",
+        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+    },
+    "경남 진해시": {
+        "replacement_region": "창원시",
+        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+    },
+    "남제주군": {
+        "replacement_region": "서귀포시",
+        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+    },
+    "제주특별자치도 남제주군": {
+        "replacement_region": "서귀포시",
+        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+    },
+    "제주도 남제주군": {
+        "replacement_region": "서귀포시",
+        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+    },
+    "북제주군": {
+        "replacement_region": "제주시",
+        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+    },
+    "제주특별자치도 북제주군": {
+        "replacement_region": "제주시",
+        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+    },
+    "제주도 북제주군": {
+        "replacement_region": "제주시",
+        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+    },
 }
 logger = logging.getLogger(__name__)
 
@@ -70,7 +138,8 @@ class TourismQueryService:
         self.region_index = self._load_region_index()
 
     def extract(self, message: str) -> dict[str, list[str] | str | None]:
-        region = self._find_region(message)
+        legacy_region = self._find_legacy_region(message)
+        region = str(legacy_region["replacement_region"]) if legacy_region else self._find_region(message)
         ambiguous_region = self._find_ambiguous_region(message, region)
         conditions = [
             label
@@ -99,6 +168,9 @@ class TourismQueryService:
             "ambiguous_region_candidates": self.ambiguous_region_aliases.get(ambiguous_region or "", []),
             "region_cache_status": self.cache_status,
             "region_cache_warning": self.cache_warning,
+            "legacy_region": legacy_region.get("alias") if legacy_region else None,
+            "legacy_region_replacement": legacy_region.get("replacement_region") if legacy_region else None,
+            "legacy_region_notice": legacy_region.get("notice") if legacy_region else None,
         }
 
     @staticmethod
@@ -113,6 +185,13 @@ class TourismQueryService:
             if name and name in message:
                 return name
         return next((name for name in AREA_CODES if name in message), None)
+
+    @staticmethod
+    def _find_legacy_region(message: str) -> dict[str, str] | None:
+        for alias in sorted(LEGACY_REGION_ALIASES, key=len, reverse=True):
+            if alias in message:
+                return {"alias": alias, **LEGACY_REGION_ALIASES[alias]}
+        return None
 
     def _find_ambiguous_region(self, message: str, region: str | None) -> str | None:
         for alias in sorted(self.ambiguous_region_aliases, key=len, reverse=True):

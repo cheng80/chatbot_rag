@@ -34,6 +34,8 @@ REASONING_ASSIST_KEYWORDS = [
     "가까운",
     "동선",
 ]
+DEFAULT_CARD_LIMIT = 5
+MORE_CARD_KEYWORDS = ["더 보기", "더보기", "더 많이", "더 보여", "전체", "전부", "20곳", "20개"]
 
 
 class TourismChatService:
@@ -62,11 +64,11 @@ class TourismChatService:
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
-        if query.get("unsupported_intent"):
+        if query.get("unsupported_intent") and not self._has_supported_tourism_part(query):
             response = TourismChatResponse(
                 answer=(
                     "현재 MVP는 관광지의 무장애 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
-                    "휠체어 대여 가격 비교나 최저가 정보는 확인된 데이터가 없어 추천하지 않겠습니다. "
+                    "가격 비교, 실시간 혼잡도, 의료기관, 예약, 이동시간 계산은 확인된 데이터가 없어 추천하지 않겠습니다. "
                     "대신 방문하려는 지역과 접근성 조건을 알려주면 갈 수 있는 관광지를 찾아드릴 수 있습니다."
                 ),
                 cards=[],
@@ -74,6 +76,18 @@ class TourismChatService:
                 lookup_mode="unsupported",
                 degraded=False,
                 warnings=self._build_warnings(query, degraded=False),
+            )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            return response
+        if self._should_clarify_unsupported_core(query):
+            response = TourismChatResponse(
+                answer=self._build_unsupported_core_clarification_answer(query),
+                cards=[],
+                sources=[],
+                lookup_mode="clarification",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                suggested_messages=self._build_unsupported_core_suggestions(query),
             )
             self._log_event(message, session_id, query, response, live_api_called=False)
             return response
@@ -89,6 +103,21 @@ class TourismChatService:
             )
             self._log_event(message, session_id, query, response, live_api_called=False)
             return response
+        if not query.get("region"):
+            response = TourismChatResponse(
+                answer=(
+                    "추천할 지역을 먼저 알려 주세요. 예: '서울에서 휠체어 관광지 추천해줘', "
+                    "'부산에서 유모차로 갈 만한 곳 알려줘'처럼 지역과 조건을 함께 말하면 근거가 있는 카드만 찾겠습니다."
+                ),
+                cards=[],
+                sources=[],
+                lookup_mode="clarification",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                suggested_messages=self._build_missing_region_suggestions(query),
+            )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            return response
 
         degraded = False
         lookup_mode = "unknown"
@@ -96,10 +125,11 @@ class TourismChatService:
         source_contexts: list[dict] = []
         cards: list[TourismPlaceCard] = []
         expanded = False
+        has_more_cards = False
         live_api_called = False
 
         candidates = self._cards_from_live_markdown_cache(query)
-        cards, expanded = self._select_stage_cards(candidates, message, query)
+        cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
         if cards:
             lookup_mode = "cache"
 
@@ -107,14 +137,14 @@ class TourismChatService:
             contexts, retrieve_degraded = self._retrieve(message)
             degraded = degraded or retrieve_degraded
             candidates = self._cards_from_contexts(contexts)
-            cards, expanded = self._select_stage_cards(candidates, message, query)
+            cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "indexed"
                 source_contexts = contexts
 
         if not cards:
             candidates = self._cards_from_markdown_samples()
-            cards, expanded = self._select_stage_cards(candidates, message, query)
+            cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "sample"
 
@@ -122,16 +152,30 @@ class TourismChatService:
             candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
             live_api_called = live_api_called or api_called
             degraded = degraded or live_degraded
-            cards, expanded = self._select_stage_cards(candidates, message, query)
+            cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "live"
+
+        if cards and len(cards) >= DEFAULT_CARD_LIMIT:
+            more_candidates = self._deduplicate([*candidates, *self._cards_from_markdown_samples()])
+            more_probe_message = message if self._requests_more_cards(message) else f"{message} 더 보기"
+            more_cards, more_expanded, more_has_more_cards = self._select_stage_cards(more_candidates, more_probe_message, query)
+            if self._requests_more_cards(message) and len(more_cards) > len(cards):
+                cards = more_cards
+                expanded = expanded or more_expanded
+                has_more_cards = more_has_more_cards
+            elif not self._requests_more_cards(message) and len(more_cards) > len(cards):
+                has_more_cards = True
 
         sources = self._build_sources(source_contexts, cards)
         warnings = self._build_warnings(query, degraded)
 
         if not cards:
+            answer = "조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요."
+            if query.get("legacy_region_notice"):
+                answer = f"{query['legacy_region_notice']}\n{answer}"
             response = TourismChatResponse(
-                answer="조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요.",
+                answer=answer,
                 cards=[],
                 sources=sources,
                 lookup_mode=lookup_mode,
@@ -150,6 +194,7 @@ class TourismChatService:
             lookup_mode=lookup_mode,
             degraded=degraded,
             warnings=warnings,
+            suggested_messages=self._build_more_card_suggestions(message, has_more_cards),
             reasoning_assist_used=reasoning_used,
             reasoning_assist_notes=reasoning_notes,
         )
@@ -161,9 +206,9 @@ class TourismChatService:
         candidates: list[TourismPlaceCard],
         message: str,
         query: dict,
-    ) -> tuple[list[TourismPlaceCard], bool]:
+    ) -> tuple[list[TourismPlaceCard], bool, bool]:
         if not candidates:
-            return [], False
+            return [], False, False
         if query.get("allow_region_expansion"):
             candidates = self._deduplicate([*candidates, *self._cards_from_markdown_samples()])
         return self._select_cards(candidates, message, query)
@@ -450,14 +495,15 @@ class TourismChatService:
         cards: list[TourismPlaceCard],
         message: str,
         query: dict,
-    ) -> tuple[list[TourismPlaceCard], bool]:
+    ) -> tuple[list[TourismPlaceCard], bool, bool]:
+        more_requested = self._requests_more_cards(message)
         region = query.get("region")
         if region and query.get("is_sigungu"):
             query_region_cards = self._filter_cards_by_query_region(cards, query)
             if query.get("features"):
                 query_region_cards = self._filter_cards_by_features(query_region_cards, query)
                 if not query_region_cards and not query.get("allow_region_expansion"):
-                    return [], False
+                    return [], False, False
             region_cards = self._rank_cards(
                 query_region_cards,
                 message,
@@ -465,7 +511,7 @@ class TourismChatService:
                 filter_region=False,
             )
             if not query.get("allow_region_expansion"):
-                return region_cards[:5], False
+                return self._limit_cards(region_cards, more_requested), False, self._has_more_cards(region_cards, more_requested)
 
             area_name = query.get("area_name")
             expanded_cards = self._rank_cards(
@@ -474,9 +520,11 @@ class TourismChatService:
                 query,
                 filter_region=False,
             )
-            return self._deduplicate([*region_cards, *expanded_cards])[:5], True
+            ranked_cards = self._deduplicate([*region_cards, *expanded_cards])
+            return self._limit_cards(ranked_cards, more_requested), True, self._has_more_cards(ranked_cards, more_requested)
 
-        return self._rank_cards(cards, message, query)[:5], False
+        ranked_cards = self._rank_cards(cards, message, query)
+        return self._limit_cards(ranked_cards, more_requested), False, self._has_more_cards(ranked_cards, more_requested)
 
     def _rank_cards(
         self,
@@ -494,6 +542,8 @@ class TourismChatService:
         feature_cards = self._filter_cards_by_features(cards, query)
         if feature_cards:
             cards = feature_cards
+        elif query.get("features"):
+            return []
 
         def score(card: TourismPlaceCard) -> int:
             haystack = " ".join(
@@ -573,6 +623,8 @@ class TourismChatService:
         region = query.get("region") or "요청 지역"
         conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
         lines = [f"{region} 기준으로 {conditions} 조건에 맞는 관광지 {len(cards)}곳을 추천합니다."]
+        if query.get("legacy_region_notice"):
+            lines.append(str(query["legacy_region_notice"]))
         if query.get("is_sigungu") and len(cards) < 3 and not expanded:
             lines.append(
                 f"{region} 안에서 확인된 후보가 {len(cards)}곳이라 요청 지역 안의 결과만 먼저 제공합니다. "
@@ -581,6 +633,9 @@ class TourismChatService:
         if expanded:
             area_name = query.get("area_name") or "상위 지역"
             lines.append(f"{region} 안의 후보가 부족해 요청 표현에 따라 {area_name} 범위 후보를 함께 포함했습니다.")
+        scope_note = self._build_scope_note(query)
+        if scope_note:
+            lines.append(scope_note)
         if reasoning_notes:
             lines.append(f"복합 조건을 반영해 후보 순서를 조정했습니다. 확인 필요: {', '.join(reasoning_notes)}")
         for index, card in enumerate(cards, start=1):
@@ -626,6 +681,51 @@ class TourismChatService:
                     suggestions.append(f"{region_text}에서 {condition_text} 관광지 추천해줘")
         return list(dict.fromkeys(suggestions))
 
+    @staticmethod
+    def _build_missing_region_suggestions(query: dict) -> list[str]:
+        conditions = query.get("conditions") or ["무장애"]
+        condition_text = " ".join(str(condition) for condition in conditions[:2])
+        return [
+            f"서울에서 {condition_text} 관광지 추천해줘",
+            f"부산에서 {condition_text} 관광지 추천해줘",
+            f"제주에서 {condition_text} 관광지 추천해줘",
+        ]
+
+    @staticmethod
+    def _build_unsupported_core_clarification_answer(query: dict) -> str:
+        region = query.get("region") or "해당 지역"
+        return (
+            f"{region} 질문에 포함된 핵심 조건은 현재 관광지 접근성 카드로 확인하기 어렵습니다. "
+            "그 조건을 빼고 무장애/가족 편의 관광지 기준으로 추천할지 먼저 확인해 주세요."
+        )
+
+    @staticmethod
+    def _build_unsupported_core_suggestions(query: dict) -> list[str]:
+        region = query.get("region") or "서울"
+        conditions = [condition for condition in (query.get("conditions") or []) if condition not in {"대중교통"}]
+        condition_text = " ".join(str(condition) for condition in conditions[:2]) or "무장애"
+        return [f"{region}에서 {condition_text} 관광지 추천해줘"]
+
+    @staticmethod
+    def _build_more_card_suggestions(message: str, has_more_cards: bool) -> list[str]:
+        if not has_more_cards or TourismChatService._requests_more_cards(message):
+            return []
+        return [f"{message.strip()} 더 보기"]
+
+    @staticmethod
+    def _limit_cards(cards: list[TourismPlaceCard], more_requested: bool) -> list[TourismPlaceCard]:
+        if more_requested:
+            return cards
+        return cards[:DEFAULT_CARD_LIMIT]
+
+    @staticmethod
+    def _has_more_cards(cards: list[TourismPlaceCard], more_requested: bool) -> bool:
+        return not more_requested and len(cards) > DEFAULT_CARD_LIMIT
+
+    @staticmethod
+    def _requests_more_cards(message: str) -> bool:
+        return any(keyword in message for keyword in MORE_CARD_KEYWORDS)
+
     def _build_sources(self, contexts: list[dict], cards: list[TourismPlaceCard]) -> list[Source]:
         sources = []
         card_ids = {card.content_id for card in cards}
@@ -664,7 +764,27 @@ class TourismChatService:
         cache_warning = query.get("region_cache_warning")
         if cache_warning:
             warnings.append(str(cache_warning))
+        if query.get("unsupported_intent"):
+            warnings.append("질문에 현재 MVP 범위 밖 요청이 포함되어 관광지 접근성 카드 근거 안에서만 답변했습니다.")
         return warnings
+
+    @staticmethod
+    def _has_supported_tourism_part(query: dict) -> bool:
+        return bool(query.get("region") and query.get("conditions"))
+
+    @staticmethod
+    def _should_clarify_unsupported_core(query: dict) -> bool:
+        return query.get("unsupported_intent") in {"subway_direct", "realtime_crowd"}
+
+    @staticmethod
+    def _build_scope_note(query: dict) -> str | None:
+        intent = query.get("unsupported_intent")
+        if not intent:
+            return None
+        return (
+            "다만 질문에 포함된 가격 비교, 실시간 혼잡도, 의료기관, 예약, 이동시간 계산 같은 요청은 "
+            "현재 MVP의 확인 데이터 범위 밖이라 단정하지 않습니다. 아래 추천은 관광지 접근성 카드 근거에 한정합니다."
+        )
 
     @staticmethod
     def _deduplicate(cards: list[TourismPlaceCard]) -> list[TourismPlaceCard]:

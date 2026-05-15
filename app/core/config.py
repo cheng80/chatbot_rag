@@ -61,7 +61,7 @@ class Settings(BaseSettings):
         alias="TOURISM_QUERY_EVENT_LOG_PATH",
     )
     tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
-    tourism_reasoning_assist_enabled: bool = Field(default=True, alias="TOURISM_REASONING_ASSIST_ENABLED")
+    tourism_reasoning_assist_enabled: bool = Field(default=False, alias="TOURISM_REASONING_ASSIST_ENABLED")
     tourism_reasoning_assist_max_cards: int = Field(default=5, alias="TOURISM_REASONING_ASSIST_MAX_CARDS")
 
     model_config = SettingsConfigDict(

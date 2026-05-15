@@ -24,6 +24,7 @@ notebooks/
 - `project/GOAL.md`: 현재 MVP 목표와 API 판정 기준
 - `project/progress_overview.md`: 전체 진행도 요약
 - `project/mvp_quality_work_log.md`: 발표용 MVP 품질 개선 및 개발 작업 목록
+- `project/demo_capture_scenarios.md`: 발표용 캡처와 시연 질문 시나리오
 - `tourism/accessible_tourism_mvp_plan.md`: 무장애·가족 친화 관광 챗봇 구현 플랜
 - `tourism/tourism_response_strategy_decision.md`: cache/RAG-first + TourAPI live-on-miss와 offline-index 방식 비교 및 되돌림 기준
 - `tourism/tourism_data_collection_plan.md`: 폴백 데이터 수집 계획과 OpenAPI 호출량 기록

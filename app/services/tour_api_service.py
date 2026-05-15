@@ -130,7 +130,10 @@ class TourAPIService:
             message = header.get("resultMsg") or "TourAPI 응답 오류"
             raise TourAPIError(f"{result_code}: {message}")
 
-        raw_items = payload.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+        items = payload.get("response", {}).get("body", {}).get("items", {})
+        if not isinstance(items, dict):
+            return []
+        raw_items = items.get("item", [])
         if isinstance(raw_items, dict):
             return [raw_items]
         if isinstance(raw_items, list):

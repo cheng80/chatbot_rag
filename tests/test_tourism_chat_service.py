@@ -83,6 +83,26 @@ def test_tourism_chat_uses_reasoning_assist_for_complex_question():
     assert "후보 카드에 없는 장소나 접근성 정보를 만들지 않는다" in llm.prompts[0]
 
 
+def test_tourism_chat_disables_reasoning_assist_by_default():
+    llm = FakeLLMService(
+        '{"ranked_ids":["sample-seoul-002","sample-seoul-001"],'
+        '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
+    )
+    service = TourismChatService(
+        Settings(),
+        FakeRetriever(),
+        TourismQueryService(),
+        llm_service=llm,
+    )
+
+    response = service.answer("서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천")
+
+    assert response.reasoning_assist_used is False
+    assert response.reasoning_assist_notes == []
+    assert response.cards[0].title == "서울어린이대공원"
+    assert llm.prompts == []
+
+
 def test_tourism_chat_skips_reasoning_assist_for_simple_question():
     llm = FakeLLMService('{"ranked_ids":["sample-seoul-002"]}')
     service = TourismChatService(
@@ -526,6 +546,103 @@ def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
     assert "부산 중구 기준" in response.answer
 
 
+def test_tourism_chat_explains_legacy_region_name_replacement(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    card = TourismPlaceCard(
+        content_id="legacy-cheongju",
+        title="청주 무장애 관광지",
+        address="충청북도 청주시 청원구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    (sample_dir / "cheongju.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "청원군": {
+                        "area_code": "33",
+                        "sigungu_code": "9",
+                        "area_name": "충북",
+                        "sigungu_name": "청원군",
+                    },
+                    "청주시": {
+                        "area_code": "33",
+                        "sigungu_code": "10",
+                        "area_name": "충북",
+                        "sigungu_name": "청주시",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(area_code_cache_path=cache_path),
+    )
+
+    response = service.answer("청원군에서 휠체어 관광지 추천해줘")
+
+    assert len(response.cards) == 1
+    assert response.cards[0].title == "청주 무장애 관광지"
+    assert "청주시 기준" in response.answer
+    assert "청원군은 현재 행정구역 기준 청주시" in response.answer
+
+
+def test_tourism_chat_suggests_more_when_more_than_five_cards_exist(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    for index in range(6):
+        card = TourismPlaceCard(
+            content_id=f"jeju-more-{index}",
+            title=f"제주 더보기 관광지 {index}",
+            address="제주특별자치도 제주시",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("제주시에서 휠체어 관광지 추천해줘")
+
+    assert len(response.cards) == 5
+    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 더 보기"]
+
+
+def test_tourism_chat_returns_more_cards_when_more_is_requested(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    for index in range(6):
+        card = TourismPlaceCard(
+            content_id=f"jeju-more-requested-{index}",
+            title=f"제주 전체 관광지 {index}",
+            address="제주특별자치도 제주시",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("제주시에서 휠체어 관광지 추천해줘 더 보기")
+
+    assert len(response.cards) == 6
+    assert response.suggested_messages == []
+
+
 def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
     sample_dir = tmp_path / "empty"
     sample_dir.mkdir()
@@ -555,6 +672,26 @@ def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature()
     assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
 
 
+def test_tourism_chat_does_not_return_broad_region_cards_for_unmatched_place_feature():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("대전에서 바닷가 휠체어 관광지 추천해줘")
+
+    assert response.cards == []
+    assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+
+
+def test_tourism_chat_asks_for_region_before_searching():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("휠체어 타는 가족이랑 갈 만한 관광지 추천해줘")
+
+    assert response.cards == []
+    assert response.lookup_mode == "clarification"
+    assert "추천할 지역을 먼저 알려 주세요" in response.answer
+    assert response.suggested_messages
+
+
 def test_tourism_chat_rejects_unsupported_price_comparison():
     service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
 
@@ -563,6 +700,28 @@ def test_tourism_chat_rejects_unsupported_price_comparison():
     assert response.cards == []
     assert response.lookup_mode == "unsupported"
     assert "가격 비교" in response.answer
+
+
+def test_tourism_chat_answers_supported_part_when_scope_request_is_mixed():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("서울에서 휠체어 관광지 추천하면서 근처 응급실과 약국도 같이 알려줘")
+
+    assert response.cards
+    assert response.lookup_mode == "indexed"
+    assert "현재 MVP의 확인 데이터 범위 밖" in response.answer
+    assert response.warnings
+
+
+def test_tourism_chat_clarifies_when_unsupported_condition_is_core():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("제주에서 지하철역 바로 연결된 무장애 관광지 추천해줘")
+
+    assert response.cards == []
+    assert response.lookup_mode == "clarification"
+    assert "핵심 조건" in response.answer
+    assert response.suggested_messages == ["제주에서 휠체어 관광지 추천해줘"]
 
 
 def test_tourism_chat_sample_cards_are_cached(tmp_path):

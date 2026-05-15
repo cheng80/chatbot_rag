@@ -133,7 +133,7 @@ def default_output_path() -> Path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the tourism 20-question eval set against /tourism/chat.")
+    parser = argparse.ArgumentParser(description="Run a tourism eval JSONL set against /tourism/chat.")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--base-url", default=os.environ.get("TOURISM_EVAL_BASE_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--output", type=Path, default=default_output_path())

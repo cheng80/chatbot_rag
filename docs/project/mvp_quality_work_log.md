@@ -26,11 +26,11 @@
 | 작업 | 결과 | 왜 중요한가 |
 |---|---:|---|
 | TourAPI 지역 코드 캐시 생성 | `data/processed/tour_area_codes.json` | 시군구 코드를 하드코딩하지 않고 공식 API 기준으로 관리 |
-| fallback Markdown 분할 수집 | `data/raw/tourism_accessible` 460개 | API 장애/쿼터/네트워크 문제에도 시연 가능한 최소 안전망 |
-| Chroma 재색인 | 461문서 / 463청크 | Markdown fallback을 RAG 검색 대상으로 사용 |
+| fallback Markdown 분할 수집 | `data/raw/tourism_accessible` 643개 | API 장애/쿼터/네트워크 문제에도 시연 가능한 최소 안전망 |
+| Chroma 재색인 | 644문서 / 650청크 | Markdown fallback을 RAG 검색 대상으로 사용 |
 | 샘플 감사 스크립트 추가 | `scripts/audit_tourism_samples.py` | 파싱 실패, 필수 필드 누락, 중복 콘텐츠ID를 자동 점검 |
 | 중복 콘텐츠ID 정리 | 중복 16개 제거 후 0개 | 강릉/강원 중복 수집 같은 품질 문제를 재발 방지 |
-| 시군구 fallback 1차 수집 | 234개 TourAPI 지역 중 90개가 3장 이상 | 전국 단위 서비스로 확장하기 위한 중간 커버리지 확보 |
+| 시군구 fallback 확장 수집 | 234개 TourAPI 지역 중 161개가 3장 이상 | 전국 단위 서비스로 확장하기 위한 중간 커버리지 확보 |
 | 행정동/법정동 매칭 데이터 생성 | alias 662개, dong alias 11467개 | 사용자가 실제로 쓰는 지역명 입력을 시군구 코드로 연결 |
 
 ## 질문 이해 및 지역 정책
@@ -100,7 +100,7 @@ Gemma 4 계열은 한국어 맥락과 긴 문맥 처리 후보로 유지한다. 
 
 | 작업 | 현재 상태 |
 |---|---|
-| pytest 회귀 테스트 | 57개 통과 |
+| pytest 회귀 테스트 | 72개 통과 |
 | API route 테스트 | `/tourism/chat` 성공/오류/blank message/fallback 검증 |
 | 관광 카드 codec 테스트 | Markdown 카드 round-trip 검증 |
 | 지역 정책 테스트 | 동명이 지역, 시군구 확장 금지, 근처 확장, 행정동/법정동 입력 검증 |
@@ -118,7 +118,8 @@ Gemma 4 계열은 한국어 맥락과 긴 문맥 처리 후보로 유지한다. 
 | `docs/project/GOAL.md` | MVP 완성 기준과 정책 결정 기록 |
 | `docs/project/progress_overview.md` | 전체 진행도 차트와 다음 체크포인트 |
 | `docs/tourism/tourism_response_strategy_decision.md` | offline-index 우선 vs cache/fallback-first + live-on-miss 비교 |
-| `docs/tourism/tourism_data_collection_plan.md` | 수집 배치, 호출량, 안전치 500건/day 기록 |
+| `docs/tourism/tourism_data_collection_plan.md` | 수집 배치, 호출량, 평시 안전치와 429 중단 기록 |
+| `docs/project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 시나리오 |
 | `docs/tourism/tourism_sample_quality.md` | 샘플 감사 결과와 중복 원인/재발 방지 |
 | `docs/tourism/tourism_sigungu_fallback_scale.md` | 전국 fallback 수집 규모와 250개 실사용 지역 목표 |
 | `docs/tourism/admin_region_aliases.md` | 행정동/법정동 매칭 데이터 생성 및 사용 원칙 |
@@ -137,8 +138,8 @@ Gemma 4 계열은 한국어 맥락과 긴 문맥 처리 후보로 유지한다. 
 
 ## 남은 발표 전 보강
 
-- 20문항 eval 수동 채점 결과를 정리한다.
-- live-on-miss 모드로 20문항 eval을 다시 실행해 fallback-only 결과와 비교한다.
+- 20문항 eval 수동 채점 결과를 정리하되, 20문항은 smoke test로 보고 확장 eval을 추가한다.
+- live-on-miss 모드로 20문항과 발표용 시나리오를 다시 실행해 fallback-only 결과와 비교한다.
 - 복합 의도 문항의 추론 보조 지연 시간을 품질 기준에 반영하고, 현재 1차 모델 벤치마크 결론을 20문항 수동 채점과 함께 재검토한다.
 - `/tourism-ui/`를 모바일 폭과 외부 터널 환경에서 QA한다.
 - `lookup_mode=cache/indexed/sample/live`별 대표 화면을 캡처한다.

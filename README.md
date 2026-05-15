@@ -335,8 +335,9 @@ curl -X POST http://localhost:8000/chat \
 - 실시간 조회 결과는 메모리와 `data/generated/tour_api/live_markdown/`에 캐시해 같은 지역 반복 호출을 줄인다.
 - 캐시/RAG 자료에도 없고 실시간 조회가 실패하거나 결과가 없으면 결과 부족 응답을 반환하고 주의 문구에 진단을 남긴다.
 - 응답의 `lookup_mode`는 현재 응답이 캐시, 실시간 조회, RAG 검색 자료, 폴백 자료, 지역 선택 질문 중 어디에서 왔는지 나타낸다.
-- 복합 상황 질문은 후보 카드 생성 뒤 LLM 추론 보조를 1회 호출할 수 있다. 이때 응답의 `reasoning_assist_used`와 `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
+- 복합 상황 질문의 LLM 추론 보조는 기본값이 꺼져 있다. 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켜고, 응답의 `reasoning_assist_used`와 `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
 - 추론 보조는 후보 카드의 순서와 설명 방향만 조정한다. 후보에 없는 장소나 접근성 정보를 만들면 안 된다.
+- 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
 - `/tourism/chat` 응답은 `data/generated/tour_api/query_card_events.jsonl`에 이벤트로 남긴다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다.
 - 원문 질문까지 저장해야 할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`를 켠다.
 - 개발과 확인 단계의 기본 모드는 캐시/RAG를 먼저 쓰고 부족할 때만 TourAPI를 실시간 조회하는 방식이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 폴백 자료만으로 운영한다.
@@ -469,7 +470,7 @@ OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 ```
 
-4. 관광 챗봇 전체 응답 평가는 20문항 eval로 실행한다. 평가 질문 원본은 `data/eval/tourism_20_questions.jsonl`이고, 사람이 읽는 설명은 `docs/tourism/tourism_eval_questions.md`에 있다.
+4. 관광 챗봇 기본 응답 평가는 20문항 eval로 먼저 실행한다. 이 20문항은 smoke test 성격이므로 발표 전에는 `docs/project/demo_capture_scenarios.md`와 확장 질문셋으로 검증폭을 넓힌다. 평가 질문 원본은 `data/eval/tourism_20_questions.jsonl`이고, 사람이 읽는 설명은 `docs/tourism/tourism_eval_questions.md`에 있다.
 
 ```bash
 .venv/bin/python scripts/eval_tourism_chat.py
@@ -487,7 +488,7 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 
 기본 결과 파일은 `data/generated/tour_api/model_benchmarks/` 아래에 생성된다. 이 산출물은 커밋하지 않는다.
 
-6. `notebooks/model_comparison_template.ipynb`는 20문항 eval 결과를 사람이 보며 비교할 때 보조로 사용한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
+6. `notebooks/model_comparison_template.ipynb`는 20문항 eval과 확장 질문 결과를 사람이 보며 비교할 때 보조로 사용한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
 
 7. 각 응답을 아래 기준으로 1~5점 평가한다.
 

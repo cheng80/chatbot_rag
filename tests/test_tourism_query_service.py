@@ -124,6 +124,109 @@ def test_tourism_query_marks_unsupported_price_comparison(tmp_path: Path):
     assert query["unsupported_intent"] == "wheelchair_rental_price"
 
 
+def test_tourism_query_marks_mixed_scope_request(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울": {
+                        "area_code": "1",
+                        "sigungu_code": None,
+                        "area_name": "서울",
+                        "sigungu_name": None,
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울에서 휠체어 관광지 추천하면서 근처 응급실과 약국도 같이 알려줘")
+
+    assert query["region"] == "서울"
+    assert "휠체어" in query["conditions"]
+    assert query["unsupported_intent"] == "medical_lookup"
+
+
+def test_tourism_query_maps_legacy_region_name_to_current_sigungu(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "청원군": {
+                        "area_code": "33",
+                        "sigungu_code": "9",
+                        "area_name": "충북",
+                        "sigungu_name": "청원군",
+                    },
+                    "청주시": {
+                        "area_code": "33",
+                        "sigungu_code": "10",
+                        "area_name": "충북",
+                        "sigungu_name": "청주시",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("청원군에서 휠체어 관광지 추천해줘")
+
+    assert query["region"] == "청주시"
+    assert query["area_code"] == "33"
+    assert query["sigungu_code"] == "10"
+    assert query["sigungu_name"] == "청주시"
+    assert query["legacy_region"] == "청원군"
+    assert query["legacy_region_replacement"] == "청주시"
+    assert "청원군은 현재 행정구역 기준 청주시" in query["legacy_region_notice"]
+
+
+def test_tourism_query_maps_legacy_jeju_county_to_current_city(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "남제주군": {
+                        "area_code": "39",
+                        "sigungu_code": "2",
+                        "area_name": "제주",
+                        "sigungu_name": "남제주군",
+                    },
+                    "서귀포시": {
+                        "area_code": "39",
+                        "sigungu_code": "3",
+                        "area_name": "제주",
+                        "sigungu_name": "서귀포시",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("제주특별자치도 남제주군에서 유모차 관광지 추천해줘")
+
+    assert query["region"] == "서귀포시"
+    assert query["area_code"] == "39"
+    assert query["sigungu_code"] == "3"
+    assert query["sigungu_name"] == "서귀포시"
+    assert query["legacy_region"] == "제주특별자치도 남제주군"
+    assert "남제주군은 현재 행정구역 기준 서귀포시" in query["legacy_region_notice"]
+
+
 def test_tourism_query_falls_back_without_cache(tmp_path: Path):
     service = TourismQueryService(area_code_cache_path=tmp_path / "missing.json", admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
 

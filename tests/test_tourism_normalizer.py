@@ -29,6 +29,7 @@ def test_tourism_normalizer_builds_accessibility_and_family_card():
     assert "유모차 대여" in card.family_tags
     assert "수유실" in card.family_tags
     assert card.accessibility.wheelchair == "휠체어 대여 가능"
+    assert card.source_url is None
 
 
 def test_card_markdown_contains_rag_fields():

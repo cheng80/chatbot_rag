@@ -40,7 +40,7 @@ class TourismNormalizer:
             accessibility=accessibility,
             family_tags=family_tags,
             accessibility_tags=accessibility_tags,
-            source_url=f"https://access.visitkorea.or.kr/detail/{content_id}" if content_id else None,
+            source_url=None,
             raw_fields=raw_fields,
         )
 

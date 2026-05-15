@@ -1,6 +1,6 @@
 # 무장애 관광 챗봇 진행도
 
-마지막 갱신: 2026-05-15
+마지막 갱신: 2026-05-16
 
 이 문서는 `docs/project/GOAL.md`, `docs/tourism/accessible_tourism_mvp_plan.md`, `README.md`, `TODOS.md` 기준으로 현재 MVP 진행 상태를 빠르게 보기 위한 요약이다.
 응답 전략 변경 이력은 `docs/tourism/tourism_response_strategy_decision.md`에 별도로 기록한다.
@@ -15,7 +15,7 @@ Data/sample coverage [█████████░] 88%
 MVP fallback collect [█████████░] 90%
 Sigungu fallback     [███████░░░] 69%
 Region alias data    [████████░░] 80%
-Web demo UI          [███████░░░] 70%
+Web demo UI          [████████░░] 80%
 Quality/eval         [██████░░░░] 60%
 Production readiness [██░░░░░░░░] 20%
 ```
@@ -36,8 +36,8 @@ Production readiness [██░░░░░░░░] 20%
 | RAG 색인 | 88% | fallback | 809개 문서/816개 청크를 Chroma에서 검색 |
 | `/tourism/chat` API | 94% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장, 추론 보조 정책 반영 |
 | 카드 응답 schema | 88% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages`, `reasoning_assist_used` 반환 |
-| 웹 확인 UI | 70% | 시연 가능 | `/tourism-ui/`, 지역 버튼, 자유 입력, Help, Swagger 링크, 터널 확인 |
-| 테스트 | 86% | 주요 회귀 커버 | `pytest` 72개 통과, backend 정책과 수집/감사/eval/지역명 매칭 중심 |
+| 웹 확인 UI | 80% | 시연 가능 | `/tourism-ui/`, 메신저형 정적 UI, 지역 quick reply, 접힌 답변, 카드 상세, 지도 검색, 터널 확인 |
+| 테스트 | 86% | 주요 회귀 커버 | `pytest` 83개 통과, backend 정책과 수집/감사/eval/지역명 매칭 중심 |
 | 모델 품질 평가 | 70% | 1차 벤치마크 완료 | 20문항 fallback-only eval 실행 완료, 모델 추론 보조/native thinking 1차 비교 완료 |
 | 운영/배포 | 20% | 임시 확인 | Cloudflare Quick Tunnel로 외부 임시 확인 가능, 정식 배포 아님 |
 
@@ -65,6 +65,10 @@ Production readiness [██░░░░░░░░] 20%
 - 관계 호칭만으로 나이 추정하지 않음
 - 복합 질문에서만 LLM 추론 보조를 호출해 후보 카드 재랭킹과 확인 필요 메모를 반환
 - 정적 웹 UI `/tourism-ui/` 추가
+- `/tourism-ui/`를 대시보드형 화면에서 메신저형 관광 상담 UI로 개편
+- 추천 카드 위 긴 답변을 기본 접힘 처리하고 `전체 보기`/`접기`를 추가
+- 추천 카드에 `상세 정보` 펼침과 장소명/주소 기반 `지도 검색`을 추가
+- 콘텐츠 ID만으로 만든 `access.visitkorea.or.kr/detail/...` 링크가 비정상 접근으로 떨어져 잘못된 원문 URL 생성을 중단
 - Cloudflare Quick Tunnel 외부 확인 흐름 문서화
 - Swagger/ReDoc/OpenAPI JSON 링크를 UI에 노출
 - 발표용 캡처와 시연 시나리오를 `docs/project/demo_capture_scenarios.md`에 정리
@@ -75,7 +79,7 @@ Production readiness [██░░░░░░░░] 20%
 |---|---|---|---|
 | P1 | live 조회 QA | 실제 질문별 호출량, 쿼터, 응답 속도 확인 필요 | `/tourism/chat` |
 | P1 | fallback 데이터 QA 실행 | 지역별 최소 샘플은 확보됐고 샘플 감사 리포트와 실제 질문 품질 확인 필요 | `scripts/audit_tourism_samples.py` |
-| P1 | 웹 UI QA | 모바일/외부 사용자 관점에서 카드 가독성, Help, 오류 상태 확인 필요 | `frontend/web/` |
+| P1 | 웹 UI QA | 모바일/외부 사용자 관점에서 카드 상세, 지도 검색, 접힌 답변, Help, 오류 상태 확인 필요 | `frontend/web/` |
 | P1 | 확장 eval 수동 채점 및 live-on-miss 비교 | 20문항은 smoke test 수준이므로 발표 전 검증폭을 넓혀야 함 | `data/eval/tourism_20_questions.jsonl` |
 | P1 | 복합 질문 의도 회귀 QA | 추론 보조는 기본 OFF로 두고, ON/OFF eval 비교로 카드 수·순서·경고·후속 질문 차이를 확인 필요 | `/tourism/chat`, `scripts/eval_tourism_chat.py` |
 | P2 | 로컬 모델 비교 실행/수동 채점 | 기본 로컬 모델과 native thinking 사용 여부 결정 | `scripts/benchmark_tourism_reasoning_models.py`, `docs/tourism/tourism_model_reasoning_benchmark.md` |
@@ -87,7 +91,7 @@ Production readiness [██░░░░░░░░] 20%
 
 ## 다음 체크포인트
 
-1. `/tourism-ui/`를 외부 터널 URL로 열어 사용자 흐름을 직접 테스트한다.
+1. `/tourism-ui/`를 외부 터널 URL로 열어 메신저형 사용자 흐름을 직접 테스트한다.
 2. 서울/부산/강릉 외 지역 질문에서 live 조회 결과와 fallback 메시지를 수집한다.
 3. fallback Markdown 카드 품질을 지역별로 샘플링한다.
 4. 20문항 smoke eval에 더해 발표용 캡처 시나리오와 확장 질문셋을 fallback-only/live-on-miss 환경에서 실행한다.

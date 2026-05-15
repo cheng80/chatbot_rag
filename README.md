@@ -131,10 +131,13 @@ python -m pip install -r requirements.txt
 ```bash
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ollama pull gemma3:4b-it-q4_K_M
+ollama pull gemma4:e4b
+ollama pull qwen3:4b
 ollama pull bge-m3
 ```
 
 `supergemma4-e4b-abliterated`는 한국어 답변 품질 실험을 위한 1차 후보이고, `gemma3:4b-it-q4_K_M`는 비교 기준선으로 사용한다.
+`gemma4:e4b`와 `qwen3:4b`는 Ollama native thinking 후보로 별도 비교한다. 사용자 제안 모델인 `huihui_ai/gemma-4-abliterated:e4b`는 실험 후보에 포함하되, 안전 필터 약화 경고가 있어 공개 테스트 기본값으로 쓰기 전 수동 검토가 필요하다.
 `bge-m3`가 로컬 환경에서 지원되지 않으면 `.env`의 `OLLAMA_EMBED_MODEL` 값을 다른 Ollama 임베딩 모델로 바꿔 사용할 수 있습니다.
 
 ## 3. 환경 변수
@@ -313,6 +316,8 @@ fallback 데이터 분할 수집 계획은 [무장애 관광 데이터 분할 �
 - live 조회는 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시로 같은 지역 반복 호출을 줄인다.
 - Chroma/Markdown에도 없고 live 조회가 실패하거나 결과가 없으면 no-results 응답을 반환하고 `warnings`에 진단을 남긴다.
 - 응답의 `lookup_mode`는 `cache`, `live`, `indexed`, `sample`, `clarification` 중 하나로 현재 응답 경로를 나타낸다.
+- 복합 상황 질문은 후보 카드 생성 뒤 LLM 추론 보조를 1회 호출할 수 있다. 이때 응답의 `reasoning_assist_used`와 `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
+- 추론 보조는 후보 카드의 순서와 설명 방향만 조정한다. 후보에 없는 장소나 접근성 정보를 만들면 안 된다.
 - `/tourism/chat` 응답은 `data/generated/tour_api/query_card_events.jsonl`에 JSONL 이벤트로 남긴다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다.
 - 원문 질문까지 저장해야 할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`를 켠다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다.
@@ -414,13 +419,17 @@ python -m pytest
 
 ## 13. 모델 비교 실험 순서
 
-비교 대상은 `supergemma4-e4b-abliterated Q4_K_M`와 `gemma3:4b-it-q4_K_M` 두 개로 제한한다. 임베딩은 `bge-m3`로 고정해 LLM 답변 품질만 비교한다.
+비교 대상은 현재 기본 모델, 빠른 기준선, native thinking 후보를 함께 본다. 임베딩은 `bge-m3`로 고정해 LLM 답변 품질과 추론 보조 지연만 비교한다.
 
 1. 모델 준비
 
 ```bash
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ollama pull gemma3:4b-it-q4_K_M
+ollama pull gemma4:e4b
+ollama pull qwen3:4b
+# 선택: 사용자 제안 Gemma 4 abliterated 후보
+ollama pull huihui_ai/gemma-4-abliterated:e4b
 ollama pull bge-m3
 ```
 
@@ -441,9 +450,7 @@ OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 ```
 
-4. 평가 질문 원본은 `data/eval/tourism_20_questions.jsonl`이고, 사람이 읽는 설명은 `docs/tourism/tourism_eval_questions.md`에 있다.
-
-5. 서버를 띄운 뒤 같은 질문 세트를 실행한다.
+4. 관광 챗봇 전체 응답 평가는 20문항 eval로 실행한다. 평가 질문 원본은 `data/eval/tourism_20_questions.jsonl`이고, 사람이 읽는 설명은 `docs/tourism/tourism_eval_questions.md`에 있다.
 
 ```bash
 .venv/bin/python scripts/eval_tourism_chat.py
@@ -451,7 +458,17 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 
 기본 결과 파일은 `data/generated/tour_api/eval_runs/` 아래에 생성된다. 이 산출물은 커밋하지 않는다.
 
-6. `notebooks/model_comparison_template.ipynb`에서 두 모델 결과를 비교한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
+5. 후보 카드 재랭킹과 native thinking 여부는 전용 스크립트로 빠르게 비교한다.
+
+```bash
+.venv/bin/python scripts/benchmark_tourism_reasoning_models.py \
+  --models hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M gemma3:4b-it-q4_K_M gemma4:e4b qwen3:4b huihui_ai/gemma-4-abliterated:e4b \
+  --runs 1
+```
+
+기본 결과 파일은 `data/generated/tour_api/model_benchmarks/` 아래에 생성된다. 이 산출물은 커밋하지 않는다.
+
+6. `notebooks/model_comparison_template.ipynb`는 20문항 eval 결과를 사람이 보며 비교할 때 보조로 사용한다. 단일 API 확인은 `/tourism-ui/`, Swagger, curl을 우선 사용하고, 초기 탐색용 보조 도구로 `notebooks/api_test.ipynb`를 보존한다.
 
 7. 각 응답을 아래 기준으로 1~5점 평가한다.
 
@@ -459,6 +476,13 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 |---|---|
 | 한국어 자연스러움 | 문장이 어색하지 않고 상담형 톤을 유지하는가 |
 | 근거 준수 | 검색된 문서와 출처 범위 안에서 답하는가 |
+| 모름 처리 | 근거가 없을 때 추측하지 않는가 |
+| 관광 상담 적합성 | 여행 조건, 지역, 동행자 맥락을 잘 반영하는가 |
+| 응답 속도 | `/chat` 전체 응답 시간이 실사용 가능한가 |
+
+8. 채택 기준은 품질 우선이다. `supergemma4` 또는 공식 `gemma4:e4b`가 한국어와 상담 품질에서 확실히 앞서고 환각이 늘지 않으면 메인 후보로 유지한다. `qwen3:4b`는 native thinking이 실제 품질 향상과 허용 가능한 지연 시간을 동시에 만족할 때만 추론 보조 후보로 둔다. abliterated 모델은 안전 필터 약화 특성 때문에 공개 테스트 기본값으로 바로 쓰지 않는다.
+
+자세한 모델별 벤치마크 기준과 결과 기록은 `docs/tourism/tourism_model_reasoning_benchmark.md`를 본다.
 
 ## 14. 관광 이벤트 로그 분석
 
@@ -475,13 +499,8 @@ notebooks/tourism_event_log_analysis.ipynb
 ```
 
 이 노트북은 `matplotlib` 차트를 포함하고, macOS `AppleGothic` 등 설치된 한글 폰트를 자동 선택해 한글 깨짐을 줄인다. 확인 항목은 `lookup_mode` 비율, live API 호출 여부, 지역/조건별 질문 수, 카드 노출 Top N, degraded/warnings 이벤트다.
-| 모름 처리 | 근거가 없을 때 추측하지 않는가 |
-| 관광 상담 적합성 | 여행 조건, 지역, 동행자 맥락을 잘 반영하는가 |
-| 응답 속도 | `/chat` 전체 응답 시간이 실사용 가능한가 |
 
-6. 채택 기준은 품질 우선이다. `supergemma4`가 한국어와 상담 품질에서 확실히 앞서고, 환각이 늘지 않으면 메인 모델로 유지한다. 환각이나 지시 불이행이 늘면 `gemma3:4b-it-q4_K_M` 또는 공식 `gemma4:4b-q4_K_M`를 기준선으로 되돌린다.
-
-## 14. 참고 문서
+## 15. 참고 문서
 
 - FastAPI Bigger Applications: https://fastapi.tiangolo.com/tutorial/bigger-applications/
 - Chroma Persistent Client: https://docs.trychroma.com/docs/run-chroma/clients

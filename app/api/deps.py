@@ -106,5 +106,6 @@ def get_tourism_chat_service() -> TourismChatService:
         retriever=get_retriever(),
         query_service=get_tourism_query_service(),
         tour_api_service=get_tour_api_service(),
+        llm_service=get_llm_service(),
         event_logger=get_tourism_query_event_logger(),
     )

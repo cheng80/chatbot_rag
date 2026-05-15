@@ -30,17 +30,31 @@ Depends on / blocked by: Enough event volume or dashboard need to justify moving
 
 ## Tourism model comparison run
 
-What: Run the committed 20-question tourism evaluation set and compare `supergemma4` against `gemma3` on grounded answer quality.
+What: Run the committed 20-question tourism evaluation set and compare `supergemma4`, `gemma3`, official `gemma4:e4b`, `qwen3:4b`, and selected Gemma 4 abliterated candidates on grounded answer quality. Native-thinking capable models must be measured in both `think=false` and `think=true` modes.
 
 Why: The endpoint can return structured cards, but public-demo answer quality needs repeatable evidence instead of manual spot checks.
 
-Pros: Catches prompt/model regressions and gives a defensible basis for the default local LLM choice.
+Pros: Catches prompt/model regressions and gives a defensible basis for the default local LLM choice. Keeps Gemma 4-family Korean context quality in the candidate pool while testing whether native thinking is worth the latency.
 
 Cons: Requires running both local models, saving result summaries, and manually scoring answer quality.
 
-Context: Use `data/eval/tourism_20_questions.jsonl`, `scripts/eval_tourism_chat.py`, the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow already described in `README.md`.
+Context: Use `data/eval/tourism_20_questions.jsonl`, `scripts/eval_tourism_chat.py`, `scripts/benchmark_tourism_reasoning_models.py`, the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow described in `README.md` and `docs/tourism/tourism_model_reasoning_benchmark.md`. Current local `supergemma4` is 8B-class but exposes only `Capabilities: completion` in Ollama, so do not treat it as native `think=true` capable unless a new tag proves otherwise.
 
-Depends on / blocked by: Rebuilt Chroma index for the tourism sample set and both local Ollama models being available.
+Depends on / blocked by: Rebuilt Chroma index for the tourism sample set and local Ollama models being available.
+
+## LLM reasoning-assist eval and guardrails
+
+What: Expand eval coverage and guardrails for `/tourism/chat` LLM reasoning-assist after deterministic parsing and card retrieval.
+
+Why: Cache, Chroma, Markdown fallback, and TourAPI can handle clear region/condition questions, but real users will ask mixed situation questions such as `오래 걷기 힘든 부모님`, `비 오면 편한 곳`, `아이랑 쉬기 좋은 곳`, or `서울역에서 멀지 않은 곳`. These should not be solved by inventing data, but they may need LLM help for intent interpretation, candidate reranking, and counseling-style wording.
+
+Pros: Keeps hallucination risk low while preserving the product value of an AI 상담형 챗봇. Also gives a clean presentation story: deterministic evidence first, LLM judgment second.
+
+Cons: Requires more eval cases and guardrails so the LLM cannot add unsupported accessibility claims.
+
+Context: `TourismChatService` now has a reasoning-assist decision point, JSON-only reranking prompt, `reasoning_assist_used` response field, and event-log fields. Start from `TourismQueryService`, `TourismChatService`, `TourismQueryEventLogger`, and `data/eval/tourism_20_questions.jsonl`. The LLM should only see the user question plus already retrieved `TourismPlaceCard` candidates and known fields.
+
+Depends on / blocked by: Adding eval cases for complex situation questions. Native Ollama thinking is optional and should be benchmarked separately.
 
 ## Frontend tourism UI polish and QA
 

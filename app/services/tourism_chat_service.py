@@ -1,19 +1,39 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
+from typing import Any
 
 from app.core.config import Settings
 from app.schemas.chat import Source
 from app.schemas.tourism import TourismChatResponse, TourismPlaceCard
+from app.services.llm_service import LLMService
 from app.services.retriever import Retriever
 from app.services.tour_api_service import TourAPIError, TourAPIService
 from app.services.tourism_card_codec import TourismCardMarkdownCodec
 from app.services.tourism_normalizer import TourismNormalizer
 from app.services.tourism_query_event_logger import TourismQueryEventLogger
-from app.services.tourism_query_service import TourismQueryService
+from app.services.tourism_query_service import FEATURE_KEYWORDS, TourismQueryService
 
 logger = logging.getLogger(__name__)
+
+REASONING_ASSIST_KEYWORDS = [
+    "오래 걷",
+    "걷기 힘",
+    "비 오",
+    "비가",
+    "붐비지",
+    "조용",
+    "실내",
+    "쉬기 좋은",
+    "아이랑",
+    "아이와",
+    "가족이 같이",
+    "멀지 않은",
+    "가까운",
+    "동선",
+]
 
 
 class TourismChatService:
@@ -26,6 +46,7 @@ class TourismChatService:
         normalizer: TourismNormalizer | None = None,
         card_codec: TourismCardMarkdownCodec | None = None,
         event_logger: TourismQueryEventLogger | None = None,
+        llm_service: LLMService | None = None,
     ):
         self.settings = settings
         self.retriever = retriever
@@ -34,12 +55,28 @@ class TourismChatService:
         self.normalizer = normalizer or TourismNormalizer()
         self.card_codec = card_codec or TourismCardMarkdownCodec()
         self.event_logger = event_logger
+        self.llm_service = llm_service
         self._sample_cards_cache: list[TourismPlaceCard] | None = None
         self._live_cards_cache: dict[str, list[TourismPlaceCard]] = {}
         self._live_markdown_cards_cache: list[TourismPlaceCard] | None = None
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self.query_service.extract(message)
+        if query.get("unsupported_intent"):
+            response = TourismChatResponse(
+                answer=(
+                    "현재 MVP는 관광지의 무장애 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
+                    "휠체어 대여 가격 비교나 최저가 정보는 확인된 데이터가 없어 추천하지 않겠습니다. "
+                    "대신 방문하려는 지역과 접근성 조건을 알려주면 갈 수 있는 관광지를 찾아드릴 수 있습니다."
+                ),
+                cards=[],
+                sources=[],
+                lookup_mode="unsupported",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+            )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            return response
         if query.get("ambiguous_region"):
             response = TourismChatResponse(
                 answer=self._build_region_clarification_answer(query),
@@ -104,7 +141,8 @@ class TourismChatService:
             self._log_event(message, session_id, query, response, live_api_called)
             return response
 
-        answer = self._build_answer(cards, query, expanded=expanded)
+        cards, reasoning_used, reasoning_notes = self._apply_reasoning_assist(cards, message, query)
+        answer = self._build_answer(cards, query, expanded=expanded, reasoning_notes=reasoning_notes)
         response = TourismChatResponse(
             answer=answer,
             cards=cards,
@@ -112,6 +150,8 @@ class TourismChatService:
             lookup_mode=lookup_mode,
             degraded=degraded,
             warnings=warnings,
+            reasoning_assist_used=reasoning_used,
+            reasoning_assist_notes=reasoning_notes,
         )
         self._log_event(message, session_id, query, response, live_api_called)
         return response
@@ -210,6 +250,133 @@ class TourismChatService:
                 cards.append(card)
         return cards
 
+    def _apply_reasoning_assist(
+        self,
+        cards: list[TourismPlaceCard],
+        message: str,
+        query: dict,
+    ) -> tuple[list[TourismPlaceCard], bool, list[str]]:
+        if not self._should_use_reasoning_assist(cards, message, query):
+            return cards, False, []
+        assert self.llm_service is not None
+        try:
+            payload = self._call_reasoning_assist(cards, message, query)
+        except Exception as exc:  # noqa: BLE001 - reasoning assist must never break the main answer.
+            logger.warning("관광 추론 보조 실패, 기존 카드 순서 유지: %s", exc.__class__.__name__)
+            return cards, False, []
+
+        ranked_cards = self._reorder_cards_by_reasoning(cards, payload.get("ranked_ids"))
+        notes = self._normalize_reasoning_notes(payload)
+        return ranked_cards, True, notes
+
+    def _should_use_reasoning_assist(self, cards: list[TourismPlaceCard], message: str, query: dict) -> bool:
+        if not self.settings.tourism_reasoning_assist_enabled:
+            return False
+        if not self.llm_service:
+            return False
+        if len(cards) < 2:
+            return False
+        if query.get("ambiguous_region") or query.get("unsupported_intent"):
+            return False
+        conditions = query.get("conditions") or []
+        if len(conditions) >= 3:
+            return True
+        return any(keyword in message for keyword in REASONING_ASSIST_KEYWORDS)
+
+    def _call_reasoning_assist(
+        self,
+        cards: list[TourismPlaceCard],
+        message: str,
+        query: dict,
+    ) -> dict[str, Any]:
+        prompt = self._build_reasoning_assist_prompt(cards, message, query)
+        raw = self.llm_service.generate(prompt)
+        return self._parse_reasoning_assist_json(raw)
+
+    def _build_reasoning_assist_prompt(
+        self,
+        cards: list[TourismPlaceCard],
+        message: str,
+        query: dict,
+    ) -> str:
+        max_cards = max(self.settings.tourism_reasoning_assist_max_cards, 1)
+        card_payload = []
+        for index, card in enumerate(cards[:max_cards], start=1):
+            card_payload.append(
+                {
+                    "id": card.content_id,
+                    "rank": index,
+                    "title": card.title,
+                    "address": card.address,
+                    "accessibility_tags": card.accessibility_tags,
+                    "family_tags": card.family_tags,
+                    "recommendation_reason": card.recommendation_reason,
+                    "known_fields": card.raw_fields,
+                }
+            )
+        payload = {
+            "message": message,
+            "region": query.get("region"),
+            "conditions": query.get("conditions") or [],
+            "features": query.get("features") or [],
+            "cards": card_payload,
+        }
+        return (
+            "너는 무장애 관광 챗봇의 후보 재랭킹 보조 계층이다.\n"
+            "규칙:\n"
+            "- 후보 카드에 없는 장소나 접근성 정보를 만들지 않는다.\n"
+            "- 후보 카드 id만 ranked_ids에 넣는다.\n"
+            "- 사용자의 복합 상황을 해석해 후보 순서와 확인 필요 메모만 정리한다.\n"
+            "- 출력은 JSON 객체만 한다. Markdown 코드블록을 쓰지 않는다.\n\n"
+            "입력 JSON:\n"
+            f"{json.dumps(payload, ensure_ascii=False)}\n\n"
+            "출력 JSON 형식:\n"
+            "{\"ranked_ids\":[\"card-id\"],\"missing_or_uncertain\":[\"확인 필요 메모\"]}"
+        )
+
+    @staticmethod
+    def _parse_reasoning_assist_json(raw: str) -> dict[str, Any]:
+        text = raw.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+            text = re.sub(r"```$", "", text).strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("추론 보조 JSON 객체를 찾지 못했습니다.")
+        parsed = json.loads(text[start : end + 1])
+        if not isinstance(parsed, dict):
+            raise ValueError("추론 보조 응답이 JSON 객체가 아닙니다.")
+        return parsed
+
+    @staticmethod
+    def _reorder_cards_by_reasoning(cards: list[TourismPlaceCard], ranked_ids: Any) -> list[TourismPlaceCard]:
+        if not isinstance(ranked_ids, list):
+            return cards
+        by_id = {card.content_id: card for card in cards}
+        ordered = []
+        seen = set()
+        for raw_id in ranked_ids:
+            content_id = str(raw_id)
+            if content_id in by_id and content_id not in seen:
+                ordered.append(by_id[content_id])
+                seen.add(content_id)
+        return [*ordered, *[card for card in cards if card.content_id not in seen]]
+
+    @staticmethod
+    def _normalize_reasoning_notes(payload: dict[str, Any]) -> list[str]:
+        notes = payload.get("missing_or_uncertain") or payload.get("notes") or []
+        if isinstance(notes, str):
+            notes = [notes]
+        if not isinstance(notes, list):
+            return []
+        result = []
+        for note in notes:
+            text = str(note).strip()
+            if text:
+                result.append(text)
+        return result[:3]
+
     @staticmethod
     def _live_cache_key(query: dict) -> str:
         return ":".join([str(query.get("area_code") or ""), str(query.get("sigungu_code") or "")])
@@ -286,8 +453,13 @@ class TourismChatService:
     ) -> tuple[list[TourismPlaceCard], bool]:
         region = query.get("region")
         if region and query.get("is_sigungu"):
+            query_region_cards = self._filter_cards_by_query_region(cards, query)
+            if query.get("features"):
+                query_region_cards = self._filter_cards_by_features(query_region_cards, query)
+                if not query_region_cards and not query.get("allow_region_expansion"):
+                    return [], False
             region_cards = self._rank_cards(
-                self._filter_cards_by_query_region(cards, query),
+                query_region_cards,
                 message,
                 query,
                 filter_region=False,
@@ -319,6 +491,9 @@ class TourismChatService:
             region_cards = [card for card in cards if region in f"{card.title} {card.address or ''}"]
             if region_cards:
                 cards = region_cards
+        feature_cards = self._filter_cards_by_features(cards, query)
+        if feature_cards:
+            cards = feature_cards
 
         def score(card: TourismPlaceCard) -> int:
             haystack = " ".join(
@@ -337,12 +512,36 @@ class TourismChatService:
             for condition in conditions:
                 if condition in haystack:
                     value += 3
+            for feature in query.get("features") or []:
+                if feature in haystack:
+                    value += 3
             for token in message.split():
                 if len(token) >= 2 and token in haystack:
                     value += 1
             return value
 
         return sorted(cards, key=score, reverse=True)
+
+    @staticmethod
+    def _filter_cards_by_features(cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
+        features = query.get("features") or []
+        if not features:
+            return cards
+        filtered = []
+        for card in cards:
+            haystack = " ".join(
+                [
+                    card.title,
+                    card.address or "",
+                    card.recommendation_reason,
+                    " ".join(card.accessibility_tags),
+                    " ".join(card.family_tags),
+                    " ".join(card.raw_fields.values()),
+                ]
+            )
+            if all(any(term in haystack for term in FEATURE_KEYWORDS.get(feature, [feature])) for feature in features):
+                filtered.append(card)
+        return filtered
 
     @staticmethod
     def _filter_cards_by_region(cards: list[TourismPlaceCard], region: str | None) -> list[TourismPlaceCard]:
@@ -364,7 +563,13 @@ class TourismChatService:
                 filtered.append(card)
         return filtered
 
-    def _build_answer(self, cards: list[TourismPlaceCard], query: dict, expanded: bool = False) -> str:
+    def _build_answer(
+        self,
+        cards: list[TourismPlaceCard],
+        query: dict,
+        expanded: bool = False,
+        reasoning_notes: list[str] | None = None,
+    ) -> str:
         region = query.get("region") or "요청 지역"
         conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
         lines = [f"{region} 기준으로 {conditions} 조건에 맞는 관광지 {len(cards)}곳을 추천합니다."]
@@ -376,6 +581,8 @@ class TourismChatService:
         if expanded:
             area_name = query.get("area_name") or "상위 지역"
             lines.append(f"{region} 안의 후보가 부족해 요청 표현에 따라 {area_name} 범위 후보를 함께 포함했습니다.")
+        if reasoning_notes:
+            lines.append(f"복합 조건을 반영해 후보 순서를 조정했습니다. 확인 필요: {', '.join(reasoning_notes)}")
         for index, card in enumerate(cards, start=1):
             tags = card.accessibility_tags + card.family_tags
             basis = ", ".join(tags[:4]) if tags else "세부 편의정보 확인 필요"

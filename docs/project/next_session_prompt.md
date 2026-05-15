@@ -23,13 +23,14 @@
 
 - 목표: ChatGPT/Gemini API 없이 FastAPI + ChromaDB + Ollama 기반 로컬 RAG 챗봇을 만든다.
 - 답변 모델: `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`
-- 비교 모델: `gemma3:4b-it-q4_K_M`
+- 비교 모델: `gemma3:4b-it-q4_K_M`, `gemma4:e4b`, `qwen3:4b`, `huihui_ai/gemma-4-abliterated:e4b`
 - 임베딩 모델: `bge-m3`
 - Vector DB: ChromaDB
 - API: FastAPI
 - 클라이언트 후보: 웹 확인 UI 우선, Flutter는 후순위
 - 평가셋: `data/eval/tourism_20_questions.jsonl`은 `/tourism/chat` 20문항 품질 평가 원본이다.
 - 노트북: `notebooks/tourism_event_log_analysis.ipynb`는 `/tourism/chat` 이벤트 로그 분석용, `model_comparison_template.ipynb`는 20문항 eval/model comparison 보조용
+- 모델 벤치마크: `scripts/benchmark_tourism_reasoning_models.py`는 후보 카드 재랭킹과 Ollama native thinking 여부를 비교한다.
 
 ## 기본 작업 순서
 
@@ -69,6 +70,10 @@ ollama list
 ```bash
 ollama pull bge-m3
 ollama pull gemma3:4b-it-q4_K_M
+ollama pull gemma4:e4b
+ollama pull qwen3:4b
+# 선택: 사용자 제안 Gemma 4 abliterated 후보
+ollama pull huihui_ai/gemma-4-abliterated:e4b
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ```
 
@@ -143,12 +148,16 @@ curl -X POST http://localhost:8000/chat \
 
 - `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
 - `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
+- `/tourism/chat`은 복합 상황 질문에서만 LLM 추론 보조를 1회 호출할 수 있다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다. 이 기능은 `TOURISM_REASONING_ASSIST_ENABLED=false`로 끌 수 있다.
+- 2026-05-15 로컬 모델 추론 보조 벤치마크를 실행했다. 결과 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. 현재 결론은 MVP 기본 추론 보조는 `think=false`로 유지하는 것이다. `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 동작하지만 30초 이상 지연됐고, `qwen3:4b`는 현재 프롬프트에서 JSON/한국어 계약을 지키지 못했다.
+- 생성된 모델 벤치마크 원본은 `data/generated/tour_api/model_benchmarks/` 아래에 있으며 git ignore 대상이다. 필요하면 `scripts/benchmark_tourism_reasoning_models.py`로 다시 만든다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 신선도는 Post-MVP 주기적 갱신 배치로 해결한다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.
 - 2026-05-15 수집은 중단했다. 추가 수집 전에는 `docs/tourism/tourism_data_collection_plan.md`의 호출량 메모와 내일 이어갈 때 섹션을 먼저 확인한다.
 - fallback 데이터는 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치 수집과 시군구 fallback 1차 부분 수집을 완료했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible` 기준 460개 Markdown, Chroma 기준 461개 문서/463개 청크가 색인됐다.
 - 시군구 fallback은 아직 전국 실사용 지역 250개 기준 완료가 아니다. 현재 TourAPI 지역 코드 234개 중 90개 시군구가 3장 이상 확보됐고, 234개 기준 3장 목표까지 남은 부족분은 약 365장이다.
-- 내일은 무작정 추가 수집하지 말고 샘플 품질 QA와 20문항 eval 실행을 우선한다. 부족한 지역만 `--areas` 또는 `--regions`와 엔드포인트별 500건 안전치 안에서 좁혀 보강한다.
+- 20문항 fallback-only eval은 2026-05-15에 1차 실행했다. 다음에는 live-on-miss 비교 실행과 수동 채점을 우선한다. 부족한 지역만 `--areas` 또는 `--regions`와 엔드포인트별 500건 안전치 안에서 좁혀 보강한다.
+- 서버 없이 현재 코드 기준 eval을 빠르게 확인할 때는 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct`를 사용한다.
 - 전국 시군구 단위 fallback을 늘릴 경우 예상 규모와 호출량은 `docs/tourism/tourism_sigungu_fallback_scale.md`를 참고한다.
 - 행정동/법정동 지역명 매칭 데이터는 `scripts/build_admin_region_aliases.py`로 생성했다. 결과는 `data/processed/admin_region_aliases.json`이고, 설계 기록은 `docs/tourism/admin_region_aliases.md`에 있다. `TourismQueryService`는 이 파일을 읽어 `부산 중구`, `해운대 좌동`, `창원 마산합포구`, `성남 분당구` 같은 예외 입력을 시군구 후보로 해석한다.
 - 2026-05-15 스모크 결과 `서울 강남구에서 휠체어 관광지 추천해줘`는 강남구 결과 2건과 부족 안내를 반환했고, `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 서울 범위 확장 안내와 함께 5건을 반환했다.
@@ -174,6 +183,7 @@ curl -X POST http://localhost:8000/chat \
 - `docs/project/GOAL.md`: 현재 관광 MVP 목표와 API 판정 기준
 - `docs/tourism/accessible_tourism_mvp_plan.md`: 무장애·가족 친화 관광 챗봇 구현 플랜
 - `docs/tourism/tourism_eval_questions.md`: 20문항 관광 챗봇 평가셋 설명
+- `docs/tourism/tourism_model_reasoning_benchmark.md`: 로컬 모델 추론 보조와 native thinking 비교 결과
 - `docs/tourism/tourism_sample_quality.md`: fallback Markdown 샘플 품질 감사 방법
 - `docs/references/개방데이터_활용매뉴얼(국문)/`: 국문 관광정보 서비스_GW 매뉴얼
 - `docs/references/개방데이터_활용매뉴얼(무장애여행)/`: 무장애 여행 정보 매뉴얼

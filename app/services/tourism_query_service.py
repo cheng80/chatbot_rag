@@ -47,6 +47,12 @@ CONDITION_KEYWORDS = {
 }
 
 EXPANSION_KEYWORDS = ["근처", "주변", "가까운", "인근"]
+FEATURE_KEYWORDS = {
+    "바닷가": ["바닷가", "바다", "해변", "해수욕장", "해안", "해변가"],
+}
+UNSUPPORTED_INTENT_KEYWORDS = {
+    "wheelchair_rental_price": ["휠체어 대여", "대여 가격", "가격이 제일 싼", "제일 싼 곳", "최저가"],
+}
 logger = logging.getLogger(__name__)
 
 
@@ -83,11 +89,24 @@ class TourismQueryService:
             "is_sigungu": bool(sigungu_code),
             "allow_region_expansion": any(keyword in message for keyword in EXPANSION_KEYWORDS),
             "conditions": conditions,
+            "features": [
+                label
+                for label, keywords in FEATURE_KEYWORDS.items()
+                if any(keyword in message for keyword in keywords)
+            ],
+            "unsupported_intent": self._find_unsupported_intent(message),
             "ambiguous_region": ambiguous_region,
             "ambiguous_region_candidates": self.ambiguous_region_aliases.get(ambiguous_region or "", []),
             "region_cache_status": self.cache_status,
             "region_cache_warning": self.cache_warning,
         }
+
+    @staticmethod
+    def _find_unsupported_intent(message: str) -> str | None:
+        for label, keywords in UNSUPPORTED_INTENT_KEYWORDS.items():
+            if any(keyword in message for keyword in keywords):
+                return label
+        return None
 
     def _find_region(self, message: str) -> str | None:
         for name in sorted(self.region_index, key=len, reverse=True):
@@ -96,13 +115,17 @@ class TourismQueryService:
         return next((name for name in AREA_CODES if name in message), None)
 
     def _find_ambiguous_region(self, message: str, region: str | None) -> str | None:
-        if region and region not in AREA_CODES:
-            return None
         for alias in sorted(self.ambiguous_region_aliases, key=len, reverse=True):
             candidates = self.ambiguous_region_aliases[alias]
             if alias not in message:
                 continue
-            if region and any(candidate.get("area_name") == region for candidate in candidates):
+            if region:
+                if region == alias:
+                    return alias
+                if region in AREA_CODES:
+                    if any(candidate.get("area_name") == region for candidate in candidates):
+                        return None
+                    continue
                 return None
             return alias
         return None

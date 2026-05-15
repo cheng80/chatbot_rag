@@ -137,8 +137,8 @@ function setLoading(isLoading) {
   submitButton.disabled = isLoading;
   submitButton.textContent = isLoading ? "조회 중" : "조회";
   if (isLoading) {
-    setState("질문 분석 + TourAPI 조회 중");
-    diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화한 뒤 live TourAPI 후보를 조회합니다."));
+    setState("질문 분석 중");
+    diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
   }
 }
 
@@ -154,6 +154,10 @@ function renderResponse(payload) {
 
   const notes = [modeDescription(mode)];
   if (payload.degraded) notes.push("live API 또는 검색 인덱스 대신 fallback 안전망을 사용했습니다.");
+  if (payload.reasoning_assist_used) notes.push("복합 조건을 반영하기 위해 LLM 추론 보조로 후보 순서를 조정했습니다.");
+  if (Array.isArray(payload.reasoning_assist_notes)) {
+    payload.reasoning_assist_notes.forEach((note) => notes.push(`추론 보조 메모: ${note}`));
+  }
   if (Array.isArray(payload.warnings)) notes.push(...payload.warnings);
   diagnostics.replaceChildren(...notes.map(createDiagnostic));
 
@@ -171,11 +175,13 @@ function modeLabel(mode, degraded) {
   if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
   if (mode === "sample") return "샘플 fallback";
   if (mode === "clarification") return "지역 선택 필요";
+  if (mode === "unsupported") return "지원 범위 밖";
   return degraded ? "Fallback 응답" : "정상 응답";
 }
 
 function modeTone(mode, degraded) {
   if (mode === "clarification") return "warn";
+  if (mode === "unsupported") return "warn";
   if (mode === "sample" || degraded) return "warn";
   if (mode === "cache" || mode === "live" || mode === "indexed") return "ok";
   return "";
@@ -187,6 +193,7 @@ function modeDescription(mode) {
   if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
   if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
   if (mode === "clarification") return "동명이 지역이라 추천 전에 광역 지역 선택이 필요합니다.";
+  if (mode === "unsupported") return "현재 MVP 범위를 벗어난 질문이라 관광지 카드를 만들지 않았습니다.";
   return "응답 생성 경로를 확인하지 못했습니다.";
 }
 

@@ -40,6 +40,8 @@ class TourismQueryEventLogger:
             "lookup_mode": response.lookup_mode,
             "degraded": response.degraded,
             "live_api_called": live_api_called,
+            "reasoning_assist_used": response.reasoning_assist_used,
+            "reasoning_assist_notes": response.reasoning_assist_notes,
             "card_count": len(response.cards),
             "cards": [
                 {

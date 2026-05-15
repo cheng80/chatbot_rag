@@ -130,6 +130,45 @@ TourAPI 샘플 수집
 
 offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모드**로 남긴다.
 
+## LLM 추론 보조 사용 기준
+
+현재 응답 전략은 LLM이 모든 것을 판단하는 일반 챗봇 방식이 아니다. 데이터 조회와 카드 생성은 가능한 한 결정론적으로 처리하고, LLM 추론 보조는 규칙/API/RAG만으로 사용자 의도를 충분히 설명하기 어려운 순간에 제한적으로 사용한다.
+
+용어를 구분한다.
+
+- **추론 보조**: 후보 카드 생성 후 LLM 프롬프트로 복합 의도를 재해석하고 재랭킹하는 단계.
+- **Ollama native thinking**: `think=true`를 전달했을 때 모델이 별도 thinking 필드를 반환하는 기능.
+
+현재 프로젝트 기본 모델 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`는 Gemma 4 기반 8B급 모델이지만, 로컬 Ollama 확인 기준 native thinking을 지원하지 않는다. 따라서 기본 구현은 짧은 추론 보조 프롬프트로 시작한다. 2026-05-15 1차 벤치마크에서는 공식 `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`가 native thinking을 반환했지만 30초 이상 지연됐고, `qwen3:4b`는 JSON/한국어 계약을 지키지 못했다. MVP 기본값은 `think=false`로 유지한다.
+
+추론 보조 없이 처리할 것:
+
+- 명확한 지역과 시군구 매칭
+- 명확한 접근성 조건 추출
+- 동명이 지역 clarification
+- cache, Chroma, Markdown fallback, live TourAPI 조회 순서
+- 카드 부족 안내, fallback/degraded 진단, 범위 밖 질문 처리
+
+추론 보조가 필요한 시점:
+
+- 복합 사용자 상황: `휠체어를 탄 아버지`, `아이 동반`, `너무 붐비지 않는 곳`, `실내 위주`가 한 질문에 섞이는 경우
+- 상황형 표현: `오래 걷기 힘든 분`, `비 오면 이동하기 편한 곳`, `쉬기 좋은 곳`
+- 생활권/거리 표현: `서울역에서 멀지 않은 곳`, `해운대 근처`, `바닷가 말고 조용한 곳`
+- 후보가 너무 많거나 너무 적어 재질문, 조건 완화, 지역 확장 제안이 필요한 경우
+- 잘못된 전제를 설명해야 하는 경우: `강남구 바닷가`처럼 질문 자체의 전제가 데이터와 맞지 않는 경우
+
+역할 경계:
+
+| 단계 | 담당 |
+|---|---|
+| 지역/조건 1차 구조화 | 규칙 기반 파서 |
+| 근거 데이터 수집 | live Markdown cache, Chroma, raw Markdown fallback, TourAPI |
+| 카드 생성 | `TourismNormalizer`, `TourismPlaceCard` schema |
+| 후보 재랭킹/상담 문장 | 필요할 때만 LLM 추론 보조 |
+| 없는 정보 처리 | 추측 금지, `확인 필요` 또는 부족 안내 |
+
+즉, LLM 추론 보조는 **데이터를 찾는 주체가 아니라 확인된 후보를 사용자 상황에 맞게 판단하고 설명하는 보조 계층**이다.
+
 ## 되돌림 기준
 
 다음 조건 중 하나가 반복되면 offline-index 우선 방식으로 되돌리는 것을 검토한다.
@@ -154,6 +193,9 @@ offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모
 - Markdown live 캐시에 TTL/만료 정책을 둘지 검토한다.
 - Post-MVP 주기적 TourAPI 갱신 배치와 재색인 절차를 설계한다.
 - `lookup_mode`별 응답 품질을 20문항 eval에 포함한다.
+- 추론 보조 사용 여부를 응답 이벤트 로그에 남길지 검토한다.
+- 복합 상황형 질문을 eval에 추가해 규칙 기반 처리와 LLM 추론 보조 경계가 실제로 맞는지 확인한다.
+- 한국어 맥락 품질이 좋은 Gemma 4 계열은 유지 후보로 두되, native thinking 필요성은 공식 `gemma4:e4b`와 Qwen/DeepSeek 계열을 실제 응답 시간과 품질로 비교한 뒤 결정한다.
 - live 결과가 음식점 위주로 치우치는지 확인하고, 관광지 content type 또는 키워드 필터가 필요한지 검토한다.
 - 외부 터널 시연 중 live 호출을 켤지, fallback-only로 둘지 데모 전에 결정한다.
 - fallback 수집 스크립트는 live Markdown 캐시와 fallback raw에 이미 있는 `콘텐츠ID`를 중복 수집하지 않는다.

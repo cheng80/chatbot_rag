@@ -29,6 +29,7 @@ notebooks/
 - `tourism/tourism_sigungu_fallback_scale.md`: 전국 시군구 fallback 예상 규모
 - `tourism/admin_region_aliases.md`: 행정동/법정동 지역명 매칭 데이터 생성 기록
 - `tourism/tourism_eval_questions.md`: `/tourism/chat` 20문항 평가셋 설명
+- `tourism/tourism_model_reasoning_benchmark.md`: 로컬 모델 추론 보조와 native thinking 비교 기준
 - `tourism/tourism_sample_quality.md`: fallback Markdown 샘플 품질 감사 방법
 - `../notebooks/tourism_event_log_analysis.ipynb`: `/tourism/chat` JSONL 이벤트 로그와 matplotlib 차트 분석
 

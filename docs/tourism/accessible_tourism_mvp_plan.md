@@ -56,6 +56,7 @@ NOT in scope:
   -> TourAPI areaBasedList2 후보 소량 조회
   -> 상위 후보 detailCommon2 + detailWithTour2 조회
   -> 응답 정규화
+  -> 필요 시 LLM 추론 보조로 후보 재랭킹/재질문/상담 문장 정리
   -> live 결과를 live_markdown에 저장
   -> 답변 + 관광지 카드 + 출처 + 진단 정보 반환
 ```
@@ -77,6 +78,15 @@ live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한�
 - fallback에 없는 지역만 live API로 보강해 지역 커버리지를 넓힌다.
 - 저장된 샘플/Chroma fallback을 유지해 API 장애 중에도 시연 가능성을 남긴다.
 - OpenAPI에 없는 편의정보는 여전히 추측하지 않고 `확인 필요`로 남긴다.
+- LLM 추론 보조는 데이터를 새로 만드는 단계가 아니라, 이미 확인된 후보를 복합 사용자 상황에 맞게 정리하는 보조 단계로 제한한다.
+
+추론 보조 사용 기준:
+
+- 명확한 지역/조건/동명이 지역 선택/조회 순서는 규칙 기반과 cache/Chroma/API로 처리한다.
+- `오래 걷기 힘든 분`, `비 오면 편한 곳`, `너무 붐비지 않는 곳`, `아이랑 쉬기 좋은 곳`처럼 상황 설명이 섞이면 후보 카드 생성 뒤 LLM 추론 보조를 검토한다.
+- `강남구 바닷가`처럼 잘못된 전제는 없는 후보를 만들지 않고, 필요하면 대체 질문이나 조건 완화 제안만 생성한다.
+- LLM은 `TourismPlaceCard`에 없는 접근성 정보를 단정하지 않는다.
+- 현재 기본 SuperGemma GGUF 모델은 Gemma 4 기반 8B급이지만 Ollama native `think=true`를 지원하지 않는 것으로 확인됐다. 2026-05-15 1차 벤치마크에서는 공식 `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`가 native thinking을 반환했지만 30초 이상 지연돼 MVP 기본값으로는 보류했다. `qwen3:4b`는 thinking capability가 있으나 현재 프롬프트 계약을 지키지 못했다.
 
 새 구성 요소:
 
@@ -135,6 +145,8 @@ POST /tourism/chat
     degraded: boolean
     warnings: string[]
     suggested_messages: string[]
+    reasoning_assist_used: boolean
+    reasoning_assist_notes: string[]
 ```
 
 MVP에서는 기존 `/chat`을 유지하고 `/tourism/chat`을 별도 추가하는 쪽을 권장한다. 기존 일반 RAG 테스트와 관광 챗봇 테스트를 분리할 수 있기 때문이다.

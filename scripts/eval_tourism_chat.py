@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,9 @@ from urllib import error, request
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "eval" / "tourism_20_questions.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "eval_runs"
 
@@ -48,6 +52,17 @@ def post_tourism_chat(base_url: str, message: str, session_id: str, timeout: flo
         return exc.code, parsed
 
 
+def post_tourism_chat_direct(message: str, session_id: str) -> tuple[int, dict[str, Any]]:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    payload = {"message": message, "session_id": session_id}
+    with TestClient(app) as client:
+        response = client.post("/tourism/chat", json=payload)
+    return response.status_code, response.json()
+
+
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
@@ -55,7 +70,13 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def run_eval(input_path: Path, base_url: str, output_path: Path, timeout: float) -> list[dict[str, Any]]:
+def run_eval(
+    input_path: Path,
+    base_url: str,
+    output_path: Path,
+    timeout: float,
+    direct: bool = False,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in load_eval_items(input_path):
         started = time.perf_counter()
@@ -63,12 +84,19 @@ def run_eval(input_path: Path, base_url: str, output_path: Path, timeout: float)
         response_body: dict[str, Any]
         error_message: str | None = None
         try:
-            status_code, response_body = post_tourism_chat(
-                base_url=base_url,
-                message=item["message"],
-                session_id=f"eval-{item['id']}",
-                timeout=timeout,
-            )
+            session_id = f"eval-{item['id']}"
+            if direct:
+                status_code, response_body = post_tourism_chat_direct(
+                    message=item["message"],
+                    session_id=session_id,
+                )
+            else:
+                status_code, response_body = post_tourism_chat(
+                    base_url=base_url,
+                    message=item["message"],
+                    session_id=session_id,
+                    timeout=timeout,
+                )
         except Exception as exc:  # noqa: BLE001 - eval runner must keep going.
             response_body = {}
             error_message = str(exc)
@@ -110,6 +138,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=os.environ.get("TOURISM_EVAL_BASE_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--output", type=Path, default=default_output_path())
     parser.add_argument("--timeout", type=float, default=90.0)
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="Call the FastAPI app in-process with TestClient instead of requiring a running server.",
+    )
     return parser.parse_args()
 
 
@@ -120,6 +153,7 @@ def main() -> None:
         base_url=args.base_url,
         output_path=args.output,
         timeout=args.timeout,
+        direct=args.direct,
     )
     failures = [row for row in results if row["status_code"] >= 400 or row["error"]]
     print(f"\nWrote {len(results)} rows to {args.output}")

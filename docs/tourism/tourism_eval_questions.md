@@ -11,6 +11,7 @@
 - 관계 호칭만으로 나이를 추정하지 않는지 확인한다.
 - 근거가 부족한 지역이나 잘못된 전제에서 임의로 카드를 지어내지 않는지 본다.
 - `lookup_mode`, `warnings`, `suggested_messages` 같은 진단 필드가 QA에 충분한지 확인한다.
+- 복합 상황 질문에서 `reasoning_assist_used`, `reasoning_assist_notes`가 필요한 경우에만 켜지는지 확인한다.
 
 ## 실행 방법
 
@@ -26,9 +27,64 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --hos
 .venv/bin/python scripts/eval_tourism_chat.py
 ```
 
+서버를 띄우지 않고 현재 코드 상태를 빠르게 확인할 때는 in-process 실행을 쓴다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct
+```
+
 live 조회까지 포함해 확인할 때만 서버 실행 환경에서 `TOURISM_LIVE_LOOKUP_ENABLED=true`를 사용한다. 공공데이터포털 호출량을 아껴야 하는 날에는 fallback-only로 실행한다.
 
 결과는 기본적으로 `data/generated/tour_api/eval_runs/` 아래 JSONL로 저장된다. 이 디렉터리는 생성 산출물이므로 커밋하지 않는다.
+
+## 2026-05-15 fallback-only 실행 결과
+
+실행 명령:
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct
+```
+
+결과 파일: `data/generated/tour_api/eval_runs/tourism_eval_20260515-191900.jsonl`
+
+요약:
+
+| 항목 | 결과 |
+|---|---:|
+| 총 문항 | 20 |
+| HTTP/API 실패 | 0 |
+| `indexed` | 14 |
+| `cache` | 1 |
+| `sample` | 1 |
+| `clarification` | 2 |
+| `unsupported` | 1 |
+| `unknown` | 2 |
+| `reasoning_assist_used=true` | 4 |
+
+확인된 개선:
+
+- `이동하기 좋은`의 `이동`을 행정동으로 오인해 clarification을 띄우던 문제를 수정했다.
+- `남구`처럼 여러 시도에 있는 구 이름은 특정 지역으로 추정하지 않고 후보 선택 질문을 반환한다.
+- `서울 강남구에 바닷가...`처럼 지역 전제와 장소 특성이 맞지 않으면 강남구 일반 카드를 반환하지 않는다.
+- `휠체어 대여 가격이 제일 싼 곳`처럼 MVP 범위를 벗어난 가격 비교 질문은 `unsupported`로 답하고 카드를 만들지 않는다.
+- 복합 상황 질문 4개에서만 LLM 추론 보조가 켜졌다. 현재 기본 모델의 반복 실행 기준 지연 시간은 대략 6~12초였다. 별도 모델 벤치마크에서는 native thinking 모델이 30초 이상 걸릴 수 있어 MVP 기본값으로는 보류했다.
+
+남은 문제와 해결책:
+
+| 문항 | 현재 상태 | 해결책 |
+|---|---|---|
+| TQ004 부산 중구 휠체어 | 2장 반환 | 부산 중구 fallback/live 캐시 후보를 3장 이상 확보한다. |
+| TQ005 부산 중구 유모차 | 1장 반환 | 유모차/가족 태그가 있는 부산 중구 후보를 보강하거나 live 조회 결과를 캐시한다. |
+| TQ014 울릉군 휠체어 | 근거 없음 안내 | 울릉군은 fallback 부족 지역으로 남긴다. live-on-miss 실행 시 TourAPI 결과가 있는지 별도 확인한다. |
+| TQ018 강남구 바닷가 | 근거 없음 안내 | 올바른 동작이다. 향후에는 “강남구에는 바닷가 후보가 없어 한강/실내/근처 해안 지역 중 선택” 같은 대체 질문을 제안할 수 있다. |
+| TQ006/TQ007/TQ008/TQ020 복합 질문 | 추론 보조 사용, 6~12초 | `reasoning_assist_used=true`는 올바르지만, 데모 UX에서는 로딩 표시와 timeout 기준이 필요하다. native thinking은 더 느려 기본값으로 쓰지 않는다. |
+
+다음 eval 단계:
+
+1. 같은 20문항을 live-on-miss 모드로 실행해 fallback-only와 비교한다.
+2. 카드가 3장 미만인 부산 중구, 울릉군을 보강 대상 목록에 넣는다.
+3. 수동 채점표에 지역 해석, 조건 반영, 근거 준수, 상담 톤 점수를 기록한다.
+4. 추론 보조가 켜지는 문항의 허용 지연 시간을 정하고, `docs/tourism/tourism_model_reasoning_benchmark.md` 결과를 기준으로 기본 모델을 결정한다.
 
 ## 채점 기준
 
@@ -41,7 +97,7 @@ live 조회까지 포함해 확인할 때만 서버 실행 환경에서 `TOURISM
 | 근거 준수 | 없는 정보를 단정 | 출처/카드 범위 안에서 답변 |
 | 부족/모름 처리 | 결과를 지어냄 | 부족, 확인 필요, 선택 필요를 명확히 말함 |
 | 상담 톤 | 기계적이거나 장황 | 짧고 한국어 상담형으로 자연스러움 |
-| 진단 가능성 | QA가 경로를 알 수 없음 | `lookup_mode`, `warnings`, 카드 수로 확인 가능 |
+| 진단 가능성 | QA가 경로를 알 수 없음 | `lookup_mode`, `warnings`, 카드 수, `reasoning_assist_used`로 확인 가능 |
 
 ## 문항 목록
 

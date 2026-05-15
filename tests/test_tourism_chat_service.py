@@ -39,6 +39,16 @@ class EmptyRetriever:
         return []
 
 
+class FakeLLMService:
+    def __init__(self, response: str):
+        self.response = response
+        self.prompts = []
+
+    def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return self.response
+
+
 def test_tourism_chat_returns_cards_and_sources():
     service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
 
@@ -50,6 +60,58 @@ def test_tourism_chat_returns_cards_and_sources():
     assert response.sources[0].source == "data/raw/tourism_accessible/seoul_sample_001.md"
     assert all("seoul" in source.source for source in response.sources)
     assert "출처" in response.answer
+
+
+def test_tourism_chat_uses_reasoning_assist_for_complex_question():
+    llm = FakeLLMService(
+        '{"ranked_ids":["sample-seoul-002","sample-seoul-001"],'
+        '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
+    )
+    service = TourismChatService(
+        Settings(tourism_reasoning_assist_enabled=True),
+        FakeRetriever(),
+        TourismQueryService(),
+        llm_service=llm,
+    )
+
+    response = service.answer("서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천")
+
+    assert response.reasoning_assist_used is True
+    assert response.reasoning_assist_notes == ["혼잡도는 확인 필요"]
+    assert response.cards[0].title == "국립중앙박물관"
+    assert "복합 조건을 반영해 후보 순서를 조정했습니다" in response.answer
+    assert "후보 카드에 없는 장소나 접근성 정보를 만들지 않는다" in llm.prompts[0]
+
+
+def test_tourism_chat_skips_reasoning_assist_for_simple_question():
+    llm = FakeLLMService('{"ranked_ids":["sample-seoul-002"]}')
+    service = TourismChatService(
+        Settings(tourism_reasoning_assist_enabled=True),
+        FakeRetriever(),
+        TourismQueryService(),
+        llm_service=llm,
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천")
+
+    assert response.reasoning_assist_used is False
+    assert response.cards[0].title == "서울어린이대공원"
+    assert llm.prompts == []
+
+
+def test_tourism_chat_keeps_existing_order_when_reasoning_assist_fails():
+    llm = FakeLLMService("not-json")
+    service = TourismChatService(
+        Settings(tourism_reasoning_assist_enabled=True),
+        FakeRetriever(),
+        TourismQueryService(),
+        llm_service=llm,
+    )
+
+    response = service.answer("서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천")
+
+    assert response.reasoning_assist_used is False
+    assert response.cards[0].title == "서울어린이대공원"
 
 
 def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
@@ -264,6 +326,8 @@ def test_tourism_chat_logs_query_card_event(tmp_path):
     assert payload["message"] is None
     assert payload["lookup_mode"] == "indexed"
     assert payload["live_api_called"] is False
+    assert payload["reasoning_assist_used"] is False
+    assert payload["reasoning_assist_notes"] == []
     assert payload["cards"][0]["title"] == "서울어린이대공원"
 
 
@@ -480,6 +544,25 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
 
     assert response.cards == []
     assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+
+
+def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("서울 강남구에 바닷가 휠체어 관광지 추천해줘")
+
+    assert response.cards == []
+    assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+
+
+def test_tourism_chat_rejects_unsupported_price_comparison():
+    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+
+    response = service.answer("휠체어 대여 가격이 제일 싼 곳 알려줘")
+
+    assert response.cards == []
+    assert response.lookup_mode == "unsupported"
+    assert "가격 비교" in response.answer
 
 
 def test_tourism_chat_sample_cards_are_cached(tmp_path):

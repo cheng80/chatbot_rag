@@ -28,7 +28,7 @@ Production readiness [██░░░░░░░░] 20%
 | 영역 | 진행도 | 상태 | 근거 |
 |---|---:|---|---|
 | TourAPI 연결 | 85% | 동작 | `KorWithService2` live 후보 조회, 지역 코드 캐시, 호출 상한 확인 |
-| live 후보 조회 | 70% | 동작 | 캐시/색인/fallback miss 때 TourAPI 후보와 접근성 상세를 카드화, 프로세스 캐시 사용 |
+| live 후보 조회 | 75% | 동작 | 캐시/색인/fallback miss 또는 사용자가 `최신 정보 더 찾기`를 누를 때 TourAPI 후보와 접근성 상세를 카드화, 프로세스 캐시 사용 |
 | 샘플 데이터 | 92% | fallback + QA 도구 | 808개 Markdown fallback + curated fallback, 샘플 감사 스크립트 추가 |
 | MVP fallback 수집 | 95% | 최소 안전망 확보 | `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 완료, 이후 시군구 확장까지 808개 Markdown 확보 |
 | 시군구 fallback 확장 | 97% | 대부분 확보 | TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 확보, 0장/1장 지역은 행정구역 유효성 확인 필요 |
@@ -37,7 +37,7 @@ Production readiness [██░░░░░░░░] 20%
 | `/tourism/chat` API | 94% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장, 추론 보조 정책 반영 |
 | 카드 응답 schema | 88% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages`, `reasoning_assist_used` 반환 |
 | 웹 확인 UI | 80% | 시연 가능 | `/tourism-ui/`, 메신저형 정적 UI, 지역 quick reply, 접힌 답변, 카드 상세, 지도 검색, 터널 확인 |
-| 테스트 | 86% | 주요 회귀 커버 | `pytest` 83개 통과, backend 정책과 수집/감사/eval/지역명 매칭 중심 |
+| 테스트 | 86% | 주요 회귀 커버 | `pytest` 85개 통과, backend 정책과 수집/감사/eval/지역명 매칭 중심 |
 | 모델 품질 평가 | 70% | 1차 벤치마크 완료 | 20문항 fallback-only eval 실행 완료, 모델 추론 보조/native thinking 1차 비교 완료 |
 | 운영/배포 | 20% | 임시 확인 | Cloudflare Quick Tunnel로 외부 임시 확인 가능, 정식 배포 아님 |
 
@@ -45,6 +45,7 @@ Production readiness [██░░░░░░░░] 20%
 
 - 한국관광공사 무장애 여행 정보 OpenAPI 호출 확인
 - cache/fallback miss 때 live TourAPI 후보 조회를 사용하는 경로 추가
+- 저장된 후보가 5장 미만일 때 자동 live 호출 대신 `최신 정보 더 찾기` 후속 버튼으로 명시적 live 보강 흐름 추가
 - 같은 지역 반복 요청을 줄이는 프로세스 메모리 캐시 추가
 - mvp/fallback-1/fallback-2/fallback-3 분할 수집 완료
 - fallback Markdown 샘플 품질 감사 스크립트와 리포트 절차 추가

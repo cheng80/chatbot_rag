@@ -36,6 +36,7 @@ REASONING_ASSIST_KEYWORDS = [
 ]
 DEFAULT_CARD_LIMIT = 5
 MORE_CARD_KEYWORDS = ["더 보기", "더보기", "더 많이", "더 보여", "전체", "전부", "20곳", "20개"]
+LIVE_TOP_UP_KEYWORDS = ["최신 정보 더 찾기", "최신 정보", "live 확인", "라이브 확인", "TourAPI 확인"]
 
 
 class TourismChatService:
@@ -127,6 +128,7 @@ class TourismChatService:
         expanded = False
         has_more_cards = False
         live_api_called = False
+        live_top_up_requested = self._requests_live_top_up(message)
 
         candidates = self._cards_from_live_markdown_cache(query)
         cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
@@ -148,6 +150,25 @@ class TourismChatService:
             if cards:
                 lookup_mode = "sample"
 
+        if (
+            cards
+            and lookup_mode != "sample"
+            and len(cards) < DEFAULT_CARD_LIMIT
+            and query.get("area_name")
+            and query.get("sigungu_name")
+            and self._message_mentions_area(message, str(query.get("area_name")))
+        ):
+            supplemental_candidates = self._deduplicate([*candidates, *self._cards_from_markdown_samples()])
+            supplemental_cards, supplemental_expanded, supplemental_has_more_cards = self._select_stage_cards(
+                supplemental_candidates,
+                message,
+                query,
+            )
+            if len(supplemental_cards) > len(cards):
+                cards = supplemental_cards
+                expanded = expanded or supplemental_expanded
+                has_more_cards = supplemental_has_more_cards
+
         if not cards:
             candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
             live_api_called = live_api_called or api_called
@@ -155,6 +176,15 @@ class TourismChatService:
             cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "live"
+
+        if cards and live_top_up_requested and lookup_mode != "live":
+            live_candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
+            live_api_called = live_api_called or api_called
+            degraded = degraded or live_degraded
+            if live_candidates:
+                candidates = self._deduplicate([*cards, *live_candidates])
+                cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
+                lookup_mode = "live_top_up"
 
         if cards and len(cards) >= DEFAULT_CARD_LIMIT:
             more_candidates = self._deduplicate([*candidates, *self._cards_from_markdown_samples()])
@@ -186,7 +216,13 @@ class TourismChatService:
             return response
 
         cards, reasoning_used, reasoning_notes = self._apply_reasoning_assist(cards, message, query)
-        answer = self._build_answer(cards, query, expanded=expanded, reasoning_notes=reasoning_notes)
+        answer = self._build_answer(
+            cards,
+            query,
+            expanded=expanded,
+            reasoning_notes=reasoning_notes,
+            live_top_up_available=self._should_suggest_live_top_up(message, cards, query, lookup_mode),
+        )
         response = TourismChatResponse(
             answer=answer,
             cards=cards,
@@ -194,7 +230,7 @@ class TourismChatService:
             lookup_mode=lookup_mode,
             degraded=degraded,
             warnings=warnings,
-            suggested_messages=self._build_more_card_suggestions(message, has_more_cards),
+            suggested_messages=self._build_suggestions(message, has_more_cards, cards, query, lookup_mode),
             reasoning_assist_used=reasoning_used,
             reasoning_assist_notes=reasoning_notes,
         )
@@ -605,13 +641,63 @@ class TourismChatService:
         sigungu_name = query.get("sigungu_name")
         if not region:
             return cards
-        terms = [sigungu_name] if sigungu_name else [region]
+        area_name = query.get("area_name")
+        terms = []
+        if area_name:
+            terms.append(TourismChatService._area_name_variants(str(area_name)))
+        if sigungu_name:
+            terms.append([str(sigungu_name)])
+        if not terms:
+            terms.append([str(region)])
         filtered = []
         for card in cards:
             haystack = f"{card.title} {card.address or ''}"
-            if all(term in haystack for term in terms):
+            if all(any(term in haystack for term in term_group) for term_group in terms):
                 filtered.append(card)
         return filtered
+
+    @staticmethod
+    def _area_name_variants(area_name: str) -> list[str]:
+        variants = {
+            "서울": ["서울", "서울특별시"],
+            "서울특별시": ["서울", "서울특별시"],
+            "부산": ["부산", "부산광역시"],
+            "부산광역시": ["부산", "부산광역시"],
+            "대구": ["대구", "대구광역시"],
+            "대구광역시": ["대구", "대구광역시"],
+            "인천": ["인천", "인천광역시"],
+            "인천광역시": ["인천", "인천광역시"],
+            "광주": ["광주", "광주광역시"],
+            "광주광역시": ["광주", "광주광역시"],
+            "대전": ["대전", "대전광역시"],
+            "대전광역시": ["대전", "대전광역시"],
+            "울산": ["울산", "울산광역시"],
+            "울산광역시": ["울산", "울산광역시"],
+            "세종": ["세종", "세종특별자치시"],
+            "세종특별자치시": ["세종", "세종특별자치시"],
+            "경기": ["경기", "경기도"],
+            "경기도": ["경기", "경기도"],
+            "강원": ["강원", "강원도", "강원특별자치도"],
+            "강원도": ["강원", "강원도", "강원특별자치도"],
+            "강원특별자치도": ["강원", "강원도", "강원특별자치도"],
+            "충북": ["충북", "충청북도"],
+            "충청북도": ["충북", "충청북도"],
+            "충남": ["충남", "충청남도"],
+            "충청남도": ["충남", "충청남도"],
+            "전북": ["전북", "전라북도", "전북특별자치도"],
+            "전라북도": ["전북", "전라북도", "전북특별자치도"],
+            "전북특별자치도": ["전북", "전라북도", "전북특별자치도"],
+            "전남": ["전남", "전라남도"],
+            "전라남도": ["전남", "전라남도"],
+            "경북": ["경북", "경상북도"],
+            "경상북도": ["경북", "경상북도"],
+            "경남": ["경남", "경상남도"],
+            "경상남도": ["경남", "경상남도"],
+            "제주": ["제주", "제주도", "제주특별자치도"],
+            "제주도": ["제주", "제주도", "제주특별자치도"],
+            "제주특별자치도": ["제주", "제주도", "제주특별자치도"],
+        }
+        return variants.get(area_name, [area_name])
 
     def _build_answer(
         self,
@@ -619,6 +705,7 @@ class TourismChatService:
         query: dict,
         expanded: bool = False,
         reasoning_notes: list[str] | None = None,
+        live_top_up_available: bool = False,
     ) -> str:
         region = query.get("region") or "요청 지역"
         conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
@@ -641,8 +728,10 @@ class TourismChatService:
         for index, card in enumerate(cards, start=1):
             tags = card.accessibility_tags + card.family_tags
             basis = ", ".join(tags[:4]) if tags else "세부 편의정보 확인 필요"
-            lines.append(f"{index}. {card.title}: {basis}. 출처는 {card.source_name}입니다.")
-        lines.append("OpenAPI에 없는 편의정보는 추측하지 않고 카드에 '확인 필요'로 남겼습니다.")
+            lines.append(f"{index}. {card.title}: {basis}. 출처는 {self._public_source_name(card.source_name)}입니다.")
+        if live_top_up_available:
+            lines.append("지금 확인된 후보만 먼저 보여드렸습니다. 더 찾아보려면 '최신 정보 더 찾기'를 눌러 주세요.")
+        lines.append("방문 전 운영시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 공식 안내나 전화로 한 번 더 확인해 주세요.")
         return "\n".join(lines)
 
     @staticmethod
@@ -710,7 +799,20 @@ class TourismChatService:
     def _build_more_card_suggestions(message: str, has_more_cards: bool) -> list[str]:
         if not has_more_cards or TourismChatService._requests_more_cards(message):
             return []
-        return [f"{message.strip()} 더 보기"]
+        return [f"{TourismChatService._strip_followup_intent(message)} 더 보기"]
+
+    def _build_suggestions(
+        self,
+        message: str,
+        has_more_cards: bool,
+        cards: list[TourismPlaceCard],
+        query: dict,
+        lookup_mode: str,
+    ) -> list[str]:
+        suggestions = self._build_more_card_suggestions(message, has_more_cards)
+        if self._should_suggest_live_top_up(message, cards, query, lookup_mode):
+            suggestions.append(f"{self._strip_followup_intent(message)} 최신 정보 더 찾기")
+        return list(dict.fromkeys(suggestions))
 
     @staticmethod
     def _limit_cards(cards: list[TourismPlaceCard], more_requested: bool) -> list[TourismPlaceCard]:
@@ -725,6 +827,42 @@ class TourismChatService:
     @staticmethod
     def _requests_more_cards(message: str) -> bool:
         return any(keyword in message for keyword in MORE_CARD_KEYWORDS)
+
+    @staticmethod
+    def _requests_live_top_up(message: str) -> bool:
+        return any(keyword in message for keyword in LIVE_TOP_UP_KEYWORDS)
+
+    @staticmethod
+    def _message_mentions_area(message: str, area_name: str) -> bool:
+        return any(area in message for area in TourismChatService._area_name_variants(area_name))
+
+    @staticmethod
+    def _public_source_name(source_name: str | None) -> str:
+        if not source_name:
+            return "한국관광공사 무장애 여행 정보"
+        return source_name.replace(" OpenAPI", "")
+
+    def _should_suggest_live_top_up(
+        self,
+        message: str,
+        cards: list[TourismPlaceCard],
+        query: dict,
+        lookup_mode: str,
+    ) -> bool:
+        if self._requests_live_top_up(message):
+            return False
+        if lookup_mode in {"live", "live_top_up"}:
+            return False
+        if len(cards) >= DEFAULT_CARD_LIMIT:
+            return False
+        return self._can_use_live_tour_api(query)
+
+    @staticmethod
+    def _strip_followup_intent(message: str) -> str:
+        text = message.strip()
+        for keyword in [*MORE_CARD_KEYWORDS, *LIVE_TOP_UP_KEYWORDS]:
+            text = text.replace(keyword, "")
+        return " ".join(text.split())
 
     def _build_sources(self, contexts: list[dict], cards: list[TourismPlaceCard]) -> list[Source]:
         sources = []

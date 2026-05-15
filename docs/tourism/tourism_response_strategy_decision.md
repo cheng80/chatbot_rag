@@ -39,7 +39,7 @@ TourAPI 샘플 수집
   -> 답변 반환
 ```
 
-이전에 live로 조회한 같은 지역 카드가 있으면 Markdown 캐시를 먼저 사용한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 먼저 확인한다. 그래도 같은 지역 카드가 없을 때만 요청 시점에 live TourAPI를 사용한다. live 성공 카드는 `data/generated/tour_api/live_markdown/`에 저장하고, `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다. 데이터 신선도는 MVP 이후 주기적 갱신 배치로 보완한다.
+이전에 live로 조회한 같은 지역 카드가 있으면 Markdown 캐시를 먼저 사용한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 먼저 확인한다. 그래도 같은 지역 카드가 없을 때만 요청 시점에 live TourAPI를 사용한다. 단, 저장된 후보가 5장 미만이고 live TourAPI를 사용할 수 있으면 자동 호출하지 않고 `최신 정보 더 찾기` 후속 버튼을 제공한다. 사용자가 이 버튼을 누른 경우에만 live TourAPI 후보를 보강한다. live 성공 카드는 `data/generated/tour_api/live_markdown/`에 저장하고, `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다. 데이터 신선도는 MVP 이후 주기적 갱신 배치로 보완한다.
 
 ## 핵심 차이
 
@@ -124,8 +124,10 @@ TourAPI 샘플 수집
 2. 이전 live 조회 Markdown 캐시 확인
 3. Chroma 색인과 로컬 Markdown fallback 확인
 4. 그래도 없으면 live TourAPI 조회
-5. 결과를 TourismPlaceCard로 카드화
-6. 결과를 live_markdown에 저장
+5. 저장 후보가 5장 미만이면 `최신 정보 더 찾기` 후속 버튼 제공
+6. 사용자가 `최신 정보 더 찾기`를 누르면 live TourAPI로 보강
+7. 결과를 TourismPlaceCard로 카드화
+8. 결과를 live_markdown에 저장
 ```
 
 offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모드**로 남긴다.

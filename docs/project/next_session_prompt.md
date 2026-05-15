@@ -139,15 +139,16 @@ curl -X POST http://localhost:8000/chat \
 - 공공데이터포털 화면에서 `한국관광공사_무장애 여행 정보` 개발계정 승인은 확인됐다.
 - 승인 반영 후 `KorWithService2/areaCode2`, `KorWithService2/detailWithTour2`, `KorWithService2/areaBasedList2` 호출이 200 OK로 확인됐다.
 - 전국 시군구 코드는 수동 하드코딩하지 않는다. `scripts/fetch_tour_area_codes.py`로 `data/processed/tour_area_codes.json` 캐시를 만들고 `TourismQueryService`가 이 캐시를 우선 사용한다. 중복되는 시군구 별칭은 캐시에 넣지 않는다.
-- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. 사용자가 `근처`, `주변`, `가까운`, `인근` 같은 확장 의도를 말한 경우에만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 기본 추천은 최대 5장이다. 후보가 5장보다 많으면 `suggested_messages`에 `더 보기` 후속 질문을 넣고, 사용자가 `더 보기`, `전체`, `전부`, `20곳` 같은 의도를 말하면 확인된 후보를 가능한 만큼 반환한다.
+- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. 사용자가 `근처`, `주변`, `가까운`, `인근` 같은 확장 의도를 말한 경우에만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 기본 추천은 최대 5장이다. 후보가 5장보다 많으면 `suggested_messages`에 `더 보기` 후속 질문을 넣고, 사용자가 `더 보기`, `전체`, `전부`, `20곳` 같은 의도를 말하면 확인된 후보를 가능한 만큼 반환한다. 저장된 후보가 5장 미만이고 live TourAPI를 사용할 수 있으면 자동 호출하지 않고 사용자에게는 `최신 정보 더 찾기` 후속 버튼을 제공한다. 답변 문구에는 API/fallback/cache 같은 내부 용어를 노출하지 않는다. 사용자가 이 버튼을 누른 경우에만 live TourAPI로 후보를 보강한다.
 - 다음 세션에서 지역 코드가 이상하면 아래 캐시 재생성부터 실행한다.
 
 ```bash
 .venv/bin/python scripts/fetch_tour_area_codes.py
 ```
 
-- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
+- `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 저장된 후보가 1-4장만 있을 때는 자동으로 live를 호출하지 않고 `최신 정보 더 찾기` 후속 버튼으로 명시 확인을 받는다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
 - `/tourism-ui/`는 정적 HTML/CSS/JS 기반 메신저형 시연 UI다. 디자인 기준은 `docs/design/tourism_chatbot_DESIGN.md`에 있다. 카드 위 긴 답변은 기본 접힘 처리하고, 카드에는 `상세 정보` 펼침과 장소명/주소 기반 `지도 검색`을 제공한다.
+- `/tourism-ui/` 기본값은 개발 모드다. 응답 경로, API 문서 링크 등 내부 확인 UI가 보인다. 사용자 시연용으로 내부 상태를 숨기려면 URL에 `?mode=release` 또는 `?debug=0`을 붙인다.
 - 한국관광공사 열린관광 사이트의 상세 URL은 콘텐츠 ID만으로 안정적인 공개 상세 링크를 만들 수 없어 `access.visitkorea.or.kr/detail/...` 추정 링크 생성을 중단했다. 기존 캐시/색인에 남아 있는 해당 링크도 UI에서 숨기고 출처명만 표시한다.
 - `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
 - `/tourism/chat`의 LLM 추론 보조는 기본값이 꺼져 있다. 복합 상황 질문 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켠다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.

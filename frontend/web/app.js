@@ -4,6 +4,7 @@ const apiBaseInput = document.querySelector("#apiBase");
 const submitButton = document.querySelector("#submitButton");
 const requestState = document.querySelector("#requestState");
 const diagnostics = document.querySelector("#diagnostics");
+const statusStrip = document.querySelector(".status-strip");
 const answerText = document.querySelector("#answerText");
 const answerToggleButton = document.querySelector("#answerToggleButton");
 const clarificationBanner = document.querySelector("#clarificationBanner");
@@ -20,6 +21,7 @@ const openapiLink = document.querySelector("#openapiLink");
 const helpButton = document.querySelector("#helpButton");
 const helpModal = document.querySelector("#helpModal");
 const closeHelpButton = document.querySelector("#closeHelpButton");
+const debugMode = isLocalDebugMode();
 
 const accessibilityLabels = {
   wheelchair: "휠체어",
@@ -51,7 +53,7 @@ const demoPreview = {
         parking: "방문 전 장애인 주차 가능 여부 확인 필요",
         restroom: "현장 안내 확인 필요",
       },
-      source_name: "한국관광공사 무장애 여행 정보 OpenAPI",
+      source_name: "한국관광공사 무장애 여행 정보",
     },
     {
       title: "코엑스 아쿠아리움",
@@ -65,13 +67,14 @@ const demoPreview = {
         restroom: "편의시설 위치 확인 필요",
         route: "혼잡 시간대 우회 동선 확인 권장",
       },
-      source_name: "한국관광공사 무장애 여행 정보 OpenAPI",
+      source_name: "한국관광공사 무장애 여행 정보",
     },
   ],
 };
 
 apiBaseInput.value = defaultApiBase();
 syncApiDocLinks();
+syncDebugVisibility();
 apiBaseInput.addEventListener("input", syncApiDocLinks);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
@@ -118,6 +121,7 @@ clearButton.addEventListener("click", () => {
   cardsGrid.replaceChildren();
   cardCount.textContent = "0개";
   demoMoreButton.disabled = true;
+  demoMoreButton.hidden = true;
   demoMoreButton.textContent = "더 보기";
 });
 
@@ -153,14 +157,15 @@ form.addEventListener("submit", async (event) => {
     renderResponse(payload);
   } catch (error) {
     setState("연결 실패", "error");
-    setAnswerText(`API 서버에 연결하지 못했습니다.\n${error.message}`);
+    setAnswerText(`서버에 연결하지 못했습니다.\n${error.message}`);
     suggestions.replaceChildren();
     clarificationBanner.hidden = true;
     suggestions.classList.remove("clarification-options");
-    sourceList.replaceChildren(createSourceEmpty("API 연결 후 출처가 표시됩니다."));
+    sourceList.replaceChildren(createSourceEmpty("서버 연결 후 출처가 표시됩니다."));
     cardsGrid.replaceChildren();
     cardCount.textContent = "0개";
     demoMoreButton.disabled = true;
+    demoMoreButton.hidden = true;
   } finally {
     setLoading(false);
   }
@@ -188,17 +193,32 @@ function defaultApiBase() {
   return window.location.origin;
 }
 
+function isLocalDebugMode() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("mode") !== "release" && params.get("debug") !== "0";
+}
+
+function syncDebugVisibility() {
+  if (!debugMode) {
+    statusStrip.hidden = true;
+    document.querySelector(".api-control").hidden = true;
+  }
+}
+
 function setLoading(isLoading) {
   submitButton.disabled = isLoading;
   submitButton.textContent = isLoading ? "조회 중" : "추천 받기";
   if (isLoading) {
     demoMoreButton.disabled = true;
-    setState("질문 분석 중");
-    diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
+    if (debugMode) {
+      setState("질문 분석 중");
+      diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
+    }
   }
 }
 
 function setState(text, tone = "") {
+  if (!debugMode) return;
   requestState.textContent = text;
   requestState.className = `state-pill ${tone}`.trim();
 }
@@ -209,13 +229,15 @@ function renderResponse(payload) {
   setState(modeLabel(mode, payload.degraded), modeTone(mode, payload.degraded));
 
   const notes = [modeDescription(mode)];
-  if (payload.degraded) notes.push("live API 또는 검색 인덱스 대신 fallback 안전망을 사용했습니다.");
+  if (payload.degraded) notes.push("일부 자료 확인이 원활하지 않아 준비된 자료로 먼저 안내했습니다.");
   if (payload.reasoning_assist_used) notes.push("복합 조건을 반영하기 위해 LLM 추론 보조로 후보 순서를 조정했습니다.");
   if (Array.isArray(payload.reasoning_assist_notes)) {
     payload.reasoning_assist_notes.forEach((note) => notes.push(`추론 보조 메모: ${note}`));
   }
   if (Array.isArray(payload.warnings)) notes.push(...payload.warnings);
-  diagnostics.replaceChildren(...notes.map(createDiagnostic));
+  if (debugMode) {
+    diagnostics.replaceChildren(...notes.map(createDiagnostic));
+  }
 
   setAnswerText(payload.answer || "답변 문장이 비어 있습니다.", { empty: !payload.answer });
   clarificationBanner.hidden = mode !== "clarification";
@@ -226,20 +248,24 @@ function renderResponse(payload) {
 }
 
 function renderDemoPreview() {
-  setState("시연 예시");
-  diagnostics.replaceChildren(createDiagnostic("지역 선택, 추천 카드, 더 보기, 출처, 경고 문구가 보이도록 구성한 초기 예시입니다."));
+  if (debugMode) {
+    setState("시연 예시");
+    diagnostics.replaceChildren(createDiagnostic("지역 선택, 추천 카드, 더 보기, 출처, 경고 문구가 보이도록 구성한 초기 예시입니다."));
+  }
   setAnswerText(demoPreview.answer);
   sourceList.replaceChildren(
-    createSourceEmpty("예시 출처: 한국관광공사 무장애 여행 정보 OpenAPI"),
+    createSourceEmpty("예시 출처: 한국관광공사 무장애 여행 정보"),
     createSourceEmpty("실제 응답 후 카드별 원문 링크가 표시됩니다."),
   );
   cardCount.textContent = `${demoPreview.cards.length}개`;
   cardsGrid.replaceChildren(...demoPreview.cards.map(renderCard));
   demoMoreButton.disabled = true;
+  demoMoreButton.hidden = true;
 }
 
 function modeLabel(mode, degraded) {
   if (mode === "live") return "Live API 응답";
+  if (mode === "live_top_up") return "Live 보강 응답";
   if (mode === "cache") return "Live 캐시 응답";
   if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
   if (mode === "sample") return "샘플 fallback";
@@ -252,12 +278,13 @@ function modeTone(mode, degraded) {
   if (mode === "clarification") return "warn";
   if (mode === "unsupported") return "warn";
   if (mode === "sample" || degraded) return "warn";
-  if (mode === "cache" || mode === "live" || mode === "indexed") return "ok";
+  if (mode === "cache" || mode === "live" || mode === "live_top_up" || mode === "indexed") return "ok";
   return "";
 }
 
 function modeDescription(mode) {
   if (mode === "live") return "지역이 확정되어 TourAPI 후보와 접근성 상세를 live로 조회했습니다.";
+  if (mode === "live_top_up") return "저장된 후보에 live TourAPI 조회 후보를 보강했습니다.";
   if (mode === "cache") return "이전에 live 조회해 저장한 Markdown 캐시에서 같은 지역 관광 카드를 찾았습니다.";
   if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
   if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
@@ -283,6 +310,7 @@ function renderError(status, payload) {
   cardsGrid.replaceChildren();
   cardCount.textContent = "0개";
   demoMoreButton.disabled = true;
+  demoMoreButton.hidden = true;
 }
 
 function renderSuggestions(messages) {
@@ -290,6 +318,7 @@ function renderSuggestions(messages) {
   suggestions.classList.toggle("clarification-options", !clarificationBanner.hidden && messages.length > 0);
   const moreMessage = messages.find((message) => /더 보기|전체|전부|20곳/.test(message));
   demoMoreButton.disabled = !moreMessage;
+  demoMoreButton.hidden = !moreMessage;
   demoMoreButton.textContent = moreMessage || "더 보기";
   demoMoreButton.onclick = moreMessage
     ? () => {
@@ -360,7 +389,7 @@ function renderSources(sources, cards) {
   });
 
   cards.forEach((card) => {
-    const title = card.source_name || "한국관광공사 무장애 여행 정보 OpenAPI";
+    const title = publicSourceName(card.source_name || "한국관광공사 무장애 여행 정보");
     const url = usableSourceUrl(card.source_url);
     const key = `${title}:${url || ""}`;
     if (seen.has(key)) return;
@@ -369,7 +398,7 @@ function renderSources(sources, cards) {
   });
 
   if (sourceItems.length === 0) {
-    sourceList.append(createSourceEmpty("출처 정보가 비어 있습니다. 응답 경로와 카드별 출처를 확인하세요."));
+    sourceList.append(createSourceEmpty("출처 정보가 비어 있습니다. 카드별 출처를 확인하세요."));
     return;
   }
 
@@ -449,7 +478,7 @@ function renderCard(card) {
     source.textContent = "원문 보기";
     details.append(createDetail("출처", source));
   } else {
-    details.append(createDetail("출처", card.source_name || "한국관광공사 무장애 여행 정보 OpenAPI"));
+    details.append(createDetail("출처", publicSourceName(card.source_name || "한국관광공사 무장애 여행 정보")));
   }
 
   const rawDetailRows = rawDetailEntries(card);
@@ -568,6 +597,10 @@ function usableSourceUrl(url) {
   }
 }
 
+function publicSourceName(sourceName) {
+  return String(sourceName || "").replace(" OpenAPI", "");
+}
+
 function createTag(text, needsCheck = false) {
   const tag = document.createElement("span");
   tag.className = needsCheck ? "tag needs-check" : "tag";
@@ -596,7 +629,7 @@ function createDiagnostic(text) {
   return note;
 }
 
-function createSourceEmpty(text = "응답 후 한국관광공사 OpenAPI, live 캐시, 색인 문서 출처가 표시됩니다.") {
+function createSourceEmpty(text = "응답 후 한국관광공사 자료와 카드별 출처가 표시됩니다.") {
   const empty = document.createElement("span");
   empty.className = "source-empty";
   empty.textContent = text;

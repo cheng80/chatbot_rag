@@ -388,6 +388,102 @@ def test_tourism_chat_uses_local_samples_before_live_tour_api(tmp_path):
     assert tour_api.list_calls == 0
 
 
+def test_tourism_chat_suggests_live_top_up_when_fallback_has_less_than_five_cards(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    for index in range(3):
+        card = TourismPlaceCard(
+            content_id=f"jeju-fallback-{index}",
+            title=f"제주 폴백 관광지 {index}",
+            address="제주특별자치도 제주시",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+
+    class CountingTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": "live-extra"}]
+
+    tour_api = CountingTourAPI()
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    response = service.answer("제주시에서 휠체어 관광지 추천해줘")
+
+    assert len(response.cards) == 3
+    assert tour_api.list_calls == 0
+    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 최신 정보 더 찾기"]
+
+
+def test_tourism_chat_live_top_up_runs_only_when_user_requests_it(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    for index in range(3):
+        card = TourismPlaceCard(
+            content_id=f"jeju-fallback-topup-{index}",
+            title=f"제주 폴백 보강 관광지 {index}",
+            address="제주특별자치도 제주시",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+
+    class FakeTourAPI:
+        def __init__(self):
+            self.list_calls = 0
+
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            self.list_calls += 1
+            return [{"contentid": f"jeju-live-{index}"} for index in range(5)]
+
+        def detail_common(self, content_id: str):
+            return {
+                "contentid": content_id,
+                "title": f"제주 라이브 관광지 {content_id}",
+                "addr1": "제주특별자치도 제주시",
+            }
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    tour_api = FakeTourAPI()
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_rows=5,
+            tourism_live_max_detail_calls=10,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=tour_api,
+    )
+
+    response = service.answer("제주시에서 휠체어 관광지 추천해줘 최신 정보 더 찾기")
+
+    assert response.lookup_mode == "live_top_up"
+    assert len(response.cards) == 5
+    assert any(card.content_id.startswith("jeju-live-") for card in response.cards)
+    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 더 보기"]
+    assert tour_api.list_calls == 1
+
+
 def test_tourism_chat_falls_back_to_local_samples(tmp_path):
     sample_dir = tmp_path / "tourism"
     sample_dir.mkdir()
@@ -534,7 +630,11 @@ def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
             return []
 
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
         EmptyRetriever(),
         TourismQueryService(area_code_cache_path=cache_path),
     )
@@ -544,6 +644,41 @@ def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
     assert len(response.cards) == 1
     assert response.cards[0].title == "개미집 본점"
     assert "부산 중구 기준" in response.answer
+
+
+def test_tourism_chat_filters_same_sigungu_name_by_area(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    busan_card = TourismPlaceCard(
+        content_id="busan-junggu",
+        title="부산 중구 관광지",
+        address="부산광역시 중구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    ulsan_card = TourismPlaceCard(
+        content_id="ulsan-junggu",
+        title="울산중구어린이역사과학체험관",
+        address="울산광역시 중구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    (sample_dir / "busan.md").write_text(TourismNormalizer().card_to_markdown(busan_card), encoding="utf-8")
+    (sample_dir / "ulsan.md").write_text(TourismNormalizer().card_to_markdown(ulsan_card), encoding="utf-8")
+
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("부산 중구에서 휠체어 관광지 추천해줘")
+
+    assert [card.title for card in response.cards] == ["부산 중구 관광지"]
 
 
 def test_tourism_chat_explains_legacy_region_name_replacement(tmp_path):

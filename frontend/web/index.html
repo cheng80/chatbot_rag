@@ -105,7 +105,7 @@
               <span id="cardCount">0개</span>
             </div>
             <div id="cards" class="cards-grid"></div>
-            <button id="demoMoreButton" class="more-button" type="button" disabled>더 보기</button>
+            <button id="demoMoreButton" class="more-button" type="button" hidden disabled>더 보기</button>
           </article>
         </section>
       </section>
@@ -147,9 +147,9 @@
               <li>지역 버튼으로 먼저 범위를 잡거나, 질문 입력창에 자유롭게 문장을 입력합니다.</li>
               <li>`중구`처럼 여러 시도에 있는 지명은 추천 대신 “어느 지역인지” 추가 질문과 지역 선택 버튼을 보여줍니다.</li>
               <li>`해운대 좌동`, `창원 마산합포구`처럼 법정동/행정동/일반구가 섞인 질문도 시군구 후보로 해석합니다.</li>
-              <li>응답 상태에는 live 캐시, live API, 색인 검색, 샘플 fallback 중 어떤 경로를 썼는지 표시됩니다.</li>
+              <li>기본 개발 모드에서는 live 캐시, live API, 색인 검색, 샘플 fallback 중 어떤 경로를 썼는지 표시됩니다.</li>
               <li>복합 조건 질문은 후보 카드 생성 뒤 LLM 추론 보조가 켜질 수 있으며, 사용 여부와 확인 필요 메모가 상태 영역에 표시됩니다.</li>
-              <li>Swagger, ReDoc, OpenAPI JSON 링크로 현재 API 계약을 바로 확인할 수 있습니다.</li>
+              <li>기본 개발 모드에서는 Swagger, ReDoc, OpenAPI JSON 링크로 현재 API 계약을 바로 확인할 수 있습니다.</li>
             </ul>
           </section>
 
@@ -166,7 +166,7 @@
           <section>
             <h3>유의점</h3>
             <ul>
-              <li>OpenAPI에 없는 편의정보는 추측하지 않고 `확인 필요`로 남깁니다.</li>
+              <li>운영 시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 방문 전 공식 안내나 전화로 한 번 더 확인하는 흐름을 유지합니다.</li>
               <li>`아빠`, `어머니`, `부모님` 같은 관계 호칭만으로 나이를 추정하지 않습니다.</li>
               <li>실제 방문 전에는 공식 안내, 전화, 현장 정보를 다시 확인해야 합니다.</li>
             </ul>

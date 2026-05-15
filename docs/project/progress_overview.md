@@ -82,6 +82,7 @@ Production readiness [██░░░░░░░░] 20%
 | P2 | 시군구 fallback 확장 | 1차 부분 수집은 완료했지만 전국 실사용 지역 250개 기준 대상 확장과 남은 부족분 수집이 필요 | `docs/tourism/tourism_sigungu_fallback_scale.md` |
 | P2 | 지역명 매칭 QA 확장 | 행정동/법정동 매칭은 연결됐지만 전국 250개 제품 대상 목록과 UI 후보 표시 QA가 필요 | `docs/tourism/admin_region_aliases.md` |
 | P3 | Flutter 전환 여부 결정 | 웹 UI로 충분한지, 모바일 앱이 필요한지 판단 | `frontend/flutter_client/README.md` |
+| P3 | 의료 안전 정보 확장 검토 | 일반 관광/무장애 관광을 여행 안전 지원으로 확장할지 판단. MVP에는 포함하지 않음 | `docs/project/professor_review_brief.md` |
 
 ## 다음 체크포인트
 

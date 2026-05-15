@@ -176,6 +176,7 @@ curl -X POST http://localhost:8000/chat \
 ## 주요 문서
 
 - `docs/README.md`: 문서 폴더 구조와 먼저 볼 문서 인덱스
+- `docs/project/professor_review_brief.md`: 교수님/외부 검토자에게 보여줄 단일 검토 브리프
 - `README.md`: 실행 방법과 프로젝트 개요
 - `docs/rag/rag_chatbot_design.md`: RAG 구조, 폴더 역할, MVP 실행 순서
 - `docs/setup/remove_anaconda_mac_guide.md`: 다른 Mac에서 conda/Anaconda 정리할 때 참고

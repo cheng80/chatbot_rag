@@ -37,6 +37,26 @@ REASONING_ASSIST_KEYWORDS = [
 DEFAULT_CARD_LIMIT = 5
 MORE_CARD_KEYWORDS = ["더 보기", "더보기", "더 많이", "더 보여", "전체", "전부", "20곳", "20개"]
 LIVE_TOP_UP_KEYWORDS = ["최신 정보 더 찾기", "최신 정보", "live 확인", "라이브 확인", "TourAPI 확인"]
+CONDITION_EVIDENCE_KEYWORDS = {
+    "휠체어": ["휠체어", "무장애", "장애인", "턱이 없어", "경사로", "출입통로"],
+    "유모차": ["유모차", "수유실", "영유아", "기저귀", "어린이", "아이", "유아"],
+    "고령자": ["고령자", "어르신", "노인", "쉬움", "의자", "휴식"],
+    "주차": ["주차", "주차장"],
+    "화장실": ["화장실", "기저귀", "보호의자"],
+    "접근로": ["접근로", "동선", "경사로", "턱이 없어", "출입통로"],
+    "대중교통": ["대중교통", "버스", "지하철"],
+    "엘리베이터": ["엘리베이터", "승강기"],
+}
+CONDITION_RAW_FIELD_KEYS = {
+    "휠체어": ["휠체어"],
+    "유모차": ["유모차", "수유실", "영유아 가족 편의"],
+    "고령자": ["기타 장애인 편의", "영유아 가족 편의"],
+    "주차": ["주차"],
+    "화장실": ["화장실"],
+    "접근로": ["접근로", "출입통로", "대중교통"],
+    "대중교통": ["대중교통"],
+    "엘리베이터": ["엘리베이터"],
+}
 
 
 class TourismChatService:
@@ -596,8 +616,7 @@ class TourismChatService:
             if region and region in haystack:
                 value += 4
             for condition in conditions:
-                if condition in haystack:
-                    value += 3
+                value += self._condition_evidence_score(card, condition)
             for feature in query.get("features") or []:
                 if feature in haystack:
                     value += 3
@@ -607,6 +626,29 @@ class TourismChatService:
             return value
 
         return sorted(cards, key=score, reverse=True)
+
+    @staticmethod
+    def _condition_evidence_score(card: TourismPlaceCard, condition: str) -> int:
+        haystack = " ".join(
+            [
+                card.title,
+                card.address or "",
+                card.recommendation_reason,
+                " ".join(card.accessibility_tags),
+                " ".join(card.family_tags),
+                " ".join(f"{key} {value}" for key, value in card.raw_fields.items()),
+            ]
+        )
+        keywords = CONDITION_EVIDENCE_KEYWORDS.get(condition, [condition])
+        matched = sum(1 for keyword in keywords if keyword in haystack)
+        if not matched:
+            return 0
+        weight = 5 if condition == "유모차" else 4
+        raw_key_bonus = 0
+        raw_field_keys = CONDITION_RAW_FIELD_KEYS.get(condition, [condition])
+        if any(keyword in key for key in card.raw_fields for keyword in raw_field_keys):
+            raw_key_bonus = 4
+        return weight + matched + raw_key_bonus
 
     @staticmethod
     def _filter_cards_by_features(cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
@@ -726,13 +768,57 @@ class TourismChatService:
         if reasoning_notes:
             lines.append(f"복합 조건을 반영해 후보 순서를 조정했습니다. 확인 필요: {', '.join(reasoning_notes)}")
         for index, card in enumerate(cards, start=1):
-            tags = card.accessibility_tags + card.family_tags
-            basis = ", ".join(tags[:4]) if tags else "세부 편의정보 확인 필요"
+            basis = self._build_card_basis(card, query)
             lines.append(f"{index}. {card.title}: {basis}. 출처는 {self._public_source_name(card.source_name)}입니다.")
         if live_top_up_available:
             lines.append("지금 확인된 후보만 먼저 보여드렸습니다. 더 찾아보려면 '최신 정보 더 찾기'를 눌러 주세요.")
         lines.append("방문 전 운영시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 공식 안내나 전화로 한 번 더 확인해 주세요.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_card_basis(card: TourismPlaceCard, query: dict) -> str:
+        tags = [*card.accessibility_tags, *card.family_tags]
+        evidence = TourismChatService._select_raw_evidence(card, query)
+        basis_parts = []
+        if tags:
+            basis_parts.append(", ".join(tags[:3]))
+        basis_parts.extend(evidence)
+        if not basis_parts:
+            return "세부 편의정보 확인 필요"
+        return " / ".join(basis_parts[:3])
+
+    @staticmethod
+    def _select_raw_evidence(card: TourismPlaceCard, query: dict) -> list[str]:
+        conditions = query.get("conditions") or []
+        preferred_keywords = []
+        for condition in conditions:
+            preferred_keywords.extend(CONDITION_EVIDENCE_KEYWORDS.get(condition, [condition]))
+        evidence = []
+        for key, value in card.raw_fields.items():
+            text = f"{key}: {value}".strip()
+            if not text:
+                continue
+            if preferred_keywords and not any(keyword in text for keyword in preferred_keywords):
+                continue
+            evidence.append(TourismChatService._shorten_evidence(text))
+            if len(evidence) >= 2:
+                break
+        if evidence:
+            return evidence
+        for key, value in card.raw_fields.items():
+            text = f"{key}: {value}".strip()
+            if text:
+                evidence.append(TourismChatService._shorten_evidence(text))
+            if len(evidence) >= 1:
+                break
+        return evidence
+
+    @staticmethod
+    def _shorten_evidence(text: str, limit: int = 54) -> str:
+        normalized = re.sub(r"\s+", " ", text.replace("<br/>", " ")).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit].rstrip()}..."
 
     @staticmethod
     def _build_region_clarification_answer(query: dict) -> str:

@@ -519,8 +519,12 @@ def test_tourism_chat_does_not_expand_sigungu_without_intent():
     assert "요청 지역 안의 결과만 먼저 제공합니다" in response.answer
 
 
-def test_tourism_chat_expands_sigungu_when_user_asks_nearby():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+def test_tourism_chat_expands_sigungu_when_user_asks_nearby(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
 
     response = service.answer("광진구 근처에서 휠체어로 갈만한 곳 추천")
 

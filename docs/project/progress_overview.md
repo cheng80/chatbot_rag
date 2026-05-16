@@ -34,10 +34,10 @@ Production readiness [██░░░░░░░░] 20%
 | 시군구 fallback 확장 | 97% | 대부분 확보 | TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 확보, 0장/1장 지역은 행정구역 유효성 확인 필요 |
 | 지역명 매칭 데이터 | 80% | 생성 및 파싱 연결 | 행안부 `jscode20260325` 기반 `admin_region_aliases.json` 생성, 예외 입력 테스트 추가 |
 | RAG 색인 | 88% | fallback | 809개 문서/816개 청크를 Chroma에서 검색 |
-| `/tourism/chat` API | 94% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장, 추론 보조 정책 반영 |
+| `/tourism/chat` API | 95% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장, 조건별 카드 랭킹/근거 문장 반영 |
 | 카드 응답 schema | 88% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages`, `reasoning_assist_used` 반환 |
 | 웹 확인 UI | 80% | 시연 가능 | `/tourism-ui/`, 메신저형 정적 UI, 지역 quick reply, 접힌 답변, 카드 상세, 지도 검색, 터널 확인 |
-| 테스트 | 86% | 주요 회귀 커버 | `pytest` 85개 통과, backend 정책과 수집/감사/eval/지역명 매칭 중심 |
+| 테스트 | 90% | 주요 회귀 커버 | `pytest` 228개 통과, 100개 이상 관광 품질 회귀 케이스와 backend 정책/수집/감사/eval/지역명 매칭 중심 |
 | 모델 품질 평가 | 70% | 1차 벤치마크 완료 | 20문항 fallback-only eval 실행 완료, 모델 추론 보조/native thinking 1차 비교 완료 |
 | 운영/배포 | 20% | 임시 확인 | Cloudflare Quick Tunnel로 외부 임시 확인 가능, 정식 배포 아님 |
 
@@ -64,6 +64,10 @@ Production readiness [██░░░░░░░░] 20%
 - `근처/주변/가까운/인근` 명시 시 상위 지역 확장
 - `중구` 같은 동명이 시군구는 지역 선택 후보 반환
 - 관계 호칭만으로 나이 추정하지 않음
+- `베리어프리`, `유아차`, `기저귀`, `어린이` 등 사용자 표현 동의어를 관광 조건으로 인식
+- 카드 랭킹에서 질문 조건과 직접 맞는 raw 편의정보 키와 가족 편의 근거를 우선 반영
+- 카드 위 답변에 태그뿐 아니라 실제 편의정보 근거 일부를 함께 노출
+- `tests/test_tourism_quality_regression.py`에 지역 해석 110개, 조건 인식 29개, 랭킹/근거 문장 회귀 케이스 추가
 - 복합 질문에서만 LLM 추론 보조를 호출해 후보 카드 재랭킹과 확인 필요 메모를 반환
 - 정적 웹 UI `/tourism-ui/` 추가
 - `/tourism-ui/`를 대시보드형 화면에서 메신저형 관광 상담 UI로 개편

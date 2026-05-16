@@ -36,8 +36,8 @@ DEFAULT_AREA_CODE_CACHE_PATH = PROJECT_ROOT / "data" / "processed" / "tour_area_
 DEFAULT_ADMIN_REGION_ALIAS_PATH = PROJECT_ROOT / "data" / "processed" / "admin_region_aliases.json"
 
 CONDITION_KEYWORDS = {
-    "휠체어": ["휠체어", "장애인", "무장애", "접근성", "이동약자"],
-    "유모차": ["유모차", "아기", "영유아", "아이", "가족", "수유실"],
+    "휠체어": ["휠체어", "장애인", "무장애", "접근성", "이동약자", "베리어프리"],
+    "유모차": ["유모차", "유아차", "아기", "영유아", "영아", "유아", "아이", "어린이", "가족", "수유", "수유실", "기저귀"],
     "고령자": ["고령자", "어르신", "노인"],
     "주차": ["주차", "장애인 주차"],
     "화장실": ["화장실", "장애인 화장실"],

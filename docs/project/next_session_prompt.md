@@ -147,6 +147,8 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 - `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 저장된 후보가 1-4장만 있을 때는 자동으로 live를 호출하지 않고 `최신 정보 더 찾기` 후속 버튼으로 명시 확인을 받는다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
+- 질문 조건 인식은 `휠체어/무장애/베리어프리`, `유모차/유아차/수유/기저귀/어린이`, `고령자`, `주차`, `화장실`, `접근로`, `대중교통`, `엘리베이터` 중심이다. 카드 랭킹은 조건별 raw 편의정보 키와 태그/본문 근거를 함께 점수화하고, 답변에는 카드별 핵심 편의정보 근거를 짧게 포함한다.
+- 챗봇 품질 회귀 테스트는 `tests/test_tourism_quality_regression.py`에 있다. 지역 해석 110개, 조건 인식 29개, 카드 랭킹/근거 문장 케이스를 포함한다.
 - `/tourism-ui/`는 정적 HTML/CSS/JS 기반 메신저형 시연 UI다. 디자인 기준은 `docs/design/tourism_chatbot_DESIGN.md`에 있다. 카드 위 긴 답변은 기본 접힘 처리하고, 카드에는 `상세 정보` 펼침과 장소명/주소 기반 `지도 검색`을 제공한다.
 - `/tourism-ui/` 기본값은 개발 모드다. 응답 경로, API 문서 링크 등 내부 확인 UI가 보인다. 사용자 시연용으로 내부 상태를 숨기려면 URL에 `?mode=release` 또는 `?debug=0`을 붙인다.
 - 한국관광공사 열린관광 사이트의 상세 URL은 콘텐츠 ID만으로 안정적인 공개 상세 링크를 만들 수 없어 `access.visitkorea.or.kr/detail/...` 추정 링크 생성을 중단했다. 기존 캐시/색인에 남아 있는 해당 링크도 UI에서 숨기고 출처명만 표시한다.

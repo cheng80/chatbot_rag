@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     tour_api_mobile_os: str = Field(default="ETC", alias="TOUR_API_MOBILE_OS")
     tour_api_mobile_app: str = Field(default="chatbot_rag", alias="TOUR_API_MOBILE_APP")
     tour_api_timeout: float = Field(default=20.0, alias="TOUR_API_TIMEOUT")
+    tour_api_daily_endpoint_limit: int = Field(default=1000, alias="TOUR_API_DAILY_ENDPOINT_LIMIT")
+    tour_api_usage_log_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "usage" / "daily_usage.json",
+        alias="TOUR_API_USAGE_LOG_PATH",
+    )
     tourism_live_lookup_enabled: bool = Field(default=True, alias="TOURISM_LIVE_LOOKUP_ENABLED")
     tourism_live_rows: int = Field(default=10, alias="TOURISM_LIVE_ROWS")
     tourism_live_max_detail_calls: int = Field(default=10, alias="TOURISM_LIVE_MAX_DETAIL_CALLS")
@@ -90,6 +95,10 @@ class Settings(BaseSettings):
     @property
     def resolved_tourism_query_event_log_path(self) -> Path:
         return self._resolve_project_path(self.tourism_query_event_log_path)
+
+    @property
+    def resolved_tour_api_usage_log_path(self) -> Path:
+        return self._resolve_project_path(self.tour_api_usage_log_path)
 
     @staticmethod
     def _resolve_project_path(path: Path) -> Path:

@@ -27,7 +27,7 @@ Production readiness [██░░░░░░░░] 20%
 
 | 영역 | 진행도 | 상태 | 근거 |
 |---|---:|---|---|
-| TourAPI 연결 | 85% | 동작 | `KorWithService2` live 후보 조회, 지역 코드 캐시, 호출 상한 확인 |
+| TourAPI 연결 | 88% | 동작 | `KorWithService2` live 후보 조회, 지역 코드 캐시, 엔드포인트별 일일 사용량 가드 |
 | live 후보 조회 | 75% | 동작 | 캐시/색인/fallback miss 또는 사용자가 `최신 정보 더 찾기`를 누를 때 TourAPI 후보와 접근성 상세를 카드화, 프로세스 캐시 사용 |
 | 샘플 데이터 | 92% | fallback + QA 도구 | 808개 Markdown fallback + curated fallback, 샘플 감사 스크립트 추가 |
 | MVP fallback 수집 | 95% | 최소 안전망 확보 | `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 완료, 이후 시군구 확장까지 808개 Markdown 확보 |
@@ -37,20 +37,22 @@ Production readiness [██░░░░░░░░] 20%
 | `/tourism/chat` API | 95% | 안정화 | cache/fallback 우선, 안전한 오류, degraded fallback, 모호 지역 선택, 시군구 확장, 조건별 카드 랭킹/근거 문장 반영 |
 | 카드 응답 schema | 88% | 동작 | `TourismPlaceCard[]`, `sources`, `warnings`, `suggested_messages`, `reasoning_assist_used` 반환 |
 | 웹 확인 UI | 80% | 시연 가능 | `/tourism-ui/`, 메신저형 정적 UI, 지역 quick reply, 접힌 답변, 카드 상세, 지도 검색, 터널 확인 |
-| 테스트 | 90% | 주요 회귀 커버 | `pytest` 228개 통과, 100개 이상 관광 품질 회귀 케이스와 backend 정책/수집/감사/eval/지역명 매칭 중심 |
-| 모델 품질 평가 | 70% | 1차 벤치마크 완료 | 20문항 fallback-only eval 실행 완료, 모델 추론 보조/native thinking 1차 비교 완료 |
+| 테스트 | 91% | 주요 회귀 커버 | `pytest` 통과, 100개 이상 관광 품질 회귀 케이스와 backend 정책/수집/감사/eval/지역명 매칭 중심 |
+| 모델 품질 평가 | 82% | 챌린지 eval 추가 | 100문항 fallback-only/live-enabled eval 자동 채점 실패 0건, 30문항 챌린지 eval 자동 채점 실패 0건, 모델 추론 보조/native thinking 1차 비교 완료 |
 | 운영/배포 | 20% | 임시 확인 | Cloudflare Quick Tunnel로 외부 임시 확인 가능, 정식 배포 아님 |
 
 ## 완료된 핵심 항목
 
 - 한국관광공사 무장애 여행 정보 OpenAPI 호출 확인
+- TourAPI 엔드포인트별 일일 1,000건 사용량 가드와 당일 산출물 기반 사용량 부트스트랩 추가
 - cache/fallback miss 때 live TourAPI 후보 조회를 사용하는 경로 추가
 - 저장된 후보가 5장 미만일 때 자동 live 호출 대신 `최신 정보 더 찾기` 후속 버튼으로 명시적 live 보강 흐름 추가
 - 같은 지역 반복 요청을 줄이는 프로세스 메모리 캐시 추가
 - mvp/fallback-1/fallback-2/fallback-3 분할 수집 완료
 - fallback Markdown 샘플 품질 감사 스크립트와 리포트 절차 추가
 - 2026-05-16 이어받기 수집 후 샘플 감사 결과 808개 중 808개 파싱 성공, 필수 필드 누락 0개, 중복 콘텐츠ID 0개 확인
-- 2026-05-15 fallback-only 20문항 eval 실행 완료, API 실패 0건과 추론 보조 4건 확인
+- 2026-05-16 fallback-only/live-enabled 100문항 eval 실행 완료, 자동 채점 실패 0건 확인
+- 2026-05-16 선호/부정 조건, 감각 접근성, 애매 지역을 포함한 30문항 챌린지 eval 추가 및 fallback-only 자동 채점 실패 0건 확인
 - 2026-05-15 로컬 모델 추론 보조 벤치마크 실행 완료, `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 되지만 30초 이상 지연 확인
 - `data/raw/tourism_accessible` 기준 808개 Markdown fallback 확보
 - MVP fallback 수집은 지역별 최소 안전망 기준으로 90% 완료다. 남은 10%는 20문항 eval에서 드러나는 부족 지역만 보강하는 작업이다.
@@ -82,10 +84,10 @@ Production readiness [██░░░░░░░░] 20%
 
 | 우선순위 | 작업 | 이유 | 현재 위치 |
 |---|---|---|---|
-| P1 | live 조회 QA | 실제 질문별 호출량, 쿼터, 응답 속도 확인 필요 | `/tourism/chat` |
+| P1 | live 조회 QA | 100문항 live-enabled 자동 채점은 통과, 실제 문장 품질 표본 검토와 응답 속도 개선 필요 | `/tourism/chat`, `scripts/eval_tourism_chat.py` |
 | P1 | fallback 데이터 QA 실행 | 지역별 최소 샘플은 확보됐고 샘플 감사 리포트와 실제 질문 품질 확인 필요 | `scripts/audit_tourism_samples.py` |
 | P1 | 웹 UI QA | 모바일/외부 사용자 관점에서 카드 상세, 지도 검색, 접힌 답변, Help, 오류 상태 확인 필요 | `frontend/web/` |
-| P1 | 확장 eval 수동 채점 및 live-on-miss 비교 | 20문항은 smoke test 수준이므로 발표 전 검증폭을 넓혀야 함 | `data/eval/tourism_20_questions.jsonl` |
+| P1 | 확장 eval 수동 채점 및 live-on-miss 비교 | 100문항과 30문항 챌린지 자동 채점은 통과했지만 실제 문장 품질 수동 표본 검토와 live 분할 비교가 필요 | `data/eval/tourism_100_questions.jsonl`, `data/eval/tourism_challenge_questions.jsonl` |
 | P1 | 복합 질문 의도 회귀 QA | 추론 보조는 기본 OFF로 두고, ON/OFF eval 비교로 카드 수·순서·경고·후속 질문 차이를 확인 필요 | `/tourism/chat`, `scripts/eval_tourism_chat.py` |
 | P2 | 로컬 모델 비교 실행/수동 채점 | 기본 로컬 모델과 native thinking 사용 여부 결정 | `scripts/benchmark_tourism_reasoning_models.py`, `docs/tourism/tourism_model_reasoning_benchmark.md` |
 | P2 | persistent TourAPI cache 검토 | 프로세스 재시작 후에도 반복 호출을 줄이기 위함 | `TODOS.md` |
@@ -99,7 +101,7 @@ Production readiness [██░░░░░░░░] 20%
 1. `/tourism-ui/`를 외부 터널 URL로 열어 메신저형 사용자 흐름을 직접 테스트한다.
 2. 서울/부산/강릉 외 지역 질문에서 live 조회 결과와 fallback 메시지를 수집한다.
 3. fallback Markdown 카드 품질을 지역별로 샘플링한다.
-4. 20문항 smoke eval에 더해 발표용 캡처 시나리오와 확장 질문셋을 fallback-only/live-on-miss 환경에서 실행한다.
+4. 100문항 회귀 eval, 30문항 챌린지 eval, 발표용 캡처 시나리오를 fallback-only/live-on-miss 환경에서 실행한다. live-on-miss는 `--strict-budget`으로 먼저 한도 확인 후 분할한다.
 5. eval에서 빈 지역이 반복되면 시군구 fallback 대상 목록을 전국 실사용 250개 기준으로 확장하고 남은 부족분을 quota window별로 나눠 보강한다.
 6. 2026-06-10 전까지 기본 서비스 고정, 문서, 데모 스크립트, 최종 회귀 테스트를 끝낸다.
 

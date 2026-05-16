@@ -44,12 +44,25 @@ CONDITION_KEYWORDS = {
     "접근로": ["접근로", "동선", "경사로", "턱 없음", "턱이 없어"],
     "대중교통": ["대중교통", "버스", "지하철"],
     "엘리베이터": ["엘리베이터", "승강기"],
+    "보조견": ["보조견", "안내견"],
+    "시각장애": ["시각장애", "점자", "점자블록", "촉지도", "음성안내", "오디오가이드"],
+    "청각장애": ["청각장애", "수어", "수화", "자막", "문자안내"],
 }
 
 EXPANSION_KEYWORDS = ["근처", "주변", "가까운", "인근"]
 FEATURE_KEYWORDS = {
     "바닷가": ["바닷가", "바다", "해변", "해수욕장", "해안", "해변가"],
 }
+PREFERENCE_KEYWORDS = {
+    "실내": ["실내", "비 와도", "비오는", "비 오는", "더운 날", "추운 날"],
+    "박물관_전시": ["박물관", "전시관", "전시", "미술관", "체험관"],
+    "시장_먹거리": ["시장", "먹거리", "맛집", "음식", "식당", "먹자골목"],
+    "공원_산책": ["공원", "산책", "산책로", "숲길", "정원", "둘레길"],
+    "숙박": ["호텔", "숙박", "리조트", "펜션", "캠핑장", "야영장"],
+    "카페_음식점": ["카페", "식당", "음식점", "맛집", "레스토랑"],
+    "조용한": ["조용", "한적", "붐비지", "덜 붐비"],
+}
+NEGATION_NEARBY_KEYWORDS = ["말고", "빼고", "제외", "아닌", "말고는", "말고요"]
 UNSUPPORTED_INTENT_KEYWORDS = {
     "wheelchair_rental_price": ["휠체어 대여", "대여 가격", "가격이 제일 싼", "제일 싼 곳", "최저가"],
     "medical_lookup": ["병원", "약국", "응급실", "응급의료"],
@@ -146,6 +159,7 @@ class TourismQueryService:
             for label, keywords in CONDITION_KEYWORDS.items()
             if any(keyword in message for keyword in keywords)
         ]
+        preferences, excluded_preferences = self._extract_preference_filters(message)
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
@@ -158,6 +172,8 @@ class TourismQueryService:
             "is_sigungu": bool(sigungu_code),
             "allow_region_expansion": any(keyword in message for keyword in EXPANSION_KEYWORDS),
             "conditions": conditions,
+            "preferences": preferences,
+            "excluded_preferences": excluded_preferences,
             "features": [
                 label
                 for label, keywords in FEATURE_KEYWORDS.items()
@@ -172,6 +188,29 @@ class TourismQueryService:
             "legacy_region_replacement": legacy_region.get("replacement_region") if legacy_region else None,
             "legacy_region_notice": legacy_region.get("notice") if legacy_region else None,
         }
+
+    @staticmethod
+    def _extract_preference_filters(message: str) -> tuple[list[str], list[str]]:
+        preferences: list[str] = []
+        excluded_preferences: list[str] = []
+        for label, keywords in PREFERENCE_KEYWORDS.items():
+            matched_keywords = [keyword for keyword in keywords if keyword in message]
+            if not matched_keywords:
+                continue
+            if any(TourismQueryService._is_negated_near_keyword(message, keyword) for keyword in matched_keywords):
+                excluded_preferences.append(label)
+            else:
+                preferences.append(label)
+        return preferences, excluded_preferences
+
+    @staticmethod
+    def _is_negated_near_keyword(message: str, keyword: str) -> bool:
+        start = message.find(keyword)
+        if start == -1:
+            return False
+        end = start + len(keyword)
+        window = message[max(0, start - 8) : min(len(message), end + 8)]
+        return any(negation in window for negation in NEGATION_NEARBY_KEYWORDS)
 
     @staticmethod
     def _find_unsupported_intent(message: str) -> str | None:
@@ -198,6 +237,8 @@ class TourismQueryService:
             candidates = self.ambiguous_region_aliases[alias]
             if alias not in message:
                 continue
+            if alias == "광주" and "광주광역시" in message:
+                return None
             if region:
                 if region == alias:
                     return alias

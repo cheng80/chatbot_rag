@@ -6,6 +6,8 @@
 
 - `data/eval/tourism_20_questions.jsonl`: 빠른 smoke test용 최소 평가셋
 - `data/eval/tourism_80_questions.jsonl`: 복합 의도, 모호 지역, 경계 요청, 저커버리지 지역을 포함한 확장 평가셋
+- `data/eval/tourism_100_questions.jsonl`: 행정구역 예외, 동명이 지역, 조건 동의어, 더보기/최신 정보 보강 정책까지 포함한 자동 채점 평가셋
+- `data/eval/tourism_challenge_questions.jsonl`: 이미 통과한 회귀 문항이 아니라 선호/부정 조건, 감각 접근성, 애매 지역, 저커버리지 지역을 더 까다롭게 검증하는 챌린지 평가셋
 
 ## 평가 목적
 
@@ -36,15 +38,93 @@ TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --hos
 TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct
 ```
 
-확장 80문항 평가셋은 아래처럼 실행한다.
+확장 100문항 평가셋은 아래처럼 실행한다.
 
 ```bash
-TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_80_questions.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_100_questions.jsonl
 ```
 
-live 조회까지 포함해 확인할 때만 서버 실행 환경에서 `TOURISM_LIVE_LOOKUP_ENABLED=true`를 사용한다. 공공데이터포털 호출량을 아껴야 하는 날에는 fallback-only로 실행한다.
+챌린지 평가셋은 기존 정답지 반복 학습을 피하기 위해 별도로 실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_challenge_questions.jsonl
+```
+
+평가 스크립트는 시작 시 `TOUR_API_USAGE_LOG_PATH`의 오늘 엔드포인트별 사용량을 읽고 출력한다. live 조회까지 포함해 확인할 때는 `--strict-budget`을 붙여 보수적 최악 추정치가 오늘 한도 안에 들어오는지 먼저 확인한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=true .venv/bin/python scripts/eval_tourism_chat.py --direct --strict-budget --input data/eval/tourism_100_questions.jsonl
+```
+
+당일 로그 도입 전에 이미 생성된 TourAPI 산출물이 있으면 아래 명령으로 오늘 수정된 raw/live 산출물 기준 최소 사용량을 usage log에 반영한다.
+
+```bash
+.venv/bin/python scripts/bootstrap_tour_api_usage.py
+```
+
+공공데이터포털 호출량을 아껴야 하는 날에는 fallback-only로 실행한다.
 
 결과는 기본적으로 `data/generated/tour_api/eval_runs/` 아래 JSONL로 저장된다. 이 디렉터리는 생성 산출물이므로 커밋하지 않는다.
+
+## 2026-05-16 100문항 fallback-only 실행 결과
+
+실행 명령:
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_100_questions.jsonl
+```
+
+호출량 가드:
+
+- 부트스트랩 추정 사용량: `areaBasedList2=73`, `detailCommon2=170`, `detailWithTour2=170`
+- fallback-only eval 추정 추가 호출량: 0
+- live-enabled 100문항 실행은 실제 호출 전 현재 사용량을 확인하고, 각 TourAPI 요청 직전에 엔드포인트별 한도를 다시 확인했다.
+- live-enabled 100문항 실행 후 사용량은 `areaBasedList2=76`, `detailCommon2=185`, `detailWithTour2=185`였다.
+
+요약:
+
+| 항목 | 결과 |
+|---|---:|
+| 총 문항 | 100 |
+| 자동 채점 실패 | 0 |
+| HTTP/API 실패 | 0 |
+| live-enabled 자동 채점 실패 | 0 |
+
+## 2026-05-16 챌린지 30문항 fallback-only 실행 결과
+
+실행 명령:
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_challenge_questions.jsonl
+```
+
+호출량 가드:
+
+- 실행 시점 사용량: `areaBasedList2=77`, `detailCommon2=190`, `detailWithTour2=190`
+- fallback-only eval 추정 추가 호출량: 0
+
+요약:
+
+| 항목 | 결과 |
+|---|---:|
+| 총 문항 | 30 |
+| 자동 채점 실패 | 0 |
+| HTTP/API 실패 | 0 |
+
+확인된 개선:
+
+- 점자블록, 오디오가이드, 보조견, 수어/자막 같은 감각 접근성 조건을 별도 조건으로 인식한다.
+- 실내/박물관, 시장/먹거리, 공원/산책, 조용한 곳 같은 선호 조건을 카드 랭킹에 반영한다.
+- 식당/카페/숙박/시장처럼 사용자가 빼 달라고 한 부정 조건은 대체 후보가 있으면 제외한다.
+- live Markdown 캐시에 지역 카드가 있어도 세부 조건 근거가 부족하면 indexed/sample 후보까지 계속 확인한다.
+- `광주`처럼 애매한 입력은 확인 질문으로 보내고, `광주광역시`처럼 명시된 입력은 바로 추천으로 처리한다.
+
+평가기 보강:
+
+- `must_include_any_card_terms`: 카드 제목, 주소, 태그, raw 편의정보 중 지정 근거가 하나 이상 있는지 확인한다.
+- `first_card_must_include_any_terms`: 첫 번째 카드가 선호 조건에 맞는지 확인한다.
+- `must_not_include_card_terms`: 제외 조건이 카드에 남아 있는지 확인한다.
+- `must_include_answer_any_terms`, `min_suggestions`: 답변 문장과 후속 질문 품질을 함께 본다.
 
 ## 2026-05-15 fallback-only 실행 결과
 

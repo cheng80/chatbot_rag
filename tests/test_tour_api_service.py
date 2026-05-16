@@ -13,6 +13,60 @@ def test_tour_api_requires_service_key():
         raise AssertionError("TourAPIError was not raised")
 
 
+def test_tour_api_records_daily_endpoint_usage_before_request(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="test",
+        tour_api_usage_log_path=tmp_path / "usage.json",
+    )
+    service = TourAPIService(settings)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": {"header": {"resultCode": "0000"}, "body": {"items": ""}}}
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    service.area_based_list("1")
+
+    saved = (tmp_path / "usage.json").read_text(encoding="utf-8")
+    assert "areaBasedList2" in saved
+
+
+def test_tour_api_stops_when_daily_endpoint_limit_is_exhausted(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="test",
+        tour_api_daily_endpoint_limit=1,
+        tour_api_usage_log_path=tmp_path / "usage.json",
+    )
+    service = TourAPIService(settings)
+    called = {"count": 0}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": {"header": {"resultCode": "0000"}, "body": {"items": ""}}}
+
+    def fake_get(*args, **kwargs):
+        called["count"] += 1
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", fake_get)
+
+    service.area_based_list("1")
+    try:
+        service.area_based_list("1")
+    except TourAPIError as exc:
+        assert "daily quota exceeded" in str(exc)
+    else:
+        raise AssertionError("TourAPIError was not raised")
+    assert called["count"] == 1
+
+
 def test_tour_api_extracts_single_item_dict():
     service = TourAPIService(Settings(tour_api_service_key="test"))
     payload = {

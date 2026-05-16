@@ -49,8 +49,8 @@ class FakeLLMService:
         return self.response
 
 
-def test_tourism_chat_returns_cards_and_sources():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+def test_tourism_chat_returns_cards_and_sources(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     response = service.answer("서울에서 휠체어와 유모차로 가기 좋은 곳 추천해줘")
 
@@ -62,13 +62,13 @@ def test_tourism_chat_returns_cards_and_sources():
     assert "출처" in response.answer
 
 
-def test_tourism_chat_uses_reasoning_assist_for_complex_question():
+def test_tourism_chat_uses_reasoning_assist_for_complex_question(tmp_path):
     llm = FakeLLMService(
         '{"ranked_ids":["sample-seoul-002","sample-seoul-001"],'
         '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
     )
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True),
+        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -83,13 +83,13 @@ def test_tourism_chat_uses_reasoning_assist_for_complex_question():
     assert "후보 카드에 없는 장소나 접근성 정보를 만들지 않는다" in llm.prompts[0]
 
 
-def test_tourism_chat_disables_reasoning_assist_by_default():
+def test_tourism_chat_disables_reasoning_assist_by_default(tmp_path):
     llm = FakeLLMService(
         '{"ranked_ids":["sample-seoul-002","sample-seoul-001"],'
         '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
     )
     service = TourismChatService(
-        Settings(),
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -99,14 +99,14 @@ def test_tourism_chat_disables_reasoning_assist_by_default():
 
     assert response.reasoning_assist_used is False
     assert response.reasoning_assist_notes == []
-    assert response.cards[0].title == "서울어린이대공원"
+    assert response.cards[0].title == "국립중앙박물관"
     assert llm.prompts == []
 
 
-def test_tourism_chat_skips_reasoning_assist_for_simple_question():
+def test_tourism_chat_skips_reasoning_assist_for_simple_question(tmp_path):
     llm = FakeLLMService('{"ranked_ids":["sample-seoul-002"]}')
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True),
+        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -119,10 +119,10 @@ def test_tourism_chat_skips_reasoning_assist_for_simple_question():
     assert llm.prompts == []
 
 
-def test_tourism_chat_keeps_existing_order_when_reasoning_assist_fails():
+def test_tourism_chat_keeps_existing_order_when_reasoning_assist_fails(tmp_path):
     llm = FakeLLMService("not-json")
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True),
+        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -131,7 +131,7 @@ def test_tourism_chat_keeps_existing_order_when_reasoning_assist_fails():
     response = service.answer("서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천")
 
     assert response.reasoning_assist_used is False
-    assert response.cards[0].title == "서울어린이대공원"
+    assert response.cards[0].title == "국립중앙박물관"
 
 
 def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
@@ -325,6 +325,7 @@ def test_tourism_chat_logs_query_card_event(tmp_path):
             tourism_query_event_log_path=log_path,
             tourism_query_event_log_enabled=True,
             tourism_query_event_log_include_message=False,
+            tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
         ),
         FakeRetriever(),
@@ -495,7 +496,11 @@ def test_tourism_chat_falls_back_to_local_samples(tmp_path):
             raise RuntimeError("Ollama unavailable")
 
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
         BrokenRetriever(),
         TourismQueryService(),
     )
@@ -791,7 +796,11 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
             return []
 
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -841,8 +850,8 @@ def test_tourism_chat_rejects_unsupported_price_comparison():
     assert "가격 비교" in response.answer
 
 
-def test_tourism_chat_answers_supported_part_when_scope_request_is_mixed():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+def test_tourism_chat_answers_supported_part_when_scope_request_is_mixed(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     response = service.answer("서울에서 휠체어 관광지 추천하면서 근처 응급실과 약국도 같이 알려줘")
 

@@ -147,6 +147,7 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 - `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 저장된 후보가 1-4장만 있을 때는 자동으로 live를 호출하지 않고 `최신 정보 더 찾기` 후속 버튼으로 명시 확인을 받는다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
+- TourAPI 호출은 `TourAPIService`에서 엔드포인트별 일일 1,000건 한도를 확인한 뒤 기록한다. 사용량 로그 기본 경로는 `data/generated/tour_api/usage/daily_usage.json`이다. 로그 도입 전 당일 산출물을 반영해야 하면 `.venv/bin/python scripts/bootstrap_tour_api_usage.py`로 오늘 수정된 raw/live 산출물 기준 최소 사용량을 부트스트랩한다.
 - 질문 조건 인식은 `휠체어/무장애/베리어프리`, `유모차/유아차/수유/기저귀/어린이`, `고령자`, `주차`, `화장실`, `접근로`, `대중교통`, `엘리베이터` 중심이다. 카드 랭킹은 조건별 raw 편의정보 키와 태그/본문 근거를 함께 점수화하고, 답변에는 카드별 핵심 편의정보 근거를 짧게 포함한다.
 - 챗봇 품질 회귀 테스트는 `tests/test_tourism_quality_regression.py`에 있다. 지역 해석 110개, 조건 인식 29개, 카드 랭킹/근거 문장 케이스를 포함한다.
 - `/tourism-ui/`는 정적 HTML/CSS/JS 기반 메신저형 시연 UI다. 디자인 기준은 `docs/design/tourism_chatbot_DESIGN.md`에 있다. 카드 위 긴 답변은 기본 접힘 처리하고, 카드에는 `상세 정보` 펼침과 장소명/주소 기반 `지도 검색`을 제공한다.
@@ -163,7 +164,9 @@ curl -X POST http://localhost:8000/chat \
 - fallback 데이터는 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치 수집과 시군구 fallback 확장 수집을 진행했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible` 기준 808개 Markdown, Chroma 기준 809개 문서/816개 청크가 색인됐다.
 - 시군구 fallback은 TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 확보됐다. 0장 지역은 청원군, 마산시, 진해시, 남제주군, 북제주군이고, 3장 미만 지역은 계룡시 1장이다. 0장 5개 지역은 폐지/통합 지명으로 보고 사용자 질문에서는 현재 행정구역명을 안내한다. 매핑은 청원군 -> 청주시, 마산시 -> 창원시, 진해시 -> 창원시 진해구 안내/TourAPI 창원시 기준, 남제주군 -> 서귀포시, 북제주군 -> 제주시다. 전국 실사용 지역 250개 기준 대상 목록 확장은 아직 남아 있다.
 - 2026-05-15에는 사용자의 명시 승인으로 엔드포인트별 500건 평시 안전치를 일시적으로 풀고 1,000건 기준까지 수집을 확장했으나, `detailCommon2` 429 응답 후 즉시 중단했다. 같은 quota window에서는 추가 수집하지 않는다.
-- 20문항 fallback-only eval은 2026-05-15에 1차 실행했다. 20문항은 smoke test 수준이므로 다음에는 `docs/project/demo_capture_scenarios.md`와 확장 eval을 함께 live-on-miss/fallback-only로 비교한다.
+- 100문항 eval은 2026-05-16에 fallback-only와 live-enabled로 실행했고 자동 채점 실패 0건이었다. live-enabled 실행은 실제 호출 전 현재 사용량을 확인하고 각 TourAPI 요청 직전에 엔드포인트별 한도를 다시 확인했다. 실행 후 사용량은 `areaBasedList2=76`, `detailCommon2=185`, `detailWithTour2=185`였다.
+- 기존 문항 반복만으로 품질을 착각하지 않도록 `data/eval/tourism_challenge_questions.jsonl` 30문항을 추가했다. 이 세트는 실내/박물관, 시장/먹거리, 공원/산책 같은 선호 조건, 식당/카페/숙박/시장 제외 같은 부정 조건, 점자블록/오디오가이드/보조견/수어/자막 같은 감각 접근성, `광주`/`고성군`/`동구`/`서구` 애매성, 계룡시 저커버리지 지역을 자동 채점한다. 2026-05-16 fallback-only 실행 결과 자동 채점 실패 0건이었다. 실행 시점 사용량은 `areaBasedList2=77`, `detailCommon2=190`, `detailWithTour2=190`였고 fallback-only 추가 호출량은 0이었다.
+- `/tourism/chat`은 live Markdown 캐시에 지역 카드가 있어도 요청한 세부 조건의 근거가 부족하면 indexed/sample 후보까지 계속 확인한다. 새 조건 인식은 `보조견`, `시각장애`, `청각장애`를 포함하고, 선호/부정 선호는 카드 랭킹과 제외 필터에 반영한다.
 - 서버 없이 현재 코드 기준 eval을 빠르게 확인할 때는 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct`를 사용한다.
 - 전국 시군구 단위 fallback을 늘릴 경우 예상 규모와 호출량은 `docs/tourism/tourism_sigungu_fallback_scale.md`를 참고한다.
 - 행정동/법정동 지역명 매칭 데이터는 `scripts/build_admin_region_aliases.py`로 생성했다. 결과는 `data/processed/admin_region_aliases.json`이고, 설계 기록은 `docs/tourism/admin_region_aliases.md`에 있다. `TourismQueryService`는 이 파일을 읽어 `부산 중구`, `해운대 좌동`, `창원 마산합포구`, `성남 분당구` 같은 예외 입력을 시군구 후보로 해석한다.

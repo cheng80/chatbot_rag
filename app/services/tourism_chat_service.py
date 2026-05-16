@@ -14,7 +14,7 @@ from app.services.tour_api_service import TourAPIError, TourAPIService
 from app.services.tourism_card_codec import TourismCardMarkdownCodec
 from app.services.tourism_normalizer import TourismNormalizer
 from app.services.tourism_query_event_logger import TourismQueryEventLogger
-from app.services.tourism_query_service import FEATURE_KEYWORDS, TourismQueryService
+from app.services.tourism_query_service import FEATURE_KEYWORDS, PREFERENCE_KEYWORDS, TourismQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,9 @@ CONDITION_EVIDENCE_KEYWORDS = {
     "접근로": ["접근로", "동선", "경사로", "턱이 없어", "출입통로"],
     "대중교통": ["대중교통", "버스", "지하철"],
     "엘리베이터": ["엘리베이터", "승강기"],
+    "보조견": ["보조견", "안내견"],
+    "시각장애": ["시각장애", "점자", "점자블록", "촉지도", "음성안내", "오디오가이드"],
+    "청각장애": ["청각장애", "수어", "수화", "자막", "문자안내"],
 }
 CONDITION_RAW_FIELD_KEYS = {
     "휠체어": ["휠체어"],
@@ -56,7 +59,20 @@ CONDITION_RAW_FIELD_KEYS = {
     "접근로": ["접근로", "출입통로", "대중교통"],
     "대중교통": ["대중교통"],
     "엘리베이터": ["엘리베이터"],
+    "보조견": ["보조견"],
+    "시각장애": ["시각장애", "점자블록", "오디오가이드", "안내시설"],
+    "청각장애": ["청각장애", "자막", "수어", "안내시설"],
 }
+PREFERENCE_EVIDENCE_KEYWORDS = {
+    "실내": ["실내", "박물관", "전시관", "미술관", "체험관", "기념관", "문화관"],
+    "박물관_전시": ["박물관", "전시관", "전시", "미술관", "체험관", "기념관", "문화관"],
+    "시장_먹거리": ["시장", "먹거리", "맛집", "음식", "식당", "먹자골목"],
+    "공원_산책": ["공원", "산책", "산책로", "숲길", "정원", "둘레길", "생태"],
+    "숙박": ["호텔", "숙박", "리조트", "펜션", "캠핑장", "야영장"],
+    "카페_음식점": ["카페", "커피", "식당", "음식점", "맛집", "레스토랑"],
+    "조용한": ["조용", "한적", "숲", "정원", "산책", "생태"],
+}
+STRICT_CONDITION_EVIDENCE = {"유모차", "보조견", "시각장애", "청각장애"}
 
 
 class TourismChatService:
@@ -154,6 +170,9 @@ class TourismChatService:
         cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
         if cards:
             lookup_mode = "cache"
+            if not self._cards_cover_requested_conditions(cards, query):
+                cards = []
+                lookup_mode = "unknown"
 
         if not cards:
             contexts, retrieve_degraded = self._retrieve(message)
@@ -163,12 +182,19 @@ class TourismChatService:
             if cards:
                 lookup_mode = "indexed"
                 source_contexts = contexts
+                if not self._cards_cover_requested_conditions(cards, query):
+                    cards = []
+                    lookup_mode = "unknown"
+                    source_contexts = []
 
         if not cards:
             candidates = self._cards_from_markdown_samples()
             cards, expanded, has_more_cards = self._select_stage_cards(candidates, message, query)
             if cards:
                 lookup_mode = "sample"
+                if not self._cards_cover_requested_conditions(cards, query):
+                    cards = []
+                    lookup_mode = "unknown"
 
         if (
             cards
@@ -420,6 +446,8 @@ class TourismChatService:
             "region": query.get("region"),
             "conditions": query.get("conditions") or [],
             "features": query.get("features") or [],
+            "preferences": query.get("preferences") or [],
+            "excluded_preferences": query.get("excluded_preferences") or [],
             "cards": card_payload,
         }
         return (
@@ -600,18 +628,10 @@ class TourismChatService:
             cards = feature_cards
         elif query.get("features"):
             return []
+        cards = self._filter_cards_by_excluded_preferences(cards, query)
 
         def score(card: TourismPlaceCard) -> int:
-            haystack = " ".join(
-                [
-                    card.title,
-                    card.address or "",
-                    card.recommendation_reason,
-                    " ".join(card.accessibility_tags),
-                    " ".join(card.family_tags),
-                    " ".join(card.raw_fields.values()),
-                ]
-            )
+            haystack = self._card_haystack(card)
             value = 0
             if region and region in haystack:
                 value += 4
@@ -620,6 +640,11 @@ class TourismChatService:
             for feature in query.get("features") or []:
                 if feature in haystack:
                     value += 3
+            for preference in query.get("preferences") or []:
+                value += self._preference_evidence_score(card, preference)
+            for excluded_preference in query.get("excluded_preferences") or []:
+                if self._preference_matches(card, excluded_preference):
+                    value -= 12
             for token in message.split():
                 if len(token) >= 2 and token in haystack:
                     value += 1
@@ -627,9 +652,20 @@ class TourismChatService:
 
         return sorted(cards, key=score, reverse=True)
 
+    @classmethod
+    def _cards_cover_requested_conditions(cls, cards: list[TourismPlaceCard], query: dict) -> bool:
+        conditions = [
+            condition
+            for condition in query.get("conditions") or []
+            if condition in STRICT_CONDITION_EVIDENCE
+        ]
+        if not conditions:
+            return True
+        return all(any(cls._condition_evidence_score(card, condition) > 0 for card in cards) for condition in conditions)
+
     @staticmethod
-    def _condition_evidence_score(card: TourismPlaceCard, condition: str) -> int:
-        haystack = " ".join(
+    def _card_haystack(card: TourismPlaceCard) -> str:
+        return " ".join(
             [
                 card.title,
                 card.address or "",
@@ -639,6 +675,10 @@ class TourismChatService:
                 " ".join(f"{key} {value}" for key, value in card.raw_fields.items()),
             ]
         )
+
+    @classmethod
+    def _condition_evidence_score(cls, card: TourismPlaceCard, condition: str) -> int:
+        haystack = cls._card_haystack(card)
         keywords = CONDITION_EVIDENCE_KEYWORDS.get(condition, [condition])
         matched = sum(1 for keyword in keywords if keyword in haystack)
         if not matched:
@@ -649,6 +689,30 @@ class TourismChatService:
         if any(keyword in key for key in card.raw_fields for keyword in raw_field_keys):
             raw_key_bonus = 4
         return weight + matched + raw_key_bonus
+
+    @classmethod
+    def _preference_evidence_score(cls, card: TourismPlaceCard, preference: str) -> int:
+        keywords = PREFERENCE_EVIDENCE_KEYWORDS.get(preference, PREFERENCE_KEYWORDS.get(preference, [preference]))
+        matched = sum(1 for keyword in keywords if keyword in cls._card_haystack(card))
+        return 0 if not matched else 3 + matched
+
+    @classmethod
+    def _preference_matches(cls, card: TourismPlaceCard, preference: str) -> bool:
+        keywords = PREFERENCE_EVIDENCE_KEYWORDS.get(preference, PREFERENCE_KEYWORDS.get(preference, [preference]))
+        haystack = cls._card_haystack(card)
+        return any(keyword in haystack for keyword in keywords)
+
+    @classmethod
+    def _filter_cards_by_excluded_preferences(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
+        excluded_preferences = query.get("excluded_preferences") or []
+        if not excluded_preferences:
+            return cards
+        filtered = [
+            card
+            for card in cards
+            if not any(cls._preference_matches(card, preference) for preference in excluded_preferences)
+        ]
+        return filtered or cards
 
     @staticmethod
     def _filter_cards_by_features(cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
@@ -749,7 +813,7 @@ class TourismChatService:
         reasoning_notes: list[str] | None = None,
         live_top_up_available: bool = False,
     ) -> str:
-        region = query.get("region") or "요청 지역"
+        region = self._display_region(query)
         conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
         lines = [f"{region} 기준으로 {conditions} 조건에 맞는 관광지 {len(cards)}곳을 추천합니다."]
         if query.get("legacy_region_notice"):
@@ -774,6 +838,15 @@ class TourismChatService:
             lines.append("지금 확인된 후보만 먼저 보여드렸습니다. 더 찾아보려면 '최신 정보 더 찾기'를 눌러 주세요.")
         lines.append("방문 전 운영시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 공식 안내나 전화로 한 번 더 확인해 주세요.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _display_region(query: dict) -> str:
+        region = str(query.get("region") or "")
+        area_name = str(query.get("area_name") or "")
+        sigungu_name = str(query.get("sigungu_name") or "")
+        if query.get("is_sigungu") and area_name and sigungu_name and sigungu_name not in region:
+            return f"{area_name} {sigungu_name}"
+        return region or "요청 지역"
 
     @staticmethod
     def _build_card_basis(card: TourismPlaceCard, query: dict) -> str:

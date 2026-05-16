@@ -84,12 +84,22 @@ def test_quality_region_extraction_matrix(message, expected_region, expected_are
         ("서울에서 접근로와 장애인 화장실 확인되는 곳", {"휠체어", "접근로", "화장실"}),
         ("서울에서 휠체어 타는 아빠와 갈만한 곳", {"휠체어"}),
         ("서울에서 휠체어 타시는 어머니와 갈만한 곳", {"휠체어"}),
+        ("서울에서 안내견 동반 가능한 곳", {"보조견"}),
+        ("서울에서 점자블록이나 오디오가이드 있는 곳", {"시각장애"}),
+        ("서울에서 수어 안내나 자막 있는 곳", {"청각장애"}),
     ],
 )
 def test_quality_condition_extraction_matrix(message, expected_conditions):
     query = TourismQueryService().extract(message)
 
     assert expected_conditions <= set(query["conditions"])
+
+
+def test_quality_query_extracts_preferences_and_negative_preferences():
+    query = TourismQueryService().extract("서울에서 비 오는 날 실내 박물관 추천해줘. 호텔은 빼고")
+
+    assert {"실내", "박물관_전시"} <= set(query["preferences"])
+    assert "숙박" in query["excluded_preferences"]
 
 
 def test_quality_ranking_prefers_requested_accessibility_evidence(tmp_path):
@@ -160,6 +170,72 @@ def test_quality_ranking_prefers_family_evidence_for_child_query(tmp_path):
     ranked = service._rank_cards([adult_only, family], "서울에서 아이랑 유모차 화장실 확인되는 곳", query)
 
     assert [card.content_id for card in ranked] == ["family", "adult"]
+
+
+def test_quality_ranking_prefers_soft_preferences_and_excludes_negative_preferences(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_sample_path=tmp_path / "samples", tourism_live_cache_path=tmp_path / "live", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+    query = {
+        "region": "서울",
+        "conditions": [],
+        "features": [],
+        "preferences": ["실내", "박물관_전시"],
+        "excluded_preferences": ["숙박"],
+    }
+    hotel = TourismPlaceCard(
+        content_id="hotel",
+        title="서울 관광호텔",
+        address="서울",
+        recommendation_reason="숙박 가능한 호텔입니다.",
+        raw_fields={"숙박": "객실 있음"},
+    )
+    museum = TourismPlaceCard(
+        content_id="museum",
+        title="서울 역사박물관",
+        address="서울",
+        recommendation_reason="비 오는 날에도 관람하기 좋은 실내 전시관입니다.",
+        raw_fields={"안내시설": "전시관 내부 관람 가능"},
+    )
+
+    ranked = service._rank_cards([hotel, museum], "서울에서 비 오는 날 실내 박물관 추천. 호텔은 빼고", query)
+
+    assert [card.content_id for card in ranked] == ["museum"]
+
+
+def test_quality_ranking_scores_sensory_accessibility_evidence(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_sample_path=tmp_path / "samples", tourism_live_cache_path=tmp_path / "live", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+    query = {
+        "region": "서울",
+        "conditions": ["시각장애"],
+        "features": [],
+        "preferences": [],
+        "excluded_preferences": [],
+    }
+    generic = TourismPlaceCard(
+        content_id="generic",
+        title="서울 문화관",
+        address="서울",
+        recommendation_reason="서울에 있어 후보입니다.",
+    )
+    sensory = TourismPlaceCard(
+        content_id="sensory",
+        title="서울 접근성 전시관",
+        address="서울",
+        recommendation_reason="점자블록과 오디오가이드 정보가 확인되었습니다.",
+        accessibility_tags=["점자블록", "오디오가이드"],
+        raw_fields={"시각장애 편의": "점자블록 있음, 오디오가이드 있음"},
+    )
+
+    ranked = service._rank_cards([generic, sensory], "서울에서 점자블록 오디오가이드 있는 곳", query)
+
+    assert [card.content_id for card in ranked] == ["sensory", "generic"]
 
 
 def test_quality_answer_includes_specific_card_evidence(tmp_path):

@@ -5,6 +5,7 @@ from typing import Any
 import requests
 
 from app.core.config import Settings
+from app.services.tour_api_usage import TourAPIQuotaExceeded, TourAPIUsageTracker
 
 
 class TourAPIError(RuntimeError):
@@ -16,6 +17,10 @@ class TourAPIService:
         self.settings = settings
         self.base_url = settings.tour_api_base_url.rstrip("/")
         self.accessible_base_url = settings.tour_api_accessible_base_url.rstrip("/")
+        self.usage_tracker = TourAPIUsageTracker(
+            settings.resolved_tour_api_usage_log_path,
+            daily_endpoint_limit=settings.tour_api_daily_endpoint_limit,
+        )
 
     def area_based_list(
         self,
@@ -96,6 +101,10 @@ class TourAPIService:
         effective_service_key = service_key or self.settings.tour_api_service_key
         if not effective_service_key:
             raise TourAPIError("TOUR_API_SERVICE_KEY가 설정되어 있지 않습니다.")
+        try:
+            self.usage_tracker.record(operation)
+        except TourAPIQuotaExceeded as exc:
+            raise TourAPIError(str(exc)) from exc
 
         request_params = {
             "serviceKey": effective_service_key,

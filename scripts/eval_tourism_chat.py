@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "eval" / "tourism_20_questions.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "eval_runs"
+TOUR_API_OPERATIONS = ["areaBasedList2", "detailCommon2", "detailWithTour2"]
 
 
 def load_eval_items(path: Path) -> list[dict[str, Any]]:
@@ -70,15 +71,171 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def card_search_text(card: dict[str, Any]) -> str:
+    parts = [
+        str(card.get("title") or ""),
+        str(card.get("address") or ""),
+        str(card.get("recommendation_reason") or ""),
+        " ".join(str(value) for value in card.get("accessibility_tags", []) if value),
+        " ".join(str(value) for value in card.get("family_tags", []) if value),
+    ]
+    raw_fields = card.get("raw_fields")
+    if isinstance(raw_fields, dict):
+        parts.extend(f"{key} {value}" for key, value in raw_fields.items())
+    return " ".join(parts)
+
+
+def any_card_contains(cards: list[Any], terms: list[str]) -> bool:
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        haystack = card_search_text(card)
+        if any(term in haystack for term in terms):
+            return True
+    return False
+
+
+def classify_eval_failures(item: dict[str, Any], status_code: int, response_body: dict[str, Any], error_message: str | None) -> list[str]:
+    failures: list[str] = []
+    if error_message:
+        failures.append("request_error")
+    if status_code >= 400:
+        failures.append("http_error")
+
+    cards = response_body.get("cards", [])
+    if not isinstance(cards, list):
+        cards = []
+    answer = str(response_body.get("answer") or "")
+    suggestions = response_body.get("suggested_messages", [])
+    if not isinstance(suggestions, list):
+        suggestions = []
+
+    expected_lookup_mode = item.get("expected_lookup_mode")
+    if expected_lookup_mode and response_body.get("lookup_mode") != expected_lookup_mode:
+        failures.append("lookup_mode_mismatch")
+
+    min_cards = item.get("min_cards")
+    if isinstance(min_cards, int) and len(cards) < min_cards:
+        failures.append("card_count_low")
+    max_cards = item.get("max_cards")
+    if isinstance(max_cards, int) and len(cards) > max_cards:
+        failures.append("card_count_high")
+
+    for title in item.get("must_include_titles", []) or []:
+        if not any(title in str(card.get("title", "")) for card in cards if isinstance(card, dict)):
+            failures.append("missing_expected_card")
+            break
+
+    for terms in item.get("must_include_any_card_terms", []) or []:
+        normalized_terms = [str(terms)] if isinstance(terms, str) else [str(term) for term in terms]
+        if not any_card_contains(cards, normalized_terms):
+            failures.append("card_missing_required_terms")
+            break
+
+    first_card_terms = item.get("first_card_must_include_any_terms")
+    if first_card_terms and cards:
+        normalized_terms = [str(first_card_terms)] if isinstance(first_card_terms, str) else [str(term) for term in first_card_terms]
+        first_card = cards[0] if isinstance(cards[0], dict) else {}
+        if not any(term in card_search_text(first_card) for term in normalized_terms):
+            failures.append("first_card_missing_required_terms")
+    elif first_card_terms:
+        failures.append("first_card_missing_required_terms")
+
+    for terms in item.get("must_not_include_card_terms", []) or []:
+        normalized_terms = [str(terms)] if isinstance(terms, str) else [str(term) for term in terms]
+        if any_card_contains(cards, normalized_terms):
+            failures.append("card_contains_forbidden_terms")
+            break
+
+    for region in item.get("must_not_include_regions", []) or []:
+        if any(region in str(card.get("address", "")) for card in cards if isinstance(card, dict)):
+            failures.append("wrong_region_card")
+            break
+
+    for term in item.get("must_contain_answer_terms", []) or []:
+        if term not in answer:
+            failures.append("answer_missing_term")
+            break
+
+    answer_any_terms = item.get("must_include_answer_any_terms")
+    if answer_any_terms:
+        normalized_terms = [str(answer_any_terms)] if isinstance(answer_any_terms, str) else [str(term) for term in answer_any_terms]
+        if not any(term in answer for term in normalized_terms):
+            failures.append("answer_missing_any_term")
+
+    expected_suggestions = item.get("expected_suggestions")
+    if isinstance(expected_suggestions, list):
+        for expected in expected_suggestions:
+            if not any(str(expected) in str(suggestion) for suggestion in suggestions):
+                failures.append("missing_suggestion")
+                break
+    min_suggestions = item.get("min_suggestions")
+    if isinstance(min_suggestions, int) and len(suggestions) < min_suggestions:
+        failures.append("suggestion_count_low")
+
+    if item.get("expect_clarification") and response_body.get("lookup_mode") != "clarification":
+        failures.append("clarification_missing")
+    if item.get("expect_no_cards") and cards:
+        failures.append("unexpected_cards")
+    return list(dict.fromkeys(failures))
+
+
+def load_usage_snapshot() -> dict[str, Any]:
+    from app.core.config import Settings
+    from app.services.tour_api_usage import TourAPIUsageTracker
+
+    settings = Settings()
+    tracker = TourAPIUsageTracker(
+        settings.resolved_tour_api_usage_log_path,
+        daily_endpoint_limit=settings.tour_api_daily_endpoint_limit,
+    )
+    snapshot = tracker.snapshot()
+    return {"date": snapshot.date, "limit": snapshot.limit, "counts": snapshot.counts}
+
+
+def estimate_max_tour_api_calls(item_count: int) -> dict[str, int]:
+    from app.core.config import Settings
+
+    settings = Settings()
+    if not settings.tourism_live_lookup_enabled or not settings.tour_api_service_key:
+        return {operation: 0 for operation in TOUR_API_OPERATIONS}
+    detail_calls = max(settings.tourism_live_max_detail_calls, 0)
+    return {
+        "areaBasedList2": item_count,
+        "detailCommon2": item_count * detail_calls,
+        "detailWithTour2": item_count * detail_calls,
+    }
+
+
+def assert_tour_api_budget_for_eval(item_count: int, strict: bool = False) -> dict[str, Any]:
+    from app.core.config import Settings
+    from app.services.tour_api_usage import TourAPIUsageTracker
+
+    settings = Settings()
+    tracker = TourAPIUsageTracker(
+        settings.resolved_tour_api_usage_log_path,
+        daily_endpoint_limit=settings.tour_api_daily_endpoint_limit,
+    )
+    snapshot = tracker.snapshot()
+    estimated = estimate_max_tour_api_calls(item_count)
+    for operation in TOUR_API_OPERATIONS:
+        tracker.assert_available(operation, amount=0)
+    return {"date": snapshot.date, "limit": snapshot.limit, "counts": snapshot.counts, "estimated_max": estimated}
+
+
 def run_eval(
     input_path: Path,
     base_url: str,
     output_path: Path,
     timeout: float,
     direct: bool = False,
+    strict_budget: bool = False,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    for item in load_eval_items(input_path):
+    items = load_eval_items(input_path)
+    budget = assert_tour_api_budget_for_eval(len(items), strict=strict_budget)
+    print(f"TourAPI usage {budget['date']} limit={budget['limit']} counts={budget['counts']} estimated_max={budget['estimated_max']}")
+    for item in items:
         started = time.perf_counter()
         status_code = 0
         response_body: dict[str, Any]
@@ -101,6 +258,7 @@ def run_eval(
             response_body = {}
             error_message = str(exc)
         duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        failure_reasons = classify_eval_failures(item, status_code, response_body, error_message)
         results.append(
             {
                 "id": item["id"],
@@ -120,9 +278,12 @@ def run_eval(
                 "answer": response_body.get("answer"),
                 "response": response_body,
                 "error": error_message,
+                "failure_reasons": failure_reasons,
+                "passed": not failure_reasons,
             }
         )
-        print(f"{item['id']} {status_code} {duration_ms}ms cards={results[-1]['card_count']} mode={results[-1]['lookup_mode']}")
+        failed = ",".join(failure_reasons) if failure_reasons else "ok"
+        print(f"{item['id']} {status_code} {duration_ms}ms cards={results[-1]['card_count']} mode={results[-1]['lookup_mode']} {failed}")
     write_jsonl(output_path, results)
     return results
 
@@ -143,21 +304,39 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Call the FastAPI app in-process with TestClient instead of requiring a running server.",
     )
+    parser.add_argument(
+        "--strict-budget",
+        action="store_true",
+        help="Check today's TourAPI usage before running. Actual calls are still guarded per endpoint before each request.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    results = run_eval(
-        input_path=args.input,
-        base_url=args.base_url,
-        output_path=args.output,
-        timeout=args.timeout,
-        direct=args.direct,
-    )
-    failures = [row for row in results if row["status_code"] >= 400 or row["error"]]
+    try:
+        results = run_eval(
+            input_path=args.input,
+            base_url=args.base_url,
+            output_path=args.output,
+            timeout=args.timeout,
+            direct=args.direct,
+            strict_budget=args.strict_budget,
+        )
+    except Exception as exc:
+        if exc.__class__.__name__ == "TourAPIQuotaExceeded":
+            print(f"TourAPI budget check failed: {exc}")
+            raise SystemExit(2) from exc
+        raise
+    failures = [row for row in results if row["failure_reasons"]]
     print(f"\nWrote {len(results)} rows to {args.output}")
     print(f"Failures: {len(failures)}")
+    if failures:
+        summary: dict[str, int] = {}
+        for row in failures:
+            for reason in row["failure_reasons"]:
+                summary[reason] = summary.get(reason, 0) + 1
+        print(f"Failure summary: {summary}")
 
 
 if __name__ == "__main__":

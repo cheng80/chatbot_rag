@@ -4,7 +4,6 @@ const apiBaseInput = document.querySelector("#apiBase");
 const submitButton = document.querySelector("#submitButton");
 const requestState = document.querySelector("#requestState");
 const diagnostics = document.querySelector("#diagnostics");
-const statusStrip = document.querySelector(".status-strip");
 const answerText = document.querySelector("#answerText");
 const answerToggleButton = document.querySelector("#answerToggleButton");
 const clarificationBanner = document.querySelector("#clarificationBanner");
@@ -21,6 +20,13 @@ const openapiLink = document.querySelector("#openapiLink");
 const helpButton = document.querySelector("#helpButton");
 const helpModal = document.querySelector("#helpModal");
 const closeHelpButton = document.querySelector("#closeHelpButton");
+const modeBadge = document.querySelector("#modeBadge");
+const debugToggleButton = document.querySelector("#debugToggleButton");
+const debugPanel = document.querySelector("#debugPanel");
+const chatScroll = document.querySelector("#chatScroll");
+const userEcho = document.querySelector("#userEcho");
+const typingIndicator = document.querySelector("#typingIndicator");
+const toast = document.querySelector("#toast");
 const debugMode = isLocalDebugMode();
 
 const accessibilityLabels = {
@@ -36,6 +42,7 @@ const accessibilityLabels = {
 let fullAnswerText = "";
 let compactAnswerText = "";
 let isAnswerExpanded = false;
+let sessionId = createSessionId();
 
 const demoPreview = {
   answer:
@@ -76,6 +83,7 @@ apiBaseInput.value = defaultApiBase();
 syncApiDocLinks();
 syncDebugVisibility();
 apiBaseInput.addEventListener("input", syncApiDocLinks);
+debugToggleButton.addEventListener("click", toggleDebugPanel);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
 answerToggleButton.addEventListener("click", () => {
@@ -93,6 +101,7 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
     messageInput.value = button.dataset.prompt;
     messageInput.focus();
+    showToast("질문 예시를 입력했습니다.", "ok");
   });
 });
 
@@ -104,6 +113,7 @@ document.querySelectorAll("[data-region]").forEach((button) => {
     const condition = inferConditionText(messageInput.value);
     messageInput.value = `${button.dataset.region}에서 ${condition} 관광지 추천해줘`;
     messageInput.focus();
+    showToast(`${button.dataset.region} 기준으로 질문을 준비했습니다.`, "ok");
   });
 });
 
@@ -116,6 +126,11 @@ clearButton.addEventListener("click", () => {
   clarificationBanner.hidden = true;
   suggestions.replaceChildren();
   suggestions.classList.remove("clarification-options");
+  sessionId = createSessionId();
+  userEcho.hidden = true;
+  userEcho.textContent = "";
+  typingIndicator.hidden = true;
+  hideToast();
   sourceList.replaceChildren(createSourceEmpty());
   setAnswerText("질문을 보내면 답변과 추천 카드가 여기에 표시됩니다.", { empty: true });
   cardsGrid.replaceChildren();
@@ -132,10 +147,13 @@ form.addEventListener("submit", async (event) => {
   if (!message) {
     setState("입력 필요", "error");
     diagnostics.replaceChildren(createDiagnostic("질문을 입력해야 합니다."));
+    showToast("질문을 입력해 주세요.", "error");
+    messageInput.focus();
     return;
   }
 
   setLoading(true);
+  renderUserMessage(message);
   suggestions.replaceChildren();
   clarificationBanner.hidden = true;
   suggestions.classList.remove("clarification-options");
@@ -144,7 +162,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch(`${normalizedApiBase()}/tourism/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, session_id: sessionId }),
     });
 
     const payload = await response.json().catch(() => null);
@@ -154,9 +172,10 @@ form.addEventListener("submit", async (event) => {
       return;
     }
 
-    renderResponse(payload);
+    renderResponse(payload || {});
   } catch (error) {
     setState("연결 실패", "error");
+    showToast("서버에 연결하지 못했습니다.", "error");
     setAnswerText(`서버에 연결하지 못했습니다.\n${error.message}`);
     suggestions.replaceChildren();
     clarificationBanner.hidden = true;
@@ -199,17 +218,22 @@ function isLocalDebugMode() {
 }
 
 function syncDebugVisibility() {
-  if (!debugMode) {
-    statusStrip.hidden = true;
-    document.querySelector(".api-control").hidden = true;
-  }
+  document.body.classList.toggle("debug-mode", debugMode);
+  document.body.classList.toggle("release-mode", !debugMode);
+  modeBadge.textContent = debugMode ? "DEV" : "USER";
+  modeBadge.title = debugMode ? "개발 진단 모드" : "사용자 화면";
+  debugPanel.hidden = !debugMode;
+  debugToggleButton.setAttribute("aria-expanded", String(debugMode));
 }
 
 function setLoading(isLoading) {
   submitButton.disabled = isLoading;
-  submitButton.textContent = isLoading ? "조회 중" : "추천 받기";
+  submitButton.classList.toggle("is-loading", isLoading);
+  submitButton.textContent = isLoading ? "찾는 중" : "추천 받기";
+  typingIndicator.hidden = !isLoading;
   if (isLoading) {
     demoMoreButton.disabled = true;
+    scrollChatToBottom();
     if (debugMode) {
       setState("질문 분석 중");
       diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
@@ -245,20 +269,29 @@ function renderResponse(payload) {
   renderSources(payload.sources || [], cards);
   cardCount.textContent = `${cards.length}개`;
   cardsGrid.replaceChildren(...cards.map(renderCard));
+  if (cards.length > 0) {
+    showToast(`${cards.length}개의 추천 카드를 찾았습니다.`, "ok");
+  }
+  scrollChatToBottom();
 }
 
 function renderDemoPreview() {
   if (debugMode) {
     setState("시연 예시");
     diagnostics.replaceChildren(createDiagnostic("지역 선택, 추천 카드, 더 보기, 출처, 경고 문구가 보이도록 구성한 초기 예시입니다."));
+    setAnswerText(demoPreview.answer);
+    sourceList.replaceChildren(
+      createSourceEmpty("예시 출처: 한국관광공사 무장애 여행 정보"),
+      createSourceEmpty("실제 응답 후 카드별 원문 링크가 표시됩니다."),
+    );
+    cardCount.textContent = `${demoPreview.cards.length}개`;
+    cardsGrid.replaceChildren(...demoPreview.cards.map(renderCard));
+  } else {
+    setAnswerText("가고 싶은 지역과 동행 조건을 알려주세요. 추천 가능한 장소를 카드로 정리해 드립니다.", { empty: true });
+    sourceList.replaceChildren(createSourceEmpty());
+    cardCount.textContent = "0개";
+    cardsGrid.replaceChildren();
   }
-  setAnswerText(demoPreview.answer);
-  sourceList.replaceChildren(
-    createSourceEmpty("예시 출처: 한국관광공사 무장애 여행 정보"),
-    createSourceEmpty("실제 응답 후 카드별 원문 링크가 표시됩니다."),
-  );
-  cardCount.textContent = `${demoPreview.cards.length}개`;
-  cardsGrid.replaceChildren(...demoPreview.cards.map(renderCard));
   demoMoreButton.disabled = true;
   demoMoreButton.hidden = true;
 }
@@ -303,6 +336,7 @@ function renderError(status, payload) {
   const code = typeof detail === "object" && detail?.code ? ` (${detail.code})` : "";
 
   setAnswerText(`${message}${code}`);
+  showToast("요청 처리 중 문제가 발생했습니다.", "error");
   clarificationBanner.hidden = true;
   suggestions.replaceChildren();
   suggestions.classList.remove("clarification-options");
@@ -322,9 +356,10 @@ function renderSuggestions(messages) {
   demoMoreButton.textContent = moreMessage || "더 보기";
   demoMoreButton.onclick = moreMessage
     ? () => {
-        messageInput.value = moreMessage;
-        form.requestSubmit();
-      }
+      messageInput.value = moreMessage;
+      showToast("추가 후보를 확인합니다.", "ok");
+      form.requestSubmit();
+    }
     : null;
   messages.forEach((message) => {
     const button = document.createElement("button");
@@ -332,6 +367,7 @@ function renderSuggestions(messages) {
     button.textContent = message;
     button.addEventListener("click", () => {
       messageInput.value = message;
+      showToast("후속 질문을 보냅니다.", "ok");
       form.requestSubmit();
     });
     suggestions.append(button);
@@ -372,6 +408,7 @@ function syncAnswerToggle() {
   const isCompactable = fullAnswerText.trim() !== compactAnswerText.trim();
   answerToggleButton.hidden = !isCompactable;
   answerToggleButton.textContent = isAnswerExpanded ? "접기" : "전체 보기";
+  answerToggleButton.setAttribute("aria-expanded", String(isAnswerExpanded));
 }
 
 function renderSources(sources, cards) {
@@ -509,7 +546,9 @@ function renderCard(card) {
     toggle.addEventListener("click", () => {
       detailPanel.hidden = !detailPanel.hidden;
       toggle.textContent = detailPanel.hidden ? "상세 정보" : "상세 접기";
+      toggle.setAttribute("aria-expanded", String(!detailPanel.hidden));
     });
+    toggle.setAttribute("aria-expanded", "false");
     actions.append(toggle);
 
     const mapUrl = mapSearchUrl(card);
@@ -634,6 +673,46 @@ function createSourceEmpty(text = "응답 후 한국관광공사 자료와 카�
   empty.className = "source-empty";
   empty.textContent = text;
   return empty;
+}
+
+function toggleDebugPanel() {
+  if (!debugMode) return;
+  debugPanel.hidden = !debugPanel.hidden;
+  debugToggleButton.setAttribute("aria-expanded", String(!debugPanel.hidden));
+}
+
+function renderUserMessage(message) {
+  userEcho.textContent = message;
+  userEcho.hidden = false;
+  scrollChatToBottom();
+}
+
+function showToast(message, tone = "") {
+  toast.textContent = message;
+  toast.className = `toast ${tone}`.trim();
+  toast.hidden = false;
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(hideToast, 2600);
+}
+
+function hideToast() {
+  window.clearTimeout(showToast.timer);
+  toast.hidden = true;
+  toast.textContent = "";
+  toast.className = "toast";
+}
+
+function scrollChatToBottom() {
+  window.requestAnimationFrame(() => {
+    chatScroll.scrollTop = chatScroll.scrollHeight;
+  });
+}
+
+function createSessionId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function openHelp() {

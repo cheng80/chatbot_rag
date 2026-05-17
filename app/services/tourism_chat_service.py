@@ -367,6 +367,7 @@ class TourismChatService:
                 lookup_mode=lookup_mode,
                 degraded=degraded,
                 warnings=warnings,
+                suggested_messages=self._build_no_card_suggestions(query),
             )
             self._log_event(message, session_id, query, response, live_api_called)
             self._remember_session_query(session_id, query, response)
@@ -424,7 +425,7 @@ class TourismChatService:
             for key in region_identity_keys:
                 if not merged.get(key) and previous.get(key):
                     merged[key] = previous[key]
-        replacing_context = query.get("ml_intent") == "replace_condition"
+        replacing_context = query.get("ml_intent") == "replace_condition" or self._looks_like_condition_reset_followup(message, query)
         for key in ["conditions", "features", "preferences", "excluded_preferences"]:
             current = list(merged.get(key) or [])
             previous_values = list(previous.get(key) or [])
@@ -515,6 +516,16 @@ class TourismChatService:
             "제주특별자치도": "제주",
         }
         return aliases.get(previous_area, previous_area) == aliases.get(candidate_area, candidate_area)
+
+    @staticmethod
+    def _looks_like_condition_reset_followup(message: str, query: dict) -> bool:
+        if not query.get("conditions") and not query.get("required_evidence_terms"):
+            return False
+        if query.get("region"):
+            return False
+        if any(marker in message for marker in ["까지", "도 같이", "도 봐", "추가", "함께", "유지"]):
+            return False
+        return bool(re.search(r"(다시|새로).{0,10}(찾아|보여|추천|알려)", message))
 
     @staticmethod
     def _required_group_matches_excluded_preference(group: tuple[str, ...], excluded_preferences: set[str]) -> bool:
@@ -1406,6 +1417,19 @@ class TourismChatService:
         conditions = [condition for condition in (query.get("conditions") or []) if condition not in {"대중교통"}]
         condition_text = " ".join(str(condition) for condition in conditions[:2]) or "무장애"
         return [f"{region}에서 {condition_text} 관광지 추천해줘"]
+
+    @staticmethod
+    def _build_no_card_suggestions(query: dict) -> list[str]:
+        conditions = [str(condition) for condition in query.get("conditions") or []]
+        condition_text = " ".join(conditions[:2]) or "무장애"
+        region = query.get("region") or "서울"
+        suggestions = []
+        if query.get("is_sigungu") and query.get("area_name"):
+            suggestions.append(f"{query['area_name']}에서 {condition_text} 관광지 추천해줘")
+            suggestions.append(f"{region} 근처까지 넓혀서 {condition_text} 관광지 추천해줘")
+        elif region:
+            suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
+        return suggestions[:2]
 
     @staticmethod
     def _build_more_card_suggestions(message: str, has_more_cards: bool) -> list[str]:

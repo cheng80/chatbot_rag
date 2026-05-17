@@ -215,7 +215,7 @@ def test_tourism_query_maps_legacy_region_name_to_current_sigungu(tmp_path: Path
     assert query["sigungu_name"] == "청주시"
     assert query["legacy_region"] == "청원군"
     assert query["legacy_region_replacement"] == "청주시"
-    assert "청원군은 현재 행정구역 기준 청주시" in query["legacy_region_notice"]
+    assert query["legacy_region_notice"] == "청원군은 현재 청주시 기준으로 안내드릴게요."
 
 
 def test_tourism_query_maps_legacy_jeju_county_to_current_city(tmp_path: Path):
@@ -252,7 +252,7 @@ def test_tourism_query_maps_legacy_jeju_county_to_current_city(tmp_path: Path):
     assert query["sigungu_code"] == "3"
     assert query["sigungu_name"] == "서귀포시"
     assert query["legacy_region"] == "제주특별자치도 남제주군"
-    assert "남제주군은 현재 행정구역 기준 서귀포시" in query["legacy_region_notice"]
+    assert query["legacy_region_notice"] == "남제주군은 현재 서귀포시 기준으로 안내드릴게요."
 
 
 def test_tourism_query_falls_back_without_cache(tmp_path: Path):

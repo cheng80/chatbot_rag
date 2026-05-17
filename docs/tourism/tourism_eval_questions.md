@@ -22,7 +22,10 @@
 - `data/eval/tourism_context_blind_holdout.jsonl`: 기존 generator를 재사용하지 않은 LLM blind 문맥 해석 holdout 80건
 - `data/eval/tourism_context_rotating_blind_holdout_20260517.jsonl`: 고정 blind 보강 뒤 새로 만든 rotating blind holdout 80건
 - `data/eval/tourism_context_rotating_blind_holdout_20260517_v2.jsonl`: 첫 rotating blind 보강 뒤 다시 만든 v2 rotating blind holdout 80건
+- `data/eval/tourism_context_rotating_blind_holdout_20260517_v3.jsonl`: v2 보강 뒤 다시 만든 v3 rotating blind holdout 80건
+- `data/eval/tourism_context_rotating_blind_holdout_20260517_v4.jsonl`: v3 보강 뒤 다시 만든 v4 rotating blind holdout 80건
 - `data/eval/tourism_context_blind_chat_eval.jsonl`: 문맥 해석 약점이 실제 `/tourism/chat` 카드/답변에 미치는지 보는 blind chat eval 10건
+- `data/eval/tourism_context_blind_chat_eval_v2.jsonl`: strict/OR/제외/지역교체/저커버리지 케이스를 포함한 실제 `/tourism/chat` 카드 적합성 blind eval 15건
 - `data/processed/tourism_intent_training.jsonl`: 기존 100/30/50 평가셋, seed/generated 발화, AI Hub 추출 발화를 합쳐 만든 의도 분류 학습셋
 
 ## 평가 목적
@@ -80,11 +83,33 @@
 | `tourism_context_rotating_blind_holdout_20260517.jsonl` | 80 | 보강 후 exact 0.9750 / micro-F1 0.9919 | 같은 파일 대응 결과. 최종 품질 점수 아님 |
 | `tourism_context_rotating_blind_holdout_20260517_v2.jsonl` | 80 | 최초 exact 0.6000 / micro-F1 0.8245 | v1 보강 뒤 새 blind에서 다시 약점 확인 |
 | `tourism_context_rotating_blind_holdout_20260517_v2.jsonl` | 80 | 보강 후 exact 0.9250 / micro-F1 0.9719 | 같은 v2 파일 대응 결과. 최종 품질 점수 아님 |
+| `tourism_context_rotating_blind_holdout_20260517_v3.jsonl` | 80 | 최초 exact 0.6625 / micro-F1 0.8560 | v2 보강 뒤 새 blind에서 `보조 조건`, `유모차 대여`, 시설명 near-miss 약점 확인 |
+| `tourism_context_rotating_blind_holdout_20260517_v3.jsonl` | 80 | 보강 후 hybrid LinearSVC exact 0.9875 / micro-F1 0.9960, rule-only 1.0000 | 같은 v3 파일 대응 결과. 최종 품질 점수 아님 |
+| `tourism_context_rotating_blind_holdout_20260517_v4.jsonl` | 80 | fresh v4 rule-only exact 0.7375 / micro-F1 0.9091, hybrid LinearSVC exact 0.7250 / micro-F1 0.9012, hybrid LogisticRegression exact 0.7125 / micro-F1 0.8968 | v3 보강 뒤 새 blind. 하이브리드 로지스틱 회귀는 계속 비교하지만 v4 최고는 아니며, 런타임 모델 교체 근거로 보지 않음 |
 | `tourism_context_blind_chat_eval.jsonl` | 10 | 10/10 통과 | 실제 카드 반환 기준 blind smoke |
+| `tourism_context_blind_chat_eval_v2.jsonl` | 15 | 15/15 통과 | 실제 `/tourism/chat` 카드 적합성 확장 smoke. context label failure와 실제 카드 품질을 분리해 보기 위한 셋 |
 
 blind chat eval에서 최초 실패한 `전주 시장 제외+조용한 곳` 케이스는 시장 제외 표현이 세부 근거 필수 조건처럼 남고, `조용한` 선호가 hard filter로 작동한 문제였다. 시장 제외 파싱, `취소` 표현, preference ranking을 보정한 뒤 통과했다.
 
-다음 문맥 해석 개선은 같은 rotating file 반복이 아니라 새 rotating blind v3를 만든 뒤 확인한다. 이번 보강으로 v1/v2 rotating file의 오류는 줄었지만, 두 파일 모두 오류 분석과 룰 보강에 쓰였으므로 일반화 성능으로 주장하지 않는다.
+다음 문맥 해석 개선은 v4 failure bucket을 바로 룰 보강으로 흡수하기보다 실제 카드 적합성에 영향을 주는지 먼저 본다. 이번 보강으로 v1/v2/v3 rotating file의 오류는 줄었지만, 세 파일 모두 오류 분석과 룰 보강에 쓰였으므로 일반화 성능으로 주장하지 않는다. v4는 fresh blind이고, chat v2 15/15는 실제 응답 품질이 아직 깨지지 않았다는 별도 신호다. v3 작성 과정에서 `촉지도나 점자`는 OR, `카페 말고`, `공연장은 빼고`는 exclude로 라벨을 고쳤다. 사람이 보기에 라벨이 틀린 row는 모델 점수보다 평가셋 라벨을 먼저 고친다는 원칙을 적용한 사례다.
+
+v4 rotating blind 생성과 평가는 아래처럼 실행했다.
+
+```bash
+.venv/bin/python scripts/generate_tourism_context_rotating_blind_holdout.py --variant v4
+.venv/bin/python scripts/eval_tourism_context_classifier.py \
+  --input data/eval/tourism_context_rotating_blind_holdout_20260517_v4.jsonl \
+  --output data/generated/tour_api/context_classifier_eval_rotating_v4_20260517.json
+```
+
+chat blind v2 생성과 평가는 아래처럼 실행했다.
+
+```bash
+.venv/bin/python scripts/generate_tourism_context_blind_chat_eval.py --variant v2
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct \
+  --input data/eval/tourism_context_blind_chat_eval_v2.jsonl \
+  --output data/generated/tour_api/eval_runs/tourism_context_blind_chat_eval_v2_latest.jsonl
+```
 
 ## 실행 방법
 

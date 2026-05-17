@@ -44,6 +44,7 @@ def test_tourism_intent_classifier_rule_overrides_common_short_intents():
     assert classifier.predict("현재 카드 다음 5곳도 추가 후보 보여줘").intent == "show_more"
     assert classifier.predict("지금 가지고 있는 것 말고 새로 조회해줘").intent == "live_topup"
     assert classifier.predict("버스 소요시간 확인되는 곳만 보여줘").intent == "unsupported_request"
+    assert classifier.predict("오늘 환율 알려줘").intent == "unsupported_request"
     assert classifier.predict("아까 지역 중 부산 중구 위주로").intent == "narrow_region"
     assert classifier.predict("고성군 휠체어 가능한 관광지").intent == "clarify_region"
     assert classifier.predict("광주 남구 휠체어 가능한 관광지").intent == "recommend_places"

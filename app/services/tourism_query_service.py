@@ -81,63 +81,63 @@ UNSUPPORTED_INTENT_KEYWORDS = {
 LEGACY_REGION_ALIASES = {
     "청원군": {
         "replacement_region": "청주시",
-        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+        "notice": "청원군은 현재 청주시 기준으로 안내드릴게요.",
     },
     "충청북도 청원군": {
         "replacement_region": "청주시",
-        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+        "notice": "청원군은 현재 청주시 기준으로 안내드릴게요.",
     },
     "충북 청원군": {
         "replacement_region": "청주시",
-        "notice": "청원군은 현재 행정구역 기준 청주시로 통합되어 청주시 기준으로 찾았습니다.",
+        "notice": "청원군은 현재 청주시 기준으로 안내드릴게요.",
     },
     "마산시": {
         "replacement_region": "창원시",
-        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+        "notice": "마산시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "경상남도 마산시": {
         "replacement_region": "창원시",
-        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+        "notice": "마산시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "경남 마산시": {
         "replacement_region": "창원시",
-        "notice": "마산시는 현재 행정구역 기준 창원시로 통합되어 창원시 기준으로 찾았습니다.",
+        "notice": "마산시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "진해시": {
         "replacement_region": "창원시",
-        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+        "notice": "진해시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "경상남도 진해시": {
         "replacement_region": "창원시",
-        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+        "notice": "진해시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "경남 진해시": {
         "replacement_region": "창원시",
-        "notice": "진해시는 현재 행정구역 기준 창원시 진해구로 통합되어 TourAPI는 창원시 기준으로 찾았습니다.",
+        "notice": "진해시는 현재 창원시 기준으로 안내드릴게요.",
     },
     "남제주군": {
         "replacement_region": "서귀포시",
-        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+        "notice": "남제주군은 현재 서귀포시 기준으로 안내드릴게요.",
     },
     "제주특별자치도 남제주군": {
         "replacement_region": "서귀포시",
-        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+        "notice": "남제주군은 현재 서귀포시 기준으로 안내드릴게요.",
     },
     "제주도 남제주군": {
         "replacement_region": "서귀포시",
-        "notice": "남제주군은 현재 행정구역 기준 서귀포시로 통합되어 서귀포시 기준으로 찾았습니다.",
+        "notice": "남제주군은 현재 서귀포시 기준으로 안내드릴게요.",
     },
     "북제주군": {
         "replacement_region": "제주시",
-        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+        "notice": "북제주군은 현재 제주시 기준으로 안내드릴게요.",
     },
     "제주특별자치도 북제주군": {
         "replacement_region": "제주시",
-        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+        "notice": "북제주군은 현재 제주시 기준으로 안내드릴게요.",
     },
     "제주도 북제주군": {
         "replacement_region": "제주시",
-        "notice": "북제주군은 현재 행정구역 기준 제주시로 통합되어 제주시 기준으로 찾았습니다.",
+        "notice": "북제주군은 현재 제주시 기준으로 안내드릴게요.",
     },
 }
 logger = logging.getLogger(__name__)
@@ -174,6 +174,13 @@ class TourismQueryService:
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
         intent_prediction = self.intent_classifier.predict(message)
+        unsupported_intent = self._find_unsupported_intent(message)
+        if (
+            not unsupported_intent
+            and intent_prediction.intent == "unsupported_request"
+            and not self._has_negated_unsupported_keyword(message)
+        ):
+            unsupported_intent = "unsupported_request"
         context_prediction = self.context_classifier.predict(message)
         return {
             "region": region,
@@ -193,7 +200,7 @@ class TourismQueryService:
                 if any(keyword in message for keyword in keywords)
             ],
             "required_evidence_terms": self._extract_required_evidence_terms(message),
-            "unsupported_intent": self._find_unsupported_intent(message),
+            "unsupported_intent": unsupported_intent,
             "ml_intent": intent_prediction.intent,
             "ml_intent_confidence": intent_prediction.confidence,
             "context_labels": context_prediction.labels,
@@ -333,6 +340,14 @@ class TourismQueryService:
             if any(keyword in message and not TourismQueryService._is_negated_near_keyword(message, keyword) for keyword in keywords):
                 return label
         return None
+
+    @staticmethod
+    def _has_negated_unsupported_keyword(message: str) -> bool:
+        return any(
+            keyword in message and TourismQueryService._is_negated_near_keyword(message, keyword)
+            for keywords in UNSUPPORTED_INTENT_KEYWORDS.values()
+            for keyword in keywords
+        )
 
     def _find_region(self, message: str) -> str | None:
         for name in sorted(self.region_index, key=len, reverse=True):

@@ -53,7 +53,7 @@
 - 수집 스크립트는 캐시/시연 안정화용으로 유지한다. 기본값은 서울/부산/강릉 각 20건, 실행당 최대 150 API 호출이다.
 - fallback 수집은 `docs/tourism/tourism_data_operations.md`의 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치로 나눠 진행한다.
 - 2026-05-15 기준 광역권 fallback 분할 수집과 시군구 fallback 확장 수집을 진행했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible`에는 643개 Markdown이 있고, Chroma에는 전체 raw 기준 644개 문서/650개 청크가 색인됐다.
-- 시군구 fallback은 아직 전국 실사용 지역 250개 기준 완료가 아니다. 현재 TourAPI 지역 코드 234개 중 161개 시군구가 3장 이상 확보됐고, 234개 기준 3장 목표까지 남은 부족분은 약 182장이다.
+- 시군구 fallback의 확정 기준은 TourAPI 지역 코드 234개다. 과거 기준으로는 234개 중 161개 시군구가 3장 이상 확보됐고, 이후 보강으로 현재 진행도 문서 기준 228개가 3장 이상이다. 250개는 행정시/일반구/생활권 표현까지 포함할 수 있는 제품 목표 상한이지 확정 행정구역 수가 아니다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`에 기록한다.
 - curated 샘플은 API 실패 대비와 테스트용 fallback으로 유지한다.
 - 지역 응답 정책은 2026-05-15에 코드와 테스트로 반영했다. 예: `서울 강남구에서 휠체어 관광지 추천해줘`는 강남구 2건만 반환하고 부족 안내를 제공한다. `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 서울 범위 확장 안내와 함께 5건을 반환한다.

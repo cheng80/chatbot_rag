@@ -726,7 +726,7 @@ def test_tourism_chat_explains_legacy_region_name_replacement(tmp_path):
         encoding="utf-8",
     )
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tour_api_service_key=None),
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(area_code_cache_path=cache_path),
     )
@@ -736,7 +736,7 @@ def test_tourism_chat_explains_legacy_region_name_replacement(tmp_path):
     assert len(response.cards) == 1
     assert response.cards[0].title == "청주 무장애 관광지"
     assert "청주시 기준" in response.answer
-    assert "청원군은 현재 행정구역 기준 청주시" in response.answer
+    assert "청원군은 현재 청주시 기준으로 안내드릴게요" in response.answer
 
 
 def test_tourism_chat_suggests_more_when_more_than_five_cards_exist(tmp_path):
@@ -944,6 +944,7 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
 
     assert response.cards == []
     assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+    assert response.suggested_messages
 
 
 def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature():
@@ -1085,6 +1086,37 @@ def test_tourism_chat_does_not_reuse_context_for_pure_unsupported_followup(tmp_p
     second = service.answer("버스 번호와 소요시간도 알려줘", session_id="conv-unsupported")
     assert second.cards == []
     assert second.lookup_mode == "unsupported"
+
+    third = service.answer("오늘 환율 알려줘", session_id="conv-unsupported")
+    assert third.cards == []
+    assert third.lookup_mode == "unsupported"
+
+
+def test_tourism_chat_resets_conditions_for_find_again_followup(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    hearing_card = TourismPlaceCard(
+        content_id="gangneung-hearing",
+        title="강릉 자막 전시관",
+        address="강원특별자치도 강릉시",
+        recommendation_reason="자막/영상안내 정보가 확인되었습니다.",
+        accessibility_tags=["자막/영상안내"],
+        raw_fields={"자막/영상안내": "자막비디오가이드 있음"},
+    )
+    (sample_dir / "gangneung_hearing.md").write_text(TourismNormalizer().card_to_markdown(hearing_card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    service.answer("강릉에서 보조견 동반 가능한 관광지 추천해줘", session_id="conv-hearing-reset")
+    followup = service.answer("수어 안내나 자막 안내 있는 곳으로 다시 찾아줘", session_id="conv-hearing-reset")
+
+    assert followup.cards
+    assert followup.lookup_mode == "sample"
+    assert followup.cards[0].title == "강릉 자막 전시관"
+    assert "보조견" not in followup.answer
 
 
 def test_tourism_chat_continues_when_unsupported_topic_is_negated(tmp_path):

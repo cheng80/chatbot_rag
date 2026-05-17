@@ -139,7 +139,9 @@
 
 blind 실패 bucket을 train-only extra data로 보강한 뒤 같은 blind 파일의 최고 결과는 exact 0.6250, micro-F1 0.8340까지 올랐다. 다만 이 파일은 이제 한 차례 오류 분석과 보강에 쓰였으므로 “오염되지 않은 최종 성능”이 아니라 tuned diagnostic으로만 본다. 최신 일반화 신호는 매 cycle 새로 만드는 rotating blind로 본다.
 
-2026-05-17 v2 rotating blind는 `경사로만 있거나 엘리베이터만`, `보조견 테마 전시 말고 동반 가능 표기`, `시설명은 상호/작품명일 뿐`, `보다는/후보가 많을 때만` 같은 경계를 추가로 흔들었다. 최초 결과는 exact 0.6000/micro-F1 0.8245였고, 경계 룰 보강 뒤 exact 0.9250/micro-F1 0.9719가 됐다. 이 값도 이미 v2 실패를 보고 고친 결과이므로 다음 채택 판단에는 새 v3 rotating blind가 필요하다.
+2026-05-17 v2 rotating blind는 `경사로만 있거나 엘리베이터만`, `보조견 테마 전시 말고 동반 가능 표기`, `시설명은 상호/작품명일 뿐`, `보다는/후보가 많을 때만` 같은 경계를 추가로 흔들었다. 최초 결과는 exact 0.6000/micro-F1 0.8245였고, 경계 룰 보강 뒤 exact 0.9250/micro-F1 0.9719가 됐다.
+
+같은 날 v3 rotating blind는 `한 장소에 같이 없으면`, `같은 카드에 적힌 곳만`, `보조 조건`, `필수로 보진 말자`, `유모차 대여`, `작품 설명/별명/캐릭터 near-miss`를 추가했다. 최초 hybrid LinearSVC는 exact 0.6625/micro-F1 0.8560이었다. 라벨 검수 중 `촉지도나 점자 안내`는 OR, `카페 말고`, `공연장은 빼고`는 exclude로 보는 것이 실사용 판단에 맞아 평가셋 라벨을 먼저 수정했다. 이후 경계 룰 보강 결과 hybrid LinearSVC exact 0.9875/micro-F1 0.9960, rule-only 1.0000이 됐다. 이 값도 v3 실패를 보고 고친 tuned diagnostic이므로 다음 채택 판단에는 새 v4 rotating blind가 필요하다.
 
 | 평가셋 | 모델 | exact | micro-F1 | 해석 |
 |---|---|---:|---:|---|
@@ -148,8 +150,15 @@ blind 실패 bucket을 train-only extra data로 보강한 뒤 같은 blind 파�
 | rotating blind 80건 | hybrid LinearSVC | 0.9750 | 0.9919 | 같은 파일을 보고 룰 보강한 뒤의 tuned diagnostic. 최종 품질 점수 아님 |
 | rotating blind v2 80건 | hybrid LogisticRegression | 0.6000 | 0.8245 | v1 보강 뒤 새 blind에서 다시 약점 확인 |
 | rotating blind v2 80건 | hybrid LinearSVC | 0.9250 | 0.9719 | 같은 v2 파일을 보고 경계 룰 보강한 뒤의 tuned diagnostic. 최종 품질 점수 아님 |
+| rotating blind v3 80건 | hybrid LinearSVC | 0.6625 | 0.8560 | v2 보강 뒤 새 blind에서 다시 약점 확인 |
+| rotating blind v3 80건 | hybrid LinearSVC | 0.9875 | 0.9960 | 같은 v3 파일을 보고 라벨/룰 보강한 뒤의 tuned diagnostic. 최종 품질 점수 아님 |
+| rotating blind v4 80건 | hybrid LinearSVC | 0.7250 | 0.9012 | v3 보강 뒤 새 fresh blind. 현 시점 일반화 진단 기준 |
+| rotating blind v4 80건 | hybrid LogisticRegression | 0.7125 | 0.8968 | 계속 비교 대상이지만 v4에서는 LinearSVC보다 낮음 |
+| rotating blind v4 80건 | rule-only | 0.7375 | 0.9091 | fresh v4에서는 하이브리드보다 높음. 런타임 교체가 아니라 룰 경계가 아직 핵심이라는 신호 |
 
 같은 날 `/tourism/chat` 실제 응답 blind eval 10건도 추가했다. 파일은 `data/eval/tourism_context_blind_chat_eval.jsonl`이다. 최초 fallback-only direct 실행은 9/10 통과했고, `전주에서 시장 골목 말고 조용한 곳만 보고 싶어`가 `card_count_low`로 실패했다. 원인은 시장 제외 표현이 세부 근거 필수 조건처럼 남고, `조용한` 선호가 hard filter로 작동해 fallback 후보를 비워 버린 것이다. 시장 제외 파싱과 preference ranking을 보정한 뒤 같은 blind chat eval은 10/10 통과한다. 이 평가는 context label 점수와 별개로 실제 카드 후보/답변 품질을 추적한다.
+
+이후 실제 `/tourism/chat` 카드 적합성을 더 직접 보기 위해 `data/eval/tourism_context_blind_chat_eval_v2.jsonl` 15건을 추가했다. strict 시설, OR 감각 접근성, family/mobility, 제외 선호, 잘못된 전제, 미지원 주제, 지역 교체, ambiguous region, 저커버리지 무환각 케이스를 포함한다. fallback-only direct 실행 결과는 15/15 통과다. 따라서 v4 문맥 라벨 진단에서 남은 오류 bucket을 바로 모델 교체 근거로 보지 않고, 실제 카드 품질에 영향을 주는지 먼저 분리해서 본다.
 
 ## 실험 등급
 
@@ -161,7 +170,7 @@ blind 실패 bucket을 train-only extra data로 보강한 뒤 같은 blind 파�
 | baseline_candidate | 같은 hard holdout에서 기존 기준선과 비교한 후보 | 수동 검토 전까지 불가 |
 | adoption_candidate | hard validation, locked hard test, latency, special errors를 모두 통과한 후보 | 검토 가능 |
 
-2026-05-17의 hybrid LinearSVC, hybrid LogisticRegression, KLUE-RoBERTa small grid 실험은 모두 `exploratory` 또는 `baseline_candidate`다. 독립 validation과 adversarial holdout까지 경계 보강한 뒤 rule/hybrid 결과가 다시 1.0000이 됐던 구간은 rule-boundary contract 통과로만 본다. 이후 fresh rotating blind에서 micro-F1 0.8163까지 떨어졌고, 같은 파일을 보고 보강한 뒤 0.9919까지 회복했다. v2 rotating blind도 최초 micro-F1 0.8245에서 보강 후 0.9719로 올랐다. 이 회복 수치는 해당 파일 대응 결과이므로 다음 판단은 새 rotating blind에서 다시 한다. KLUE-RoBERTa small은 최신 rule/hybrid 기준선과 비교해 locked test에서 이득이 없고 latency도 불리하므로 런타임 채택 후보가 아니다.
+2026-05-17의 hybrid LinearSVC, hybrid LogisticRegression, KLUE-RoBERTa small grid 실험은 모두 `exploratory` 또는 `baseline_candidate`다. 독립 validation과 adversarial holdout까지 경계 보강한 뒤 rule/hybrid 결과가 다시 1.0000이 됐던 구간은 rule-boundary contract 통과로만 본다. 이후 fresh rotating blind에서 micro-F1 0.8163까지 떨어졌고, 같은 파일을 보고 보강한 뒤 0.9919까지 회복했다. v2 rotating blind도 최초 micro-F1 0.8245에서 보강 후 0.9719, v3 rotating blind도 최초 micro-F1 0.8560에서 보강 후 0.9960으로 올랐다. 이 회복 수치는 해당 파일 대응 결과이다. v4 fresh blind에서는 rule-only micro-F1 0.9091, hybrid LinearSVC 0.9012, hybrid LogisticRegression 0.8968로 다시 낮아졌으므로, 현재 결론은 “모델 교체”가 아니라 “남은 boundary bucket을 실제 chat 영향 기준으로 선별”이다. KLUE-RoBERTa small은 최신 rule/hybrid 기준선과 비교해 locked test에서 이득이 없고 latency도 불리하므로 런타임 채택 후보가 아니다.
 
 ## 실험 체크리스트
 
@@ -202,9 +211,9 @@ Transformer 파일럿처럼 결과 JSON이 있는 실험은 다음 명령으로 
 | 항목 | 판정 |
 |---|---|
 | intent Naive Bayes | 가볍고 빠른 shadow classifier로 유지 |
-| context hybrid LogisticRegression/LinearSVC | locked test 최신 exact 0.9548/micro-F1 0.9803, independent validation 최신 exact 0.9242/micro-F1 0.9741. v2 rotating blind는 보강 후 0.9719지만 tuned diagnostic이므로 실사용 품질 지표로 단독 사용 금지 |
+| context hybrid LogisticRegression/LinearSVC | locked test 최신 exact 0.9548/micro-F1 0.9803, independent validation 최신 exact 0.9242/micro-F1 0.9741. v3 rotating blind는 보강 후 hybrid micro-F1 0.9960, rule-only 1.0000이지만 tuned diagnostic이다. v4 fresh blind는 rule-only micro-F1 0.9091, hybrid LinearSVC 0.9012, hybrid LogisticRegression 0.8968이다. LogisticRegression은 계속 비교 대상이지만 현 fresh set 최고는 아니다 |
 | KLUE-RoBERTa small 단독 | 독립 validation은 개선됐지만 locked test 일반화 부족 |
 | KLUE-RoBERTa small + rule hybrid | 기준선과 동률 이하이고 latency 불리 |
 | SuperGemma4 selective labeling | QA/재라벨링 보조. 런타임 보조 아님 |
 
-다음 ML 개선은 모델 epoch를 늘리는 것이 아니라, 현재 보강에 사용한 v1/v2 rotating blind를 새 반례로 다시 깨는 것이다. 특히 사람이 직접 쓴 듯한 멀티턴 문장, 조건 우선순위가 애매한 문장, 실제 `/tourism/chat` 카드 근거까지 포함한 평가셋을 별도로 만들어야 한다. 고정 blind나 rotating blind를 보강에 사용한 뒤에는 같은 파일을 최종 점수로 쓰지 않고, `scripts/generate_tourism_context_rotating_blind_holdout.py`로 새 rotating blind를 만들어 확인한다. Codex/LLM으로 hard-style 학습셋을 생성할 때도 `docs/tourism/context_llm_dataset_generation.md`의 schema 검수, 중복/누수 검사, extra train 병합 절차를 먼저 통과해야 한다.
+다음 ML 개선은 모델 epoch를 늘리는 것이 아니라, v4 failure bucket 중 실제 `/tourism/chat` 카드 품질에 영향을 주는 항목을 먼저 고르는 것이다. 현재 chat blind v2는 15/15 통과했으므로, `mobility_context`, `exclude_condition`, `soft_and`, `strict_and`, `specific_facility_required` 오류를 곧바로 런타임 모델 변경으로 연결하지 않는다. 사람이 직접 쓴 듯한 멀티턴 문장, 조건 우선순위가 애매한 문장, 실제 카드 근거까지 포함한 평가셋을 계속 별도로 만든다. 고정 blind나 rotating blind를 보강에 사용한 뒤에는 같은 파일을 최종 점수로 쓰지 않고, `scripts/generate_tourism_context_rotating_blind_holdout.py`로 새 rotating blind를 만들어 확인한다. Codex/LLM으로 hard-style 학습셋을 생성할 때도 `docs/tourism/context_llm_dataset_generation.md`의 schema 검수, 중복/누수 검사, extra train 병합 절차를 먼저 통과해야 한다.

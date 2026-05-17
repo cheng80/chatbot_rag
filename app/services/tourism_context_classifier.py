@@ -177,11 +177,11 @@ FAMILY_CONTEXT_TERMS = [
     "아이를 데리고",
     "아이 ",
     "아이 휴식",
+    "아이용 의자",
     "어린이",
     "가족",
     "영유아",
     "아기",
-    "부모",
     "유아 의자",
 ]
 FAMILY_FACILITY_TERMS = [
@@ -259,6 +259,8 @@ SPECIFIC_FACILITY_TERMS = [
     "기저귀",
     "유아용 의자",
     "유아 의자",
+    "아이용 의자",
+    "수유 공간",
     "유모차 대여",
 ]
 
@@ -343,8 +345,8 @@ OR_MARKERS = [
 ]
 
 CONDITION_GROUP_TERMS = [
-    ["휠체어", "전동휠체어", "경사로", "엘리베이터", "승강기", "계단"],
-    ["유모차", "유아차", "아이", "어린이", "가족", "수유실", "기저귀"],
+    ["휠체어", "전동휠체어", "경사로", "엘리베이터", "승강기", "계단", "주차"],
+    ["유모차", "유아차", "아이", "어린이", "유아", "가족", "수유실", "기저귀"],
     ["점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "시각장애"],
     ["수어", "수화", "자막", "청각장애", "문자안내"],
     ["보조견", "안내견"],
@@ -472,11 +474,17 @@ def _looks_like_strict_and(text: str) -> bool:
         return False
     if re.search(r"(따로따로\s*말고|추천하지\s*말고).{0,16}(한\s*장소|같은\s*카드|같은\s*곳|있어야)", text):
         return True
+    if re.search(r"(한\s*장소|같은\s*카드).{0,24}(같이|함께|동시에).{0,18}(없으면|있어야|적힌|확인|후보에서\s*빼)", text):
+        return True
+    if re.search(r"(기저귀|수유실|수유\s*공간|유모차|아이용|유아용|유아\s*의자).{0,24}(같은\s*카드|둘\s*다|도\s*있고).{0,24}(적힌|되는|방문지만|곳만)", text):
+        return True
     if re.search(r"(한\s*장소|같이|동시에|둘\s*다|둘이\s*함께|함께).{0,18}(확인|맞|해결|있는지만|되는지만|적힌|남겨|있는\s*곳)", text):
         return True
     if re.search(r"(만\s*있거나|만\s*있는).{0,24}말고.{0,20}(둘이\s*함께|함께\s*있는|같이\s*있는|둘\s*다)", text):
         return True
     if re.search(r"(둘\s*중\s*하나라도|하나라도).{0,12}빠지면.{0,10}(제외|빼|패스)", text):
+        return True
+    if re.search(r"둘\s*중\s*하나\s*빠지면.{0,12}(제외|빼|패스)", text):
         return True
     if re.search(r"두\s*근거가.{0,12}(같이|함께).{0,10}(있어야|확인)", text):
         return True
@@ -500,6 +508,8 @@ def _looks_like_family_context(text: str) -> bool:
         return False
     if re.search(r"(가족|아이|아기|영유아|유아).{0,8}(아니|아냐|아님)", text):
         return False
+    if re.search(r"(부모|부모님).{0,14}(아이|아기|어린이|유아|가족)|(?:아이|아기|어린이|유아|가족).{0,14}(부모|부모님)", text):
+        return True
     if _has_any(text, FAMILY_CONTEXT_TERMS):
         return True
     if re.search(r"(수유실|기저귀\s*교환대|기저귀\s*갈).{0,18}(없으면|안\s*보이면).{0,18}(수유실|기저귀\s*교환대|기저귀\s*갈)", text):
@@ -512,6 +522,11 @@ def _looks_like_family_context(text: str) -> bool:
 def _looks_like_mobility_context(text: str) -> bool:
     original_text = text
     text = _active_requirement_text(text)
+    if re.search(r"유모차\s*대여", text) and not re.search(
+        r"(유모차로|유아차로|바퀴|이동|동선|보행|걷|계단|턱|오래 걷|부담|움직이기)",
+        text,
+    ):
+        return False
     if (
         "휠체어 접근" in text
         and re.search(r"(만 있고|없으면 안|둘 다|둘\s*중|는 물론|까지 근거|빠지면 곤란|동시에 확인|같이 확인)", text)
@@ -533,7 +548,34 @@ def _looks_like_mobility_context(text: str) -> bool:
         and not re.search(r"(휠체어|전동휠체어|유모차|유아차|어르신|노약자|계단|턱|경사로|엘리베이터|승강기)", text)
     ):
         return False
-    if _has_any(text, MOBILITY_CONTEXT_TERMS) or _has_any(original_text, ["오래 걷", "무릎이 불편", "발목 다친", "오르막", "오르내림", "이동 거리가 짧", "이동 반경", "넓게 볼", "오래 서서", "줄 서는 시간이 길지", "걷는 시간이 짧", "앉아 쉴", "덜 피곤", "이동이 버겁지", "걷기 부담", "평지"]):
+    if _has_any(text, MOBILITY_CONTEXT_TERMS) or _has_any(
+        original_text,
+        [
+            "오래 걷",
+            "덜 걷",
+            "무릎이 불편",
+            "발목 다친",
+            "오르막",
+            "오르내림",
+            "이동 거리가 짧",
+            "이동 반경",
+            "넓게 볼",
+            "넓게 움직",
+            "오래 서서",
+            "오래 줄 서지",
+            "바로 둘러",
+            "걷는 시간이 짧",
+            "걷는 거리가 짧",
+            "앉아 쉴",
+            "잠깐 쉬어",
+            "벤치",
+            "덜 피곤",
+            "이동이 버겁지",
+            "걷기 부담",
+            "평지",
+            "짧은 나들이",
+        ],
+    ):
         return True
     if _has_any(text, MOBILITY_FACILITY_TERMS) and (
         sum(1 for term in MOBILITY_FACILITY_TERMS if term in text) >= 2
@@ -548,7 +590,12 @@ def _looks_like_mobility_context(text: str) -> bool:
 
 def _looks_like_specific_facility_required(text: str) -> bool:
     if re.search(
-        r"(작품\s*제목|상호|상호명|테마\s*전시).{0,16}(점자|수어|보조견|엘리베이터|화장실).{0,16}(아니라|말고).{0,24}(실제|편의정보|안내\s*여부|동반\s*가능|여부가\s*필요)",
+        r"(수유\s*공간|수유실|기저귀\s*교환대|기저귀\s*갈).{0,18}(없으면|안\s*보이면|없다면).{0,18}(수유\s*공간|수유실|기저귀\s*교환대|기저귀\s*갈).{0,12}(라도|확인)",
+        text,
+    ):
+        return True
+    if re.search(
+        r"(작품\s*제목|작품\s*설명|상호|상호명|별명|캐릭터|테마\s*전시).{0,16}(점자|수어|보조견|엘리베이터|화장실).{0,16}(아니라|말고).{0,24}(실제|편의정보|안내\s*여부|동반\s*가능|여부가\s*필요)",
         text,
     ):
         return True
@@ -559,7 +606,12 @@ def _looks_like_specific_facility_required(text: str) -> bool:
     ):
         return True
     if re.search(
-        r"(점자|수어|보조견|엘리베이터).{0,16}(느낌|이름|작품명|상호명|음악|얘기|이야기).{0,16}(아니라|말고).{0,24}(편의정보|안내\s*여부|실제)",
+        r"(점자|수어|보조견|엘리베이터).{0,16}(느낌|이름|작품명|작품\s*설명|상호|상호명|별명|캐릭터|음악|얘기|이야기).{0,16}(아니라|말고).{0,24}(편의정보|안내\s*여부|실제)",
+        text,
+    ):
+        return True
+    if re.search(
+        r"(작품\s*설명|상호|상호명|별명|캐릭터).{0,16}(아니라|말고).{0,24}(점자|수어|보조견|안내견|엘리베이터|화장실|주차|수유|기저귀).{0,16}(편의정보|안내|동반\s*가능|여부|근거)",
         text,
     ):
         return True
@@ -581,16 +633,18 @@ def _looks_like_specific_facility_required(text: str) -> bool:
         text,
     ):
         return False
-    if re.search(r"(점자블록|점자|촉지도|음성안내|오디오가이드|수어|수화|자막|문자안내|영상안내|보조견|안내견|장애인 주차|장애인주차|주차장|장애인 화장실|화장실|엘리베이터|승강기|경사로|수유실|기저귀|유아용 의자|유모차 대여|휠체어 접근).{0,12}(이 아니라|가 아니라|얘기가 아니라|조건을 말한 건 아니|근거 찾지 말고|말고 주제|말고 분위기)", text):
+    if re.search(r"(접근성|편의정보|편의조건|시설|주차|화장실).{0,10}(얘기는\s*아냐|얘기가\s*아니|조건\s*아님|조건을\s*묻는\s*건\s*아니|세지\s*마)", text):
+        return False
+    if re.search(r"(점자블록|점자|촉지도|음성안내|오디오가이드|수어|수화|자막|문자안내|영상안내|보조견|안내견|장애인 주차|장애인주차|주차장|장애인 화장실|화장실|엘리베이터|승강기|경사로|수유실|기저귀|유아용 의자|유모차 대여|휠체어 접근).{0,12}(이 아니라|가 아니라|얘기가 아니라|조건을 말한 건 아니|조건\s*아님|근거 찾지 말고|말고 주제|말고 분위기)", text):
         return False
     if re.search(
-        r"(화장실|주차|수어|자막|점자|경사로|엘리베이터|엘베|수유실|기저귀|유아용 의자|유아 의자).{0,30}(느낌|참고|덤|가산점|부가\s*조건|선택\s*조건|필수까진 아니|필수로\s*묶지|필수로\s*묶진\s*마|있으면 더 좋|같이 고려|괜찮은 후보|둘 다 말하긴 했지만|가능한 후보부터|후보가?\s*많을\s*때만|고려해|보자|넘어가도|넘어가자|없어도)",
+        r"(화장실|주차|수어|자막|점자|경사로|엘리베이터|엘베|수유실|수유\s*공간|기저귀|유아용 의자|유아 의자|아이용 의자).{0,30}(느낌|참고|참고\s*수준|덤|가산점|가산점으로만|보조\s*조건|부가\s*조건|선택\s*조건|필수까진 아니|필수로\s*보진\s*말|필수로\s*묶지|필수로\s*묶진\s*마|있으면 더 좋|같이 고려|괜찮은 후보|둘 다 말하긴 했지만|가능한 후보부터|후보가?\s*많을\s*때만|후보가?\s*여럿일\s*때만|고려해|보자|넘어가도|넘어가자|없어도)",
         text,
     ):
         return False
     if re.search(r"(점자블록|점자|촉지도|음성안내|오디오가이드|수어|수화|자막|문자안내|영상안내|보조견|안내견|장애인 주차|장애인주차|주차장|장애인 화장실|화장실|엘리베이터|승강기|경사로|수유실|기저귀|유아용 의자|유모차 대여|휠체어 접근).{0,18}후보가\s*적을\s*때만\s*참고", text):
         return False
-    if re.search(r"(필수는 아니|필수까진 아니|필수 아님|필수로\s*묶지|필수로\s*묶진\s*마|부가\s*조건|선택\s*조건|참고만|은 참고|는 참고|있으면 참고|없으면 넘어가도|없으면 넘어가자|후보가?\s*많을\s*때만|없어도 된다|없어도|꼭 맞출 필요는 없어|가산점|덤)", text):
+    if re.search(r"(필수는 아니|필수까진 아니|필수 아님|필수로\s*보진\s*말|필수로\s*묶지|필수로\s*묶진\s*마|보조\s*조건|부가\s*조건|선택\s*조건|참고만|참고\s*수준|은 참고|는 참고|있으면 참고|없으면 넘어가도|없으면 넘어가자|후보가?\s*많을\s*때만|후보가?\s*여럿일\s*때만|없어도 된다|없어도|꼭 맞출 필요는 없어|가산점|가산점으로만|덤)", text):
         return False
     if re.search(r"(수유실|기저귀|유아용 의자|화장실|주차|점자|수어|자막|경사로|엘리베이터).{0,8}보다.{0,20}중요", text):
         return False
@@ -651,11 +705,13 @@ def _looks_like_exclude(text: str) -> bool:
         return False
     if re.search(r"(추측|짐작|상상|확대해석)(?:하지)?\s*말고", text):
         return False
-    if re.search(r"(이름|상호명|음악|얘기|이야기|작품명|브랜드명|노래\s*제목|행사).{0,12}(말고|빼고)", text):
+    if re.search(r"(이름|상호|상호명|음악|얘기|이야기|작품명|작품\s*설명|별명|캐릭터|브랜드명|노래\s*제목|행사).{0,12}(말고|빼고)", text):
         return False
     if re.search(r"둘\s*중\s*하나만\s*되는\s*곳은\s*제외", text):
         return False
     if _looks_like_strict_and(text) and re.search(r"(말고|빼고|제외).{0,24}(둘\s*다|두\s*근거|같이|함께|표기된)", text):
+        return False
+    if _looks_like_strict_and(text) and re.search(r"(둘\s*중\s*하나|하나라도).{0,12}빠지면.{0,12}(제외|빼|패스)", text):
         return False
     if re.search(r"(만\s*있거나|만\s*있는).{0,24}말고.{0,20}(둘이\s*함께|함께\s*있는|같이\s*있는|둘\s*다)", text):
         return False
@@ -689,7 +745,7 @@ def _looks_like_exclude(text: str) -> bool:
 def _looks_like_add(text: str) -> bool:
     if "추측하지 말고" in text:
         return False
-    if re.search(r"(시설명만|여부만|표시 여부만|조건은 필요하지만|근거만 있으면|근거\s*찾지\s*말고|근거\s*없으면.{0,12}(?:제외|추천하지\s*마)|라고\s*확인된\s*카드만|문구가\s*있어야|문구가.{0,12}원문에\s*있는\s*카드만|새로 추가하지 마|꼭 맞출 필요는 없어|필수까진 아니|필수로\s*묶진\s*마|조건을 말한 건 아니|얘기가 아니라|시설 요청은 아니|둘\s*중\s*하나만\s*되는\s*곳은\s*제외)", text):
+    if re.search(r"(시설명만|여부만|표시 여부만|조건은 필요하지만|근거만 있으면|근거\s*찾지\s*말고|근거\s*없으면.{0,12}(?:제외|추천하지\s*마)|라고\s*확인된\s*카드만|문구가\s*있어야|문구가.{0,12}원문에\s*있는\s*카드만|새로 추가하지 마|꼭 맞출 필요는 없어|필수까진 아니|필수로\s*보진\s*말|필수로\s*묶진\s*마|조건을 말한 건 아니|얘기가 아니라|시설 요청은 아니|둘\s*중\s*하나만\s*되는\s*곳은\s*제외)", text):
         return False
     if _looks_like_soft_preference_phrase(text):
         return False
@@ -697,7 +753,7 @@ def _looks_like_add(text: str) -> bool:
         return False
     if _looks_like_or_condition(text):
         return False
-    if re.search(r"않아도\s*되는\s*곳", text):
+    if re.search(r"않아도\s*되는\s*(곳|장소|코스|후보)", text):
         return False
     if _looks_like_exclude(text) or _looks_like_replace(text):
         return False
@@ -750,11 +806,13 @@ def _looks_like_soft_and(text: str, labels: set[str]) -> bool:
         return _mentions_condition(text)
     if re.search(r"(우선|먼저|위주).{0,28}(있으면|보이면|후보\s*적|가산점|필수까진 아니|덤)", text):
         return _mentions_condition(text)
-    if re.search(r"(필수까진 아니|가산점|덤으로|없으면 말고|있으면 고맙)", text):
+    if re.search(r"(필수까진 아니|필수로\s*보진\s*말|가산점|가산점으로만|보조\s*조건|참고\s*수준|덤으로|없으면 말고|있으면 고맙|좋으면 좋고)", text):
         return _mentions_condition(text)
-    if re.search(r"(있으면\s*참고|없으면\s*넘어가도|없으면\s*넘어가자|필수로\s*묶지|필수로\s*묶진\s*마|참고만|덤으로만|후보가?\s*많을\s*때만\s*(?:고려|보자)|부가\s*조건|선택\s*조건)", text):
+    if re.search(r"(있으면\s*참고|없으면\s*그냥\s*넘어가도|없으면\s*넘어가도|없으면\s*넘어가자|필수로\s*묶지|필수로\s*묶진\s*마|참고만|덤으로만|후보가?\s*많을\s*때만\s*(?:고려|보자)|후보가?\s*여럿일\s*때만\s*(?:고려|보자)|부가\s*조건|선택\s*조건)", text):
         return _mentions_condition(text)
     if re.search(r"(보다는|보다).{0,32}(중요|우선|먼저)", text):
+        return _mentions_condition(text)
+    if re.search(r"(시설|의자|수유실|기저귀|교환대).{0,12}없어도.{0,24}(핵심|중요|흥미|편히|편한|쉬)", text):
         return _mentions_condition(text)
     if re.search(r"(찾는데|찾고|원하는데).{0,22}(도\s*)?참고만", text):
         return _mentions_condition(text)

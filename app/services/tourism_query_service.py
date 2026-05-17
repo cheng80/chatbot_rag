@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import logging
+import re
 
 from app.core.config import PROJECT_ROOT
+from app.services.tourism_intent_classifier import TourismIntentClassifier
+from app.services.tourism_context_classifier import TourismContextClassifier
 
 
 AREA_CODES = {
@@ -38,10 +41,10 @@ DEFAULT_ADMIN_REGION_ALIAS_PATH = PROJECT_ROOT / "data" / "processed" / "admin_r
 CONDITION_KEYWORDS = {
     "휠체어": ["휠체어", "장애인", "무장애", "접근성", "이동약자", "베리어프리"],
     "유모차": ["유모차", "유아차", "아기", "영유아", "영아", "유아", "아이", "어린이", "가족", "수유", "수유실", "기저귀"],
-    "고령자": ["고령자", "어르신", "노인"],
+    "고령자": ["고령자", "어르신", "노인", "할머니", "할아버지", "많이 걷기 어려", "걷기 어려"],
     "주차": ["주차", "장애인 주차"],
     "화장실": ["화장실", "장애인 화장실"],
-    "접근로": ["접근로", "동선", "경사로", "턱 없음", "턱이 없어"],
+    "접근로": ["접근로", "동선", "경사로", "턱 없음", "턱이 없어", "계단", "걷기 힘", "걷기 어려"],
     "대중교통": ["대중교통", "버스", "지하철"],
     "엘리베이터": ["엘리베이터", "승강기"],
     "보조견": ["보조견", "안내견"],
@@ -62,14 +65,17 @@ PREFERENCE_KEYWORDS = {
     "카페_음식점": ["카페", "식당", "음식점", "맛집", "레스토랑"],
     "조용한": ["조용", "한적", "붐비지", "덜 붐비"],
 }
-NEGATION_NEARBY_KEYWORDS = ["말고", "빼고", "제외", "아닌", "말고는", "말고요"]
+NEGATION_NEARBY_KEYWORDS = ["말고", "빼고", "제외", "아닌", "말고는", "말고요", "취소"]
 UNSUPPORTED_INTENT_KEYWORDS = {
     "wheelchair_rental_price": ["휠체어 대여", "대여 가격", "가격이 제일 싼", "제일 싼 곳", "최저가"],
     "medical_lookup": ["병원", "약국", "응급실", "응급의료"],
-    "transport_booking": ["리프트 차량", "예약 업체", "업체 연결", "예약 가능한 업체"],
-    "realtime_crowd": ["실시간", "지금 제일 안 붐비", "혼잡도"],
+    "transport_booking": ["리프트 차량", "예약 업체", "업체 연결", "예약 가능한 업체", "예약 가능한 시간", "예약 가능", "예약 시간"],
+    "realtime_crowd": ["실시간", "지금 제일 안 붐비", "혼잡도", "빈자리"],
     "price_sort": ["입장료", "가격순", "가장 싼", "싸고"],
-    "itinerary_planning": ["하루 코스", "시간표", "이동시간", "코스 시간표"],
+    "itinerary_planning": ["하루 코스", "시간표", "이동시간", "이동 시간", "코스 시간표", "소요시간", "소요 시간", "버스 번호", "몇 번 버스", "버스 노선"],
+    "current_operation": ["영업 중", "영업중", "운영 중", "운영중", "오늘 영업", "오늘 운영", "휴무"],
+    "external_contact": ["렌터카", "전화번호", "전화 번호", "업체 번호"],
+    "weather_based": ["날씨", "비 예보", "기온", "폭염", "한파"],
     "subway_direct": ["지하철역 바로 연결", "지하철 바로 연결"],
 }
 LEGACY_REGION_ALIASES = {
@@ -142,9 +148,13 @@ class TourismQueryService:
         self,
         area_code_cache_path: Path | None = None,
         admin_region_alias_path: Path | None = None,
+        intent_classifier: TourismIntentClassifier | None = None,
+        context_classifier: TourismContextClassifier | None = None,
     ):
         self.area_code_cache_path = area_code_cache_path or DEFAULT_AREA_CODE_CACHE_PATH
         self.admin_region_alias_path = admin_region_alias_path or DEFAULT_ADMIN_REGION_ALIAS_PATH
+        self.intent_classifier = intent_classifier or TourismIntentClassifier()
+        self.context_classifier = context_classifier or TourismContextClassifier()
         self.cache_status = "loaded"
         self.cache_warning: str | None = None
         self.ambiguous_region_aliases: dict[str, list[dict[str, str | None]]] = {}
@@ -163,6 +173,8 @@ class TourismQueryService:
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
+        intent_prediction = self.intent_classifier.predict(message)
+        context_prediction = self.context_classifier.predict(message)
         return {
             "region": region,
             "area_code": cached_region.get("area_code") or AREA_CODES.get(region or ""),
@@ -172,6 +184,7 @@ class TourismQueryService:
             "is_sigungu": bool(sigungu_code),
             "allow_region_expansion": any(keyword in message for keyword in EXPANSION_KEYWORDS),
             "conditions": conditions,
+            "require_all_conditions": self._requires_all_conditions(message),
             "preferences": preferences,
             "excluded_preferences": excluded_preferences,
             "features": [
@@ -179,7 +192,13 @@ class TourismQueryService:
                 for label, keywords in FEATURE_KEYWORDS.items()
                 if any(keyword in message for keyword in keywords)
             ],
+            "required_evidence_terms": self._extract_required_evidence_terms(message),
             "unsupported_intent": self._find_unsupported_intent(message),
+            "ml_intent": intent_prediction.intent,
+            "ml_intent_confidence": intent_prediction.confidence,
+            "context_labels": context_prediction.labels,
+            "context_confidence_by_label": context_prediction.confidence_by_label,
+            "context_source_by_label": context_prediction.source_by_label,
             "ambiguous_region": ambiguous_region,
             "ambiguous_region_candidates": self.ambiguous_region_aliases.get(ambiguous_region or "", []),
             "region_cache_status": self.cache_status,
@@ -190,6 +209,72 @@ class TourismQueryService:
         }
 
     @staticmethod
+    def _extract_required_evidence_terms(message: str) -> list[list[str]]:
+        term_groups: list[list[str]] = []
+        skip_individual_terms: set[str] = set()
+        hearing_or_request = (
+            any(term in message for term in ["수어", "수화"])
+            and "자막" in message
+            and any(marker in message for marker in ["나", "이나", "또는", "혹은"])
+        )
+        if hearing_or_request:
+            term_groups.append(["수어", "수화", "자막", "문자안내", "영상안내"])
+            skip_individual_terms.update({"수어", "수화", "자막"})
+        term_map = [
+            (["점자블록", "점자"], ["점자블록", "점자"]),
+            (["시각장애", "시각 장애"], ["점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "점자홍보물"]),
+            (["오디오가이드", "음성안내", "음성 안내"], ["오디오가이드", "음성안내", "음성 안내"]),
+            (["촉지도"], ["촉지도"]),
+            (["보조견", "안내견"], ["보조견", "안내견"]),
+            (["청각장애", "청각 장애"], ["수어", "수화", "자막", "문자안내", "영상안내"]),
+            (["수어", "수화"], ["수어", "수화"]),
+            (["자막"], ["자막"]),
+            (["장애인 주차", "주차장", "주차"], ["주차", "주차장"]),
+            (["장애인 화장실", "화장실"], ["화장실"]),
+            (["엘리베이터", "승강기"], ["엘리베이터", "승강기"]),
+            (["경사로"], ["경사로"]),
+            (["수유실"], ["수유실"]),
+            (["기저귀"], ["기저귀", "기저귀교환대", "기저귀 교환대"]),
+            (["유모차 대여"], ["유모차 대여", "유모차"]),
+            (["유아용 의자"], ["유아용 의자"]),
+        ]
+        for triggers, terms in term_map:
+            if skip_individual_terms and any(term in skip_individual_terms for term in triggers):
+                continue
+            if any(trigger in message for trigger in triggers):
+                term_groups.append(terms)
+        family_context_terms = ["아이랑", "아이와", "아이 동반", "어린이", "가족", "영유아", "아기"]
+        if any(term in message for term in family_context_terms):
+            term_groups.append(["유모차", "수유실", "영유아", "기저귀", "어린이", "아이", "가족", "유아용 의자"])
+        if (
+            "시장" in message
+            and not any(term in message for term in ["먹거리", "음식", "식당", "맛집"])
+            and not TourismQueryService._is_preference_excluded(message, "시장")
+        ):
+            term_groups.append(["시장", "먹자골목", "전통시장"])
+        return term_groups
+
+    @staticmethod
+    def _requires_all_conditions(message: str) -> bool:
+        explicit_all_markers = [
+            "둘 다",
+            "둘다",
+            "모두",
+            "전부",
+            "동시에",
+            "같이 만족",
+            "함께 만족",
+            "둘 모두",
+            "다 되는",
+            "다 가능한",
+            "전부 가능한",
+            "모두 가능한",
+            "반드시",
+            "꼭",
+        ]
+        return any(marker in message for marker in explicit_all_markers)
+
+    @staticmethod
     def _extract_preference_filters(message: str) -> tuple[list[str], list[str]]:
         preferences: list[str] = []
         excluded_preferences: list[str] = []
@@ -197,11 +282,41 @@ class TourismQueryService:
             matched_keywords = [keyword for keyword in keywords if keyword in message]
             if not matched_keywords:
                 continue
-            if any(TourismQueryService._is_negated_near_keyword(message, keyword) for keyword in matched_keywords):
+            if any(TourismQueryService._is_preference_excluded(message, keyword) for keyword in matched_keywords):
                 excluded_preferences.append(label)
+            elif any(TourismQueryService._is_preference_replacement_target(message, keyword) for keyword in matched_keywords):
+                preferences.append(label)
             else:
                 preferences.append(label)
         return preferences, excluded_preferences
+
+    @staticmethod
+    def _is_preference_replacement_target(message: str, keyword: str) -> bool:
+        start = message.find(keyword)
+        if start == -1:
+            return False
+        for marker in ["말고", "대신", "아니고"]:
+            marker_index = message.find(marker)
+            if marker_index != -1 and marker_index < start:
+                return True
+        return False
+
+    @staticmethod
+    def _is_preference_excluded(message: str, keyword: str) -> bool:
+        start = message.find(keyword)
+        if start == -1:
+            return False
+        end = start + len(keyword)
+        tail = message[end : min(len(message), end + 32)].lstrip()
+        for particle in ["은", "는", "이", "가", "을", "를", "이나", "나", "하고", "랑", "와", "과"]:
+            if tail.startswith(particle):
+                tail = tail[len(particle) :].lstrip()
+                break
+        same_clause_tail = re.split(r"[.!?。！？,，]", tail, maxsplit=1)[0]
+        return any(
+            same_clause_tail.startswith(negation) or negation in same_clause_tail[:16]
+            for negation in NEGATION_NEARBY_KEYWORDS
+        )
 
     @staticmethod
     def _is_negated_near_keyword(message: str, keyword: str) -> bool:
@@ -215,20 +330,49 @@ class TourismQueryService:
     @staticmethod
     def _find_unsupported_intent(message: str) -> str | None:
         for label, keywords in UNSUPPORTED_INTENT_KEYWORDS.items():
-            if any(keyword in message for keyword in keywords):
+            if any(keyword in message and not TourismQueryService._is_negated_near_keyword(message, keyword) for keyword in keywords):
                 return label
         return None
 
     def _find_region(self, message: str) -> str | None:
         for name in sorted(self.region_index, key=len, reverse=True):
-            if name and name in message:
+            if name and self._contains_region_name(message, name) and not self._is_region_negated(message, name):
                 return name
-        return next((name for name in AREA_CODES if name in message), None)
+        return next(
+            (
+                name
+                for name in AREA_CODES
+                if self._contains_region_name(message, name) and not self._is_region_negated(message, name)
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _contains_region_name(message: str, name: str) -> bool:
+        if not name:
+            return False
+        if len(name) <= 2:
+            suffixes = "광역시|특별시|특별자치시|특별자치도|도|시|군|구|로|에서|으로|에"
+            return re.search(rf"(?<![가-힣]){re.escape(name)}(?=$|[^가-힣]|{suffixes})", message) is not None
+        return name in message
+
+    @staticmethod
+    def _is_region_negated(message: str, name: str) -> bool:
+        start = message.find(name)
+        if start == -1:
+            return False
+        end = start + len(name)
+        tail = message[end : min(len(message), end + 8)].lstrip()
+        for suffix in ["시", "군", "구", "도"]:
+            suffix_tail = tail[len(suffix) :].lstrip() if tail.startswith(suffix) else ""
+            if suffix_tail and any(suffix_tail.startswith(negation) for negation in NEGATION_NEARBY_KEYWORDS):
+                return True
+        return any(tail.startswith(negation) for negation in NEGATION_NEARBY_KEYWORDS)
 
     @staticmethod
     def _find_legacy_region(message: str) -> dict[str, str] | None:
         for alias in sorted(LEGACY_REGION_ALIASES, key=len, reverse=True):
-            if alias in message:
+            if alias in message and not TourismQueryService._is_region_negated(message, alias):
                 return {"alias": alias, **LEGACY_REGION_ALIASES[alias]}
         return None
 

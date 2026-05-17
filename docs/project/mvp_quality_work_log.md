@@ -118,10 +118,8 @@ Gemma 4 계열은 한국어 맥락과 긴 문맥 처리 후보로 유지한다. 
 | `docs/project/GOAL.md` | MVP 완성 기준과 정책 결정 기록 |
 | `docs/project/progress_overview.md` | 전체 진행도 차트와 다음 체크포인트 |
 | `docs/tourism/tourism_response_strategy_decision.md` | offline-index 우선 vs cache/fallback-first + live-on-miss 비교 |
-| `docs/tourism/tourism_data_collection_plan.md` | 수집 배치, 호출량, 평시 안전치와 429 중단 기록 |
+| `docs/tourism/tourism_data_operations.md` | 수집 배치, 호출량, 평시 안전치, 429 중단 기록, 샘플 감사, 전국 fallback 수집 규모 |
 | `docs/project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 시나리오 |
-| `docs/tourism/tourism_sample_quality.md` | 샘플 감사 결과와 중복 원인/재발 방지 |
-| `docs/tourism/tourism_sigungu_fallback_scale.md` | 전국 fallback 수집 규모와 250개 실사용 지역 목표 |
 | `docs/tourism/admin_region_aliases.md` | 행정동/법정동 매칭 데이터 생성 및 사용 원칙 |
 | `.env.example` | 팀원이 민감정보 없이 환경 변수를 재현 가능 |
 

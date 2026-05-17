@@ -178,6 +178,7 @@ analysis/leveling/data/raw/
 **/*.dump
 **/*.sql~
 data/vector_store/chroma/
+data/external/
 data/source/admin_regions/
 data/generated/nanobanana-images/
 data/generated/tour_api/

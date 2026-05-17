@@ -84,9 +84,8 @@ chatbot_rag/
 │  ├─ project/
 │  ├─ tourism/
 │  ├─ rag/
-│  ├─ setup/
-│  ├─ tools/
-│  └─ references/
+│  ├─ design/
+│  └─ etc/
 ├─ ingestion/
 ├─ prompts/
 ├─ scripts/
@@ -100,7 +99,7 @@ chatbot_rag/
 
 ## 3. 준비
 
-다른 Mac에서 Anaconda/conda 설정을 걷어내고 Python 환경을 최소화해야 하면 [Mac Anaconda 제거 및 Python 환경 최소화 가이드](docs/setup/remove_anaconda_mac_guide.md)를 먼저 참고한다.
+다른 Mac에서 Anaconda/conda 설정을 걷어내고 Python 환경을 최소화해야 하면 [Mac Anaconda 제거 및 Python 환경 최소화 가이드](docs/etc/setup/remove_anaconda_mac_guide.md)를 먼저 참고한다.
 
 ### 프로젝트 진입
 
@@ -317,8 +316,7 @@ curl -X POST http://localhost:8000/chat \
 현재 예비 관광 자료는 모든 광역권에 대해 지역별 약 20장 수준으로 확보했습니다. 전체 관광지를 모두 저장한 데이터베이스가 아니라, 공공데이터 조회 장애나 호출량 제한 상황에서도 기본 응답이 무너지지 않도록 하는 최소 안전망입니다.
 
 전체 진행도는 [무장애 관광 챗봇 진행도](docs/project/progress_overview.md)에서 확인한다.
-예비 관광 자료 분할 수집 계획은 [무장애 관광 데이터 분할 수집 계획](docs/tourism/tourism_data_collection_plan.md)에서 관리합니다.
-전국 시군구 단위 예비 자료를 늘릴 때의 예상 규모는 [전국 시군구 fallback 최소 수집 규모](docs/tourism/tourism_sigungu_fallback_scale.md)를 참고합니다.
+예비 관광 자료 수집, 호출량, 전국 시군구 규모, 샘플 QA 기준은 [관광 데이터 운영 문서](docs/tourism/tourism_data_operations.md)에서 관리합니다.
 응답 전략 변경 이력과 되돌림 기준은 [관광 챗봇 응답 전략 결정 기록](docs/tourism/tourism_response_strategy_decision.md)을 참고한다.
 
 | 범위 | 현재 샘플 |
@@ -427,7 +425,7 @@ python -m pytest
 .venv/bin/python scripts/audit_tourism_samples.py
 ```
 
-기본 리포트는 `data/generated/tour_api/tourism_sample_audit.md`에 생성되며 커밋하지 않는다. 자세한 기준은 `docs/tourism/tourism_sample_quality.md`를 본다.
+기본 리포트는 `data/generated/tour_api/tourism_sample_audit.md`에 생성되며 커밋하지 않는다. 자세한 기준은 `docs/tourism/tourism_data_operations.md`를 본다.
 
 전국권 샘플을 넓힐 때는 일일 트래픽을 확인한 뒤 명시적으로 실행한다.
 

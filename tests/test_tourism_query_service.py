@@ -152,6 +152,34 @@ def test_tourism_query_marks_mixed_scope_request(tmp_path: Path):
     assert query["unsupported_intent"] == "medical_lookup"
 
 
+def test_tourism_query_ignores_negated_unsupported_keyword(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "부산 중구": {
+                        "area_code": "6",
+                        "sigungu_code": "15",
+                        "area_name": "부산",
+                        "sigungu_name": "중구",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("부산 중구에서 응급실 말고 휠체어 관광지만 추천해줘")
+
+    assert query["region"] == "부산 중구"
+    assert "휠체어" in query["conditions"]
+    assert query["unsupported_intent"] is None
+
+
 def test_tourism_query_maps_legacy_region_name_to_current_sigungu(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -572,3 +600,111 @@ def test_tourism_query_maps_general_gu_to_parent_tourapi_sigungu(tmp_path: Path)
     assert query["area_name"] == "경남"
     assert query["sigungu_name"] == "창원시"
     assert "휠체어" in query["conditions"]
+
+
+def test_tourism_query_uses_region_after_replacement_marker(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서귀포": {
+                        "area_code": "39",
+                        "sigungu_code": "3",
+                        "area_name": "제주",
+                        "sigungu_name": "서귀포시",
+                    },
+                    "제주시": {
+                        "area_code": "39",
+                        "sigungu_code": "4",
+                        "area_name": "제주",
+                        "sigungu_name": "제주시",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서귀포시 말고 제주시")
+
+    assert query["region"] == "제주시"
+    assert query["sigungu_code"] == "4"
+
+
+def test_tourism_query_splits_excluded_and_replacement_preferences(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("시장 말고 실내 박물관 쪽으로 바꿔줘")
+
+    assert query["preferences"] == ["실내", "박물관_전시"]
+    assert query["excluded_preferences"] == ["시장_먹거리"]
+
+
+def test_tourism_query_handles_particle_before_exclusion_marker(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("호텔이나 숙박은 빼고 관광지만 계속")
+
+    assert query["preferences"] == []
+    assert query["excluded_preferences"] == ["숙박"]
+
+
+def test_tourism_query_ignores_negated_legacy_region(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "제주시": {
+                        "area_code": "39",
+                        "sigungu_code": "4",
+                        "area_name": "제주",
+                        "sigungu_name": "제주시",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("남제주군 말고 제주시로")
+
+    assert query["region"] == "제주시"
+    assert query["legacy_region"] is None
+
+
+def test_tourism_query_extracts_required_evidence_terms_for_explicit_details(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("대구에서 점자블록과 안내견 가능한 곳 추천")
+
+    assert ["점자블록", "점자"] in query["required_evidence_terms"]
+    assert ["보조견", "안내견"] in query["required_evidence_terms"]
+    assert "specific_facility_required" in query["context_labels"]
+
+
+def test_tourism_query_requires_all_conditions_only_when_explicit(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    loose = service.extract("서울에서 휠체어와 유모차 가능한 관광지 추천")
+    strict = service.extract("서울에서 휠체어와 유모차 둘 다 가능한 관광지 추천")
+
+    assert loose["require_all_conditions"] is False
+    assert strict["require_all_conditions"] is True
+    assert "soft_and" in loose["context_labels"]
+    assert "strict_and" in strict["context_labels"]

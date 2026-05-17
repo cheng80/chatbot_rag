@@ -225,7 +225,7 @@ def test_tourism_chat_caches_live_tour_api_region_results(tmp_path):
             return {"contentid": content_id, "title": "Live 캐시 관광지", "addr1": "서울 중구"}
 
         def detail_with_tour(self, content_id: str):
-            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능", "stroller": "유모차 대여 가능"}
 
     tour_api = FakeTourAPI()
     service = TourismChatService(
@@ -766,7 +766,7 @@ def test_tourism_chat_suggests_more_when_more_than_five_cards_exist(tmp_path):
 def test_tourism_chat_returns_more_cards_when_more_is_requested(tmp_path):
     sample_dir = tmp_path / "tourism"
     sample_dir.mkdir()
-    for index in range(6):
+    for index in range(25):
         card = TourismPlaceCard(
             content_id=f"jeju-more-requested-{index}",
             title=f"제주 전체 관광지 {index}",
@@ -783,8 +783,143 @@ def test_tourism_chat_returns_more_cards_when_more_is_requested(tmp_path):
 
     response = service.answer("제주시에서 휠체어 관광지 추천해줘 더 보기")
 
-    assert len(response.cards) == 6
+    assert len(response.cards) == 25
     assert response.suggested_messages == []
+
+
+def test_tourism_chat_more_keeps_area_region_scope(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    for index in range(6):
+        card = TourismPlaceCard(
+            content_id=f"jeonnam-more-{index}",
+            title=f"전남 휠체어 관광지 {index}",
+            address="전라남도 여수시",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"jeonnam_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+    for index in range(30):
+        card = TourismPlaceCard(
+            content_id=f"seoul-noise-{index}",
+            title=f"서울 휠체어 관광지 {index}",
+            address="서울특별시 중구",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+        )
+        (sample_dir / f"seoul_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("전남에서 휠체어 관광지 추천해줘 더 보기")
+
+    assert len(response.cards) == 6
+    assert all("전라남도" in (card.address or "") for card in response.cards)
+    assert all("서울" not in (card.address or "") for card in response.cards)
+
+
+def test_tourism_chat_area_filter_uses_address_not_title(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    valid_card = TourismPlaceCard(
+        content_id="gyeonggi-valid",
+        title="수원 무장애 관광지",
+        address="경기도 수원시",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    title_noise = TourismPlaceCard(
+        content_id="gyeonggi-title-noise",
+        title="경기여고 근처 산책길",
+        address="서울특별시 강남구",
+        recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+        accessibility_tags=["휠체어 접근"],
+    )
+    (sample_dir / "gyeonggi_valid.md").write_text(normalizer.card_to_markdown(valid_card), encoding="utf-8")
+    (sample_dir / "gyeonggi_noise.md").write_text(normalizer.card_to_markdown(title_noise), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("경기에서 휠체어 관광지 추천해줘 더 보기")
+
+    assert [card.title for card in response.cards] == ["수원 무장애 관광지"]
+
+
+def test_tourism_chat_area_filter_does_not_match_address_suffix_alias(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    valid_card = TourismPlaceCard(
+        content_id="sejong-valid",
+        title="세종 무장애 관광지",
+        address="세종특별자치시 다솜로 216",
+        recommendation_reason="장애인 주차 정보가 확인되었습니다.",
+        accessibility_tags=["장애인 주차"],
+        raw_fields={"주차": "장애인 전용 주차구역 있음"},
+    )
+    suffix_noise = TourismPlaceCard(
+        content_id="sejong-suffix-noise",
+        title="경복궁",
+        address="서울특별시 종로구 사직로 161 (세종로)",
+        recommendation_reason="장애인 주차 정보가 확인되었습니다.",
+        accessibility_tags=["장애인 주차"],
+        raw_fields={"주차": "장애인 전용 주차구역 있음"},
+    )
+    (sample_dir / "sejong_valid.md").write_text(normalizer.card_to_markdown(valid_card), encoding="utf-8")
+    (sample_dir / "sejong_noise.md").write_text(normalizer.card_to_markdown(suffix_noise), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("세종에서 장애인 주차장 관광지 추천해줘 더 보기")
+
+    assert [card.title for card in response.cards] == ["세종 무장애 관광지"]
+
+
+def test_tourism_chat_more_filters_every_card_by_requested_condition(tmp_path):
+    sample_dir = tmp_path / "tourism"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    for index in range(7):
+        card = TourismPlaceCard(
+            content_id=f"busan-stroller-{index}",
+            title=f"부산 유모차 관광지 {index}",
+            address="부산광역시 해운대구",
+            recommendation_reason="유모차 편의 정보가 확인되었습니다.",
+            family_tags=["유모차 대여"],
+            raw_fields={"유모차": "유모차 대여 가능함"},
+        )
+        (sample_dir / f"busan_stroller_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+    for index in range(10):
+        card = TourismPlaceCard(
+            content_id=f"busan-wheelchair-noise-{index}",
+            title=f"부산 휠체어 관광지 {index}",
+            address="부산광역시 중구",
+            recommendation_reason="휠체어 접근 정보가 확인되었습니다.",
+            accessibility_tags=["휠체어 접근"],
+            raw_fields={"출입통로": "주출입구는 턱이 없어 휠체어 접근 가능함"},
+        )
+        (sample_dir / f"busan_noise_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("부산에서 유모차 관광지 추천해줘 더 보기")
+
+    assert len(response.cards) == 7
+    assert all("유모차" in card.recommendation_reason or "유모차" in " ".join(card.family_tags) for card in response.cards)
 
 
 def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
@@ -911,3 +1046,187 @@ def test_tourism_chat_sample_cards_are_cached(tmp_path):
     assert service.answer("서울 휠체어 관광지").cards[0].title == "캐시 테스트 관광지"
     assert service.answer("서울 휠체어 관광지").cards[0].title == "캐시 테스트 관광지"
     assert codec.calls == 1
+
+
+def test_tourism_chat_uses_session_region_for_more_followup(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    first = service.answer("서울에서 휠체어 관광지 추천해줘", session_id="conv-more")
+    followup = service.answer("더 보기", session_id="conv-more")
+
+    assert first.cards
+    assert followup.cards
+    assert "서울" in followup.answer
+    assert followup.lookup_mode in {"indexed", "sample", "cache"}
+
+
+def test_tourism_chat_replaces_negated_condition_in_followup(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("서울에서 유모차 관광지 추천해줘", session_id="conv-condition")
+    followup = service.answer("아니, 유모차 말고 휠체어로 갈 수 있는 곳", session_id="conv-condition")
+
+    assert followup.cards
+    assert "서울" in followup.answer
+    assert "휠체어 조건" in followup.answer
+    assert "유모차, 휠체어 조건" not in followup.answer
+
+
+def test_tourism_chat_does_not_reuse_context_for_pure_unsupported_followup(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    first = service.answer("서울에서 휠체어 관광지 추천해줘", session_id="conv-unsupported")
+    followup = service.answer("입장료도 알려줘", session_id="conv-unsupported")
+
+    assert first.cards
+    assert followup.cards == []
+    assert followup.lookup_mode == "unsupported"
+
+    second = service.answer("버스 번호와 소요시간도 알려줘", session_id="conv-unsupported")
+    assert second.cards == []
+    assert second.lookup_mode == "unsupported"
+
+
+def test_tourism_chat_continues_when_unsupported_topic_is_negated(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("부산 중구에서 휠체어 관광지 추천해줘", session_id="conv-negated-unsupported")
+    followup = service.answer("응급실은 말고 관광지만 계속", session_id="conv-negated-unsupported")
+
+    assert followup.cards
+    assert followup.lookup_mode in {"indexed", "sample", "cache"}
+    assert "부산 중구" in followup.answer
+
+
+def test_tourism_chat_clarifies_core_unsupported_followup(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("제주에서 휠체어 관광지 추천해줘", session_id="conv-subway-core")
+    followup = service.answer("지하철역 바로 연결된 곳만", session_id="conv-subway-core")
+
+    assert followup.cards == []
+    assert followup.lookup_mode == "clarification"
+    assert "확인하기 어렵습니다" in followup.answer
+
+
+def test_tourism_chat_applies_negative_preference_in_followup(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("부산 중구에서 휠체어 관광지 추천해줘", session_id="conv-negative")
+    followup = service.answer("그중 시장 말고", session_id="conv-negative")
+
+    assert "부산 중구" in followup.answer
+    assert all("시장" not in card.title for card in followup.cards)
+
+
+def test_tourism_chat_does_not_inherit_sigungu_when_switching_to_area(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("강릉에서 휠체어 관광지 추천해줘", session_id="conv-area-switch")
+    followup = service.answer("강릉 말고 서울로", session_id="conv-area-switch")
+
+    assert followup.cards
+    assert "서울" in followup.answer
+    assert all("강릉" not in (card.address or "") for card in followup.cards)
+
+
+def test_tourism_chat_removes_excluded_previous_preference(tmp_path):
+    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+
+    service.answer("서울에서 시장 관광지 추천해줘", session_id="conv-preference-remove")
+    followup = service.answer("시장 말고 휠체어 기준", session_id="conv-preference-remove")
+
+    assert followup.cards
+    assert "서울" in followup.answer
+    assert all("시장" not in card.title for card in followup.cards)
+
+
+def test_tourism_chat_uses_stroller_mobility_evidence_when_no_dedicated_stroller_field(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    card = TourismPlaceCard(
+        content_id="stroller-mobility",
+        title="평탄한 산책 공원",
+        address="서울 중구",
+        recommendation_reason="주 출입통로에 턱이 없어 이동이 편합니다.",
+        accessibility_tags=["휠체어 접근", "경사로"],
+        raw_fields={"출입통로": "주 출입구는 턱이 없어 이동 가능합니다."},
+    )
+    (sample_dir / "stroller_mobility.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울에서 유모차로 이동하기 좋은 관광지 추천")
+
+    assert [card.title for card in response.cards] == ["평탄한 산책 공원"]
+
+
+def test_tourism_chat_requires_explicit_detail_terms_on_same_card(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    cards = [
+        TourismPlaceCard(
+            content_id="guide-dog-only",
+            title="보조견만 가능한 곳",
+            address="대구 중구",
+            recommendation_reason="보조견 동반 가능합니다.",
+            accessibility_tags=["보조견"],
+            raw_fields={"보조견": "보조견 동반 가능"},
+        ),
+        TourismPlaceCard(
+            content_id="braille-guide-dog",
+            title="점자 안내 박물관",
+            address="대구 중구",
+            recommendation_reason="점자블록과 보조견 동반 정보가 확인됩니다.",
+            accessibility_tags=["점자블록", "보조견"],
+            raw_fields={"점자블록": "점자블록 있음", "보조견": "보조견 동반 가능"},
+        ),
+    ]
+    for card in cards:
+        (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("대구에서 점자블록과 안내견 가능한 관광지 추천")
+
+    assert [card.title for card in response.cards] == ["점자 안내 박물관"]
+
+
+def test_tourism_chat_relaxes_multi_condition_unless_all_conditions_are_explicit(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    wheelchair_only = TourismPlaceCard(
+        content_id="wheelchair-only",
+        title="휠체어 접근 공원",
+        address="서울 중구",
+        recommendation_reason="휠체어 접근 가능한 출입통로가 있습니다.",
+        accessibility_tags=["휠체어 접근"],
+        raw_fields={"휠체어": "휠체어 접근 가능", "출입통로": "턱 없음"},
+    )
+    stroller_only = TourismPlaceCard(
+        content_id="stroller-only",
+        title="영유아 편의관",
+        address="서울 중구",
+        recommendation_reason="수유실과 유아용 의자가 있습니다.",
+        family_tags=["수유실", "유아용 의자"],
+        raw_fields={"수유실": "수유실 있음", "유아용 의자": "유아용 의자 있음"},
+    )
+    for card in [wheelchair_only, stroller_only]:
+        (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    loose = service.answer("서울에서 휠체어와 유모차 가능한 관광지 추천")
+    strict = service.answer("서울에서 휠체어와 유모차 둘 다 가능한 관광지 추천")
+
+    assert loose.cards
+    assert strict.cards == []

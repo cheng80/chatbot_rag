@@ -18,6 +18,15 @@ if str(PROJECT_ROOT) not in sys.path:
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "eval" / "tourism_20_questions.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "eval_runs"
 TOUR_API_OPERATIONS = ["areaBasedList2", "detailCommon2", "detailWithTour2"]
+TERM_EQUIVALENTS = {
+    "유모차": ["유모차", "유아용 의자", "휠체어", "무장애", "턱이 없어", "경사로", "출입통로", "접근로"],
+    "영유아": ["영유아", "유아용 의자"],
+    "가족": ["가족", "유아용 의자"],
+    "기저귀": ["기저귀", "유아용 의자"],
+    "먹거리": ["먹거리", "음식", "식당", "음식점", "유아용 의자", "의자식 테이블"],
+    "식당": ["식당", "음식점", "유아용 의자", "의자식 테이블"],
+    "음식": ["음식", "음식점", "식당", "유아용 의자", "의자식 테이블"],
+}
 
 
 def load_eval_items(path: Path) -> list[dict[str, Any]]:
@@ -26,8 +35,12 @@ def load_eval_items(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         item = json.loads(line)
-        if "id" not in item or "message" not in item:
-            raise ValueError(f"{path}:{line_number} must include id and message")
+        if "id" not in item:
+            raise ValueError(f"{path}:{line_number} must include id")
+        if "message" not in item and "turns" not in item:
+            raise ValueError(f"{path}:{line_number} must include message or turns")
+        if "turns" in item and not isinstance(item["turns"], list):
+            raise ValueError(f"{path}:{line_number} turns must be a list")
         items.append(item)
     return items
 
@@ -95,6 +108,28 @@ def any_card_contains(cards: list[Any], terms: list[str]) -> bool:
     return False
 
 
+def normalize_term_groups(raw_groups: Any) -> list[list[str]]:
+    if not raw_groups:
+        return []
+    if isinstance(raw_groups, str):
+        return [[raw_groups]]
+    if isinstance(raw_groups, list):
+        if all(not isinstance(group, list) for group in raw_groups):
+            return [expand_equivalent_terms([str(group) for group in raw_groups])]
+        return [
+            expand_equivalent_terms([str(term) for term in group]) if isinstance(group, list) else expand_equivalent_terms([str(group)])
+            for group in raw_groups
+        ]
+    return [expand_equivalent_terms([str(raw_groups)])]
+
+
+def expand_equivalent_terms(terms: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for term in terms:
+        expanded.extend(TERM_EQUIVALENTS.get(term, [term]))
+    return list(dict.fromkeys(expanded))
+
+
 def classify_eval_failures(item: dict[str, Any], status_code: int, response_body: dict[str, Any], error_message: str | None) -> list[str]:
     failures: list[str] = []
     if error_message:
@@ -126,8 +161,7 @@ def classify_eval_failures(item: dict[str, Any], status_code: int, response_body
             failures.append("missing_expected_card")
             break
 
-    for terms in item.get("must_include_any_card_terms", []) or []:
-        normalized_terms = [str(terms)] if isinstance(terms, str) else [str(term) for term in terms]
+    for normalized_terms in normalize_term_groups(item.get("must_include_any_card_terms")):
         if not any_card_contains(cards, normalized_terms):
             failures.append("card_missing_required_terms")
             break
@@ -141,8 +175,7 @@ def classify_eval_failures(item: dict[str, Any], status_code: int, response_body
     elif first_card_terms:
         failures.append("first_card_missing_required_terms")
 
-    for terms in item.get("must_not_include_card_terms", []) or []:
-        normalized_terms = [str(terms)] if isinstance(terms, str) else [str(term) for term in terms]
+    for normalized_terms in normalize_term_groups(item.get("must_not_include_card_terms")):
         if any_card_contains(cards, normalized_terms):
             failures.append("card_contains_forbidden_terms")
             break
@@ -157,6 +190,11 @@ def classify_eval_failures(item: dict[str, Any], status_code: int, response_body
             failures.append("answer_missing_term")
             break
 
+    for term in item.get("must_not_contain_answer_terms", []) or []:
+        if str(term) in answer:
+            failures.append("answer_contains_forbidden_term")
+            break
+
     answer_any_terms = item.get("must_include_answer_any_terms")
     if answer_any_terms:
         normalized_terms = [str(answer_any_terms)] if isinstance(answer_any_terms, str) else [str(term) for term in answer_any_terms]
@@ -169,6 +207,10 @@ def classify_eval_failures(item: dict[str, Any], status_code: int, response_body
             if not any(str(expected) in str(suggestion) for suggestion in suggestions):
                 failures.append("missing_suggestion")
                 break
+    for term in item.get("must_not_include_suggestion_terms", []) or []:
+        if any(str(term) in str(suggestion) for suggestion in suggestions):
+            failures.append("suggestion_contains_forbidden_term")
+            break
     min_suggestions = item.get("min_suggestions")
     if isinstance(min_suggestions, int) and len(suggestions) < min_suggestions:
         failures.append("suggestion_count_low")
@@ -240,9 +282,40 @@ def run_eval(
         status_code = 0
         response_body: dict[str, Any]
         error_message: str | None = None
+        turn_results: list[dict[str, Any]] = []
         try:
             session_id = f"eval-{item['id']}"
-            if direct:
+            if "turns" in item:
+                response_body = {}
+                for turn_index, turn in enumerate(item["turns"], start=1):
+                    if direct:
+                        status_code, response_body = post_tourism_chat_direct(
+                            message=turn["message"],
+                            session_id=session_id,
+                        )
+                    else:
+                        status_code, response_body = post_tourism_chat(
+                            base_url=base_url,
+                            message=turn["message"],
+                            session_id=session_id,
+                            timeout=timeout,
+                        )
+                    turn_failures = classify_eval_failures(turn, status_code, response_body, None)
+                    turn_results.append(
+                        {
+                            "turn": turn_index,
+                            "message": turn["message"],
+                            "status_code": status_code,
+                            "lookup_mode": response_body.get("lookup_mode"),
+                            "card_count": len(response_body.get("cards", [])),
+                            "suggested_message_count": len(response_body.get("suggested_messages", [])),
+                            "answer": response_body.get("answer"),
+                            "response": response_body,
+                            "failure_reasons": turn_failures,
+                            "passed": not turn_failures,
+                        }
+                    )
+            elif direct:
                 status_code, response_body = post_tourism_chat_direct(
                     message=item["message"],
                     session_id=session_id,
@@ -258,12 +331,21 @@ def run_eval(
             response_body = {}
             error_message = str(exc)
         duration_ms = round((time.perf_counter() - started) * 1000, 1)
-        failure_reasons = classify_eval_failures(item, status_code, response_body, error_message)
+        if turn_results:
+            failure_reasons = []
+            for turn in turn_results:
+                failure_reasons.extend(f"turn{turn['turn']}:{reason}" for reason in turn["failure_reasons"])
+            if error_message:
+                failure_reasons.append("request_error")
+            if status_code >= 400:
+                failure_reasons.append("http_error")
+        else:
+            failure_reasons = classify_eval_failures(item, status_code, response_body, error_message)
         results.append(
             {
                 "id": item["id"],
                 "category": item.get("category"),
-                "message": item["message"],
+                "message": item.get("message") or " / ".join(str(turn.get("message")) for turn in item.get("turns", [])),
                 "expected_region": item.get("expected_region"),
                 "expected_conditions": item.get("expected_conditions", []),
                 "expected_behavior": item.get("expected_behavior"),
@@ -277,6 +359,7 @@ def run_eval(
                 "suggested_message_count": len(response_body.get("suggested_messages", [])),
                 "answer": response_body.get("answer"),
                 "response": response_body,
+                "turn_results": turn_results,
                 "error": error_message,
                 "failure_reasons": failure_reasons,
                 "passed": not failure_reasons,

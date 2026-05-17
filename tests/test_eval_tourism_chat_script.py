@@ -3,7 +3,7 @@ import json
 import pytest
 
 from scripts import eval_tourism_chat
-from scripts.eval_tourism_chat import classify_eval_failures, load_eval_items, run_eval, write_jsonl
+from scripts.eval_tourism_chat import classify_eval_failures, load_eval_items, normalize_term_groups, run_eval, write_jsonl
 
 
 def test_load_eval_items_requires_id_and_message(tmp_path):
@@ -20,6 +20,11 @@ def test_write_jsonl_keeps_korean_text(tmp_path):
 
     saved = output.read_text(encoding="utf-8")
     assert "서울 휠체어 관광지 추천" in saved
+
+
+def test_normalize_term_groups_treats_list_of_strings_as_one_any_group():
+    assert normalize_term_groups(["수유실", "기저귀"]) == [["수유실", "기저귀", "유아용 의자"]]
+    assert normalize_term_groups([["수유실", "기저귀"], ["휠체어"]]) == [["수유실", "기저귀", "유아용 의자"], ["휠체어"]]
 
 
 def test_run_eval_direct_uses_in_process_client(monkeypatch, tmp_path):
@@ -96,6 +101,23 @@ def test_classify_eval_failures_checks_card_terms_and_first_card():
     assert "answer_missing_any_term" not in failures
 
 
+def test_classify_eval_failures_checks_forbidden_answer_and_suggestions():
+    item = {
+        "must_not_contain_answer_terms": ["유모차"],
+        "must_not_include_suggestion_terms": ["서울"],
+    }
+    response = {
+        "answer": "휠체어 기준으로 추천하지만 유모차 조건은 제외했습니다.",
+        "cards": [],
+        "suggested_messages": ["서울에서 더 보기"],
+    }
+
+    failures = classify_eval_failures(item, 200, response, None)
+
+    assert "answer_contains_forbidden_term" in failures
+    assert "suggestion_contains_forbidden_term" in failures
+
+
 def test_run_eval_records_failure_reasons(monkeypatch, tmp_path):
     eval_file = tmp_path / "eval.jsonl"
     output = tmp_path / "result.jsonl"
@@ -120,3 +142,37 @@ def test_run_eval_records_failure_reasons(monkeypatch, tmp_path):
 
     assert rows[0]["passed"] is False
     assert rows[0]["failure_reasons"] == ["card_count_low"]
+
+
+def test_run_eval_supports_conversation_turns(monkeypatch, tmp_path):
+    eval_file = tmp_path / "eval.jsonl"
+    output = tmp_path / "result.jsonl"
+    eval_file.write_text(
+        json.dumps(
+            {
+                "id": "TCV001",
+                "category": "conversation",
+                "turns": [
+                    {"message": "서울에서 휠체어 관광지 추천", "min_cards": 1},
+                    {"message": "더 보기", "min_cards": 2},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_post_tourism_chat_direct(message: str, session_id: str):
+        calls.append((message, session_id))
+        cards = [{"title": "sample"}] if message != "더 보기" else [{"title": "sample"}, {"title": "sample2"}]
+        return 200, {"answer": "ok", "cards": cards, "lookup_mode": "sample"}
+
+    monkeypatch.setattr(eval_tourism_chat, "post_tourism_chat_direct", fake_post_tourism_chat_direct)
+
+    rows = run_eval(eval_file, "http://unused.test", output, timeout=1.0, direct=True)
+
+    assert rows[0]["passed"] is True
+    assert [call[0] for call in calls] == ["서울에서 휠체어 관광지 추천", "더 보기"]
+    assert calls[0][1] == calls[1][1] == "eval-TCV001"
+    assert len(rows[0]["turn_results"]) == 2

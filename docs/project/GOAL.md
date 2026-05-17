@@ -51,7 +51,7 @@
 - 데이터 신선도는 MVP에서는 요청 중 재조회가 아니라 Post-MVP 주기적 갱신 배치로 해결한다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 권장은 `cache/fallback-first + 주기적 갱신 + live-on-miss`이다.
 - 수집 스크립트는 캐시/시연 안정화용으로 유지한다. 기본값은 서울/부산/강릉 각 20건, 실행당 최대 150 API 호출이다.
-- fallback 수집은 `docs/tourism/tourism_data_collection_plan.md`의 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치로 나눠 진행한다.
+- fallback 수집은 `docs/tourism/tourism_data_operations.md`의 `mvp`, `fallback-1`, `fallback-2`, `fallback-3` 배치로 나눠 진행한다.
 - 2026-05-15 기준 광역권 fallback 분할 수집과 시군구 fallback 확장 수집을 진행했다. 중복 콘텐츠ID 정리 후 `data/raw/tourism_accessible`에는 643개 Markdown이 있고, Chroma에는 전체 raw 기준 644개 문서/650개 청크가 색인됐다.
 - 시군구 fallback은 아직 전국 실사용 지역 250개 기준 완료가 아니다. 현재 TourAPI 지역 코드 234개 중 161개 시군구가 3장 이상 확보됐고, 234개 기준 3장 목표까지 남은 부족분은 약 182장이다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`에 기록한다.

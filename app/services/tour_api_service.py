@@ -17,6 +17,9 @@ class TourAPIService:
         self.settings = settings
         self.base_url = settings.tour_api_base_url.rstrip("/")
         self.accessible_base_url = settings.tour_api_accessible_base_url.rstrip("/")
+        self.hub_base_url = settings.tour_api_hub_base_url.rstrip("/")
+        self.related_base_url = settings.tour_api_related_base_url.rstrip("/")
+        self.wellness_base_url = settings.tour_api_wellness_base_url.rstrip("/")
         self.usage_tracker = TourAPIUsageTracker(
             settings.resolved_tour_api_usage_log_path,
             daily_endpoint_limit=settings.tour_api_daily_endpoint_limit,
@@ -90,6 +93,119 @@ class TourAPIService:
             base_url=self.accessible_base_url if accessible else None,
             service_key=self.settings.tour_api_accessible_service_key if accessible else None,
         )
+
+    def hub_area_based_list(
+        self,
+        area_cd: str,
+        signgu_cd: str | None = None,
+        base_ym: str | None = None,
+        num_of_rows: int = 10,
+        page_no: int = 1,
+    ) -> list[dict[str, Any]]:
+        params = self._bigdata_region_params(area_cd, signgu_cd, base_ym, num_of_rows, page_no)
+        return self._request_items("areaBasedList1", params, base_url=self.hub_base_url)
+
+    def related_area_based_list(
+        self,
+        area_cd: str,
+        signgu_cd: str | None = None,
+        base_ym: str | None = None,
+        num_of_rows: int = 10,
+        page_no: int = 1,
+    ) -> list[dict[str, Any]]:
+        params = self._bigdata_region_params(area_cd, signgu_cd, base_ym, num_of_rows, page_no)
+        return self._request_items("areaBasedList1", params, base_url=self.related_base_url)
+
+    def related_search_keyword(
+        self,
+        keyword: str,
+        area_cd: str | None = None,
+        signgu_cd: str | None = None,
+        base_ym: str | None = None,
+        num_of_rows: int = 10,
+        page_no: int = 1,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"keyword": keyword, "numOfRows": num_of_rows, "pageNo": page_no}
+        if area_cd:
+            params["areaCd"] = area_cd
+        if signgu_cd:
+            params["signguCd"] = signgu_cd
+        if base_ym:
+            params["baseYm"] = base_ym
+        return self._request_items("searchKeyword1", params, base_url=self.related_base_url)
+
+    def wellness_area_based_list(
+        self,
+        ldong_regn_cd: str | None = None,
+        ldong_signgu_cd: str | None = None,
+        content_type_id: str | None = None,
+        arrange: str = "C",
+        lang_div_cd: str = "KOR",
+        num_of_rows: int = 10,
+        page_no: int = 1,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "langDivCd": lang_div_cd,
+            "arrange": arrange,
+            "numOfRows": num_of_rows,
+            "pageNo": page_no,
+        }
+        if content_type_id:
+            params["contentTypeId"] = content_type_id
+        if ldong_regn_cd:
+            params["lDongRegnCd"] = ldong_regn_cd
+        if ldong_signgu_cd:
+            params["lDongSignguCd"] = ldong_signgu_cd
+        return self._request_items("areaBasedList", params, base_url=self.wellness_base_url)
+
+    def wellness_search_keyword(
+        self,
+        keyword: str,
+        ldong_regn_cd: str | None = None,
+        ldong_signgu_cd: str | None = None,
+        content_type_id: str | None = None,
+        arrange: str = "C",
+        lang_div_cd: str = "KOR",
+        num_of_rows: int = 10,
+        page_no: int = 1,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "keyword": keyword,
+            "langDivCd": lang_div_cd,
+            "arrange": arrange,
+            "numOfRows": num_of_rows,
+            "pageNo": page_no,
+        }
+        if content_type_id:
+            params["contentTypeId"] = content_type_id
+        if ldong_regn_cd:
+            params["lDongRegnCd"] = ldong_regn_cd
+        if ldong_signgu_cd:
+            params["lDongSignguCd"] = ldong_signgu_cd
+        return self._request_items("searchKeyword", params, base_url=self.wellness_base_url)
+
+    def wellness_detail_common(self, content_id: str, lang_div_cd: str = "KOR") -> dict[str, Any]:
+        items = self._request_items(
+            "detailCommon",
+            {"contentId": content_id, "langDivCd": lang_div_cd},
+            base_url=self.wellness_base_url,
+        )
+        return items[0] if items else {}
+
+    @staticmethod
+    def _bigdata_region_params(
+        area_cd: str,
+        signgu_cd: str | None,
+        base_ym: str | None,
+        num_of_rows: int,
+        page_no: int,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"areaCd": area_cd, "numOfRows": num_of_rows, "pageNo": page_no}
+        if signgu_cd:
+            params["signguCd"] = signgu_cd
+        if base_ym:
+            params["baseYm"] = base_ym
+        return params
 
     def _request_items(
         self,

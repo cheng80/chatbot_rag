@@ -18,12 +18,14 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blin
 DEFAULT_OUTPUT_V2 = PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v2.jsonl"
 DEFAULT_OUTPUT_V3 = PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v3.jsonl"
 DEFAULT_OUTPUT_V4 = PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v4.jsonl"
+DEFAULT_OUTPUT_V5 = PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v5.jsonl"
 OVERLAP_INPUTS = [
     PROJECT_ROOT / "data" / "processed" / "context_finetune" / "train.jsonl",
     PROJECT_ROOT / "data" / "eval" / "tourism_context_blind_holdout.jsonl",
     PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517.jsonl",
     PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v2.jsonl",
     PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v3.jsonl",
+    PROJECT_ROOT / "data" / "eval" / "tourism_context_rotating_blind_holdout_20260517_v4.jsonl",
 ]
 
 
@@ -414,6 +416,87 @@ def build_rows_v4() -> list[dict[str, Any]]:
     return rows
 
 
+def build_rows_v5() -> list[dict[str, Any]]:
+    cases = [
+        ("경사로 아니면 엘리베이터 둘 중 하나만 확인돼도 휠체어 이동은 가능할 것 같아", ["or_condition", "mobility_context", "specific_facility_required"], "or_mobility_facility"),
+        ("수유실이 없으면 기저귀 교환대라도 있는 가족 코스면 돼", ["or_condition", "family_context", "specific_facility_required"], "or_family_facility"),
+        ("수어 안내나 자막 자료 중 하나만 있어도 청각장애 동행자는 괜찮아", ["or_condition", "specific_facility_required"], "or_accessibility"),
+        ("장애인 주차가 없으면 바로 내릴 수 있는 짧은 동선이라도 봐줘", ["or_condition", "mobility_context", "specific_facility_required"], "or_mobility_facility"),
+        ("점자블록 또는 촉지도 둘 중 하나라도 실제 편의정보에 있으면 후보로", ["or_condition", "specific_facility_required"], "or_accessibility"),
+        ("유모차 이동이 편하거나 아이가 쉴 공간이 있거나 하나면 충분해", ["or_condition", "family_context", "mobility_context"], "or_family_mobility"),
+        ("오디오가이드가 없으면 음성안내라도 명확한 곳", ["or_condition", "specific_facility_required"], "or_accessibility"),
+        ("계단이 적거나 중간에 앉아 쉴 곳이 있으면 어르신에게 괜찮아", ["or_condition", "mobility_context"], "or_mobility"),
+        ("가족이 쉬기 좋은 게 우선이고 수유실은 확인되면 좋아", ["soft_and", "family_context"], "soft_family"),
+        ("아이랑 갈 거라 덜 붐비는 곳이 먼저고 기저귀 교환대는 있으면 참고", ["soft_and", "family_context"], "soft_family"),
+        ("어르신이 오래 걷지 않는 게 핵심이고 장애인 주차는 보이면 가점", ["soft_and", "mobility_context"], "soft_mobility"),
+        ("휠체어 이동이 편한 쪽을 먼저 보고 엘리베이터 표기는 후보 많을 때만 보자", ["soft_and", "mobility_context"], "soft_mobility"),
+        ("조용한 실내 전시가 목적이고 자막 지원은 덤으로만 봐줘", ["soft_and"], "soft_optional_facility"),
+        ("시장 구경이 목적이라 화장실 표기는 필수로 묶지 말아줘", ["soft_and"], "soft_optional_facility"),
+        ("산책 코스가 우선이고 경사로는 없으면 넘어가도 돼", ["soft_and"], "soft_optional_facility"),
+        ("아기 낮잠 시간 때문에 짧은 코스가 먼저고 수유실은 가능하면 좋겠어", ["soft_and", "family_context", "mobility_context"], "soft_family_mobility"),
+        ("방금 결과에서 장애인 화장실 표기 있는 곳만 다시 걸러줘", ["add_condition", "specific_facility_required"], "add_facility"),
+        ("위 후보는 유지하고 엘리베이터 확인되는 카드만 남겨줘", ["add_condition", "specific_facility_required"], "add_facility"),
+        ("그 목록 안에서 유모차 이동 편한 곳으로만 좁혀줘", ["add_condition", "mobility_context"], "add_mobility"),
+        ("아까 추천 중 아이랑 가기 좋은 후보만 한 번 더 추려줘", ["add_condition", "family_context"], "add_family"),
+        ("같은 지역 결과에서 보조견 동반 가능 문구까지 같이 체크해줘", ["add_condition", "specific_facility_required"], "add_facility"),
+        ("현재 카드들 중 계단 적은 곳만 다시 보여줘", ["add_condition", "mobility_context"], "add_mobility"),
+        ("이전 추천에 수어 안내 조건을 하나 더 얹어줘", ["add_condition", "specific_facility_required"], "add_facility"),
+        ("전 후보에서 가족 휴식하기 좋은 곳만 남겨줘", ["add_condition", "family_context"], "add_family"),
+        ("수유실 기준은 내려놓고 조용한 전시 중심으로 바꿔줘", ["replace_condition"], "replace"),
+        ("시장 말고 공원 산책 코스 기준으로 다시 볼래", ["replace_condition"], "replace"),
+        ("아이 편의 대신 어르신 보행 편한 기준으로 바꿔줘", ["replace_condition", "mobility_context"], "replace_mobility"),
+        ("점자블록 말고 오디오가이드 확인되는 쪽으로 바꿀게", ["replace_condition", "specific_facility_required"], "replace_facility"),
+        ("부산 말고 대전에서 장애인 주차 있는 곳으로", ["replace_condition", "specific_facility_required"], "replace_region_facility"),
+        ("휠체어 조건은 빼고 유모차 동선 위주로 다시", ["replace_condition", "mobility_context"], "replace_mobility"),
+        ("먹거리 위주는 취소하고 실내 관람 쪽으로 갈아타자", ["replace_condition"], "replace"),
+        ("자막 안내 대신 수어 안내 확인되는 곳으로", ["replace_condition", "specific_facility_required"], "replace_facility"),
+        ("카페형 장소는 제외하고 관광지만 보여줘", ["exclude_condition"], "exclude"),
+        ("붐비는 시장 골목은 빼고 한적한 곳 위주로", ["exclude_condition"], "exclude"),
+        ("야외 오래 걷는 곳은 제외하고 실내 쉬운 동선으로", ["exclude_condition", "mobility_context"], "exclude_mobility"),
+        ("아이와 가니까 술집 거리 분위기는 빼줘", ["exclude_condition", "family_context"], "exclude_family"),
+        ("숙박업소 느낌 나는 후보는 뒤로 보내줘", ["exclude_condition"], "exclude"),
+        ("계단 많은 전망대는 패스하고 평지 위주로", ["exclude_condition", "mobility_context"], "exclude_mobility"),
+        ("쇼핑몰 성격은 제외하고 지역 문화 볼거리만", ["exclude_condition"], "exclude"),
+        ("음식점은 빼되 유모차로 이동 쉬운 주변 관광지는 좋아", ["exclude_condition", "mobility_context"], "exclude_mobility"),
+        ("아이 손잡고 걷기 부담 적은 체험 장소", ["family_context", "mobility_context"], "family_mobility"),
+        ("초등학생이 직접 볼 만한 역사 전시", ["family_context"], "family"),
+        ("아기와 부모가 짧게 둘러보기 좋은 코스", ["family_context", "mobility_context"], "family_mobility"),
+        ("가족사진 찍기 좋고 너무 오래 걷지 않는 곳", ["family_context", "mobility_context"], "family_mobility"),
+        ("수유실은 없어도 아이가 쉬기 좋은 곳이면 돼", ["soft_and", "family_context"], "family_soft"),
+        ("어린이 눈높이에 맞는 체험형 관광지", ["family_context"], "family"),
+        ("부모님과 아이가 같이 움직이기 쉬운 동선", ["family_context", "mobility_context"], "family_mobility"),
+        ("아이용 의자보다 아이가 지루하지 않은 구성이 중요해", ["soft_and", "family_context"], "family_soft"),
+        ("무릎이 불편해서 오르막 적은 코스", ["mobility_context"], "mobility"),
+        ("발목 다친 동행이 있어서 이동 거리가 짧아야 해", ["mobility_context"], "mobility"),
+        ("전동휠체어로 동선이 끊기지 않는 곳", ["mobility_context"], "mobility"),
+        ("오래 줄 서지 않아도 볼 수 있는 관광지", ["mobility_context"], "mobility"),
+        ("걷다가 앉아 쉴 수 있는 포인트가 있는 곳", ["mobility_context"], "mobility"),
+        ("계단을 최대한 피해서 움직일 수 있는 실내 장소", ["mobility_context"], "mobility"),
+        ("유모차로 좁은 골목을 헤치지 않아도 되는 곳", ["mobility_context"], "mobility"),
+        ("어르신이 중간중간 쉬기 쉬운 코스", ["mobility_context"], "mobility"),
+        ("수어라는 상호가 아니라 실제 수어 안내 여부를 봐줘", ["specific_facility_required"], "facility"),
+        ("장애인 화장실 표기가 없으면 후보로 세지 마", ["specific_facility_required"], "facility"),
+        ("점자 느낌 전시가 아니라 점자블록 편의정보가 필요해", ["specific_facility_required"], "facility"),
+        ("엘베가 있다는 근거가 카드에 있어야 해", ["specific_facility_required"], "facility"),
+        ("보조견 동반 가능 여부가 명시된 곳만", ["specific_facility_required"], "facility"),
+        ("기저귀 교환대 문구는 원문 근거가 있을 때만 인정해", ["specific_facility_required"], "facility"),
+        ("자막 지원 여부가 명확하지 않으면 추천하지 마", ["specific_facility_required"], "facility"),
+        ("장애인 주차 가능 여부만 정확히 봐줘", ["specific_facility_required"], "facility"),
+        ("수어지교라는 이름의 장소를 찾는 게 아니야", [], "negative"),
+        ("화장실 이야기가 아니라 바다 풍경이 좋은 곳", [], "negative"),
+        ("점자라는 작품명이 있어도 접근성 조건은 아니야", [], "negative"),
+        ("아이돌 굿즈 시장이지 아이 동반 얘기는 아니야", [], "negative"),
+        ("엘리베이터 음악 얘기 말고 조용한 관람지", [], "negative"),
+        ("보조견이라는 전시 제목이면 편의조건으로 보지 마", [], "negative"),
+        ("가족이라는 상호명 말고 실제 관광지를 봐줘", [], "negative"),
+        ("주차장 벽화가 유명한 곳이지 주차 가능 조건은 아냐", [], "negative"),
+    ]
+    rows = [row(text, labels, category, variant="v5") for text, labels, category in cases]
+    for index, item in enumerate(rows, start=1):
+        item["id"] = f"CTXROT20260517V5{index:04d}"
+    return rows
+
+
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
@@ -423,13 +506,15 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--variant", choices=["v1", "v2", "v3", "v4"], default="v1")
+    parser.add_argument("--variant", choices=["v1", "v2", "v3", "v4", "v5"], default="v1")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
     output = args.output
     if output is None:
-        if args.variant == "v4":
+        if args.variant == "v5":
+            output = DEFAULT_OUTPUT_V5
+        elif args.variant == "v4":
             output = DEFAULT_OUTPUT_V4
         elif args.variant == "v3":
             output = DEFAULT_OUTPUT_V3
@@ -438,7 +523,9 @@ def main() -> None:
         else:
             output = DEFAULT_OUTPUT
     seen = load_seen_texts(OVERLAP_INPUTS)
-    if args.variant == "v4":
+    if args.variant == "v5":
+        source_rows = build_rows_v5()
+    elif args.variant == "v4":
         source_rows = build_rows_v4()
     elif args.variant == "v3":
         source_rows = build_rows_v3()

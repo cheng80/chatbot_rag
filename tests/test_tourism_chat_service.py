@@ -524,7 +524,7 @@ def test_tourism_chat_does_not_expand_sigungu_without_intent():
     assert "요청 지역 안의 결과만 먼저 제공합니다" in response.answer
 
 
-def test_tourism_chat_expands_sigungu_when_user_asks_nearby(tmp_path):
+def test_tourism_chat_keeps_nearby_sigungu_inside_requested_region(tmp_path):
     service = TourismChatService(
         Settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
@@ -533,10 +533,132 @@ def test_tourism_chat_expands_sigungu_when_user_asks_nearby(tmp_path):
 
     response = service.answer("광진구 근처에서 휠체어로 갈만한 곳 추천")
 
-    assert 2 <= len(response.cards) <= 5
+    assert len(response.cards) == 1
     assert response.cards[0].title == "서울어린이대공원"
-    assert any("서울" in (card.address or "") for card in response.cards)
-    assert "서울 범위 후보를 함께 포함했습니다" in response.answer
+    assert all("광진구" in (card.address or "") for card in response.cards)
+    assert "요청 지역 안의 결과만 먼저 제공합니다" in response.answer
+    assert "서울 전체로 넓혀줘" in response.answer
+
+
+def test_tourism_chat_explicit_expand_followup_keeps_previous_condition(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
+
+    first = service.answer("광진구에서 휠체어 관광지 추천해줘", session_id="expand-session")
+    second = service.answer("서울 전체로 넓혀서 더 찾아줘", session_id="expand-session")
+
+    assert first.cards
+    assert second.lookup_mode != "unsupported"
+    assert second.cards
+    assert "휠체어" in second.answer
+
+
+def test_tourism_chat_expansion_copy_requires_actual_outside_sigungu_cards():
+    query = {"is_sigungu": True, "area_name": "서울", "sigungu_name": "강남구", "region": "강남구"}
+    gangnam_cards = [
+        TourismPlaceCard(content_id="g1", title="강남 1", address="서울특별시 강남구 테헤란로", recommendation_reason="test"),
+        TourismPlaceCard(content_id="g2", title="강남 2", address="서울 강남구 삼성동", recommendation_reason="test"),
+    ]
+    mixed_cards = [
+        *gangnam_cards,
+        TourismPlaceCard(content_id="o1", title="광진", address="서울특별시 광진구 능동", recommendation_reason="test"),
+    ]
+
+    assert TourismChatService._cards_include_outside_query_region(gangnam_cards, query) is False
+    assert TourismChatService._cards_include_outside_query_region(mixed_cards, query) is True
+
+
+def test_tourism_chat_rejects_general_place_type_only_query(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    gallery = TourismPlaceCard(
+        content_id="seongnam-gallery",
+        title="나폴레옹갤러리",
+        address="경기도 성남시",
+        recommendation_reason="실내 미술 갤러리입니다.",
+        raw_fields={"안내": "실내 전시 관람 가능"},
+    )
+    restaurant = TourismPlaceCard(
+        content_id="gyeonggi-restaurant",
+        title="군포식당",
+        address="경기도 군포시",
+        recommendation_reason="음식점으로 확인된 실내 식당입니다.",
+        raw_fields={"음식점": "의자식 테이블 있음"},
+    )
+    (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
+    (sample_dir / "restaurant.md").write_text(normalizer.card_to_markdown(restaurant), encoding="utf-8")
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("성남시 실내식당")
+
+    assert response.cards == []
+    assert response.lookup_mode == "unsupported"
+    assert "무장애 관광 연관 장소만 제공" in response.answer
+    assert "휠체어" in response.suggested_messages[0]
+
+
+def test_tourism_chat_rejects_general_tourism_query_without_accessibility_condition(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울 관광지 추천")
+
+    assert response.cards == []
+    assert response.lookup_mode == "unsupported"
+    assert "일반 관광지" in response.answer
+    assert "장애인 화장실" in response.suggested_messages[1]
+
+
+def test_tourism_chat_does_not_expand_place_type_when_accessibility_condition_is_unsatisfied(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    gallery = TourismPlaceCard(
+        content_id="seongnam-gallery",
+        title="나폴레옹갤러리",
+        address="경기도 성남시",
+        recommendation_reason="실내 미술 갤러리입니다.",
+        accessibility_tags=["청각장애"],
+        raw_fields={"청각장애 편의": "수어 안내 있음", "안내": "실내 전시 관람 가능"},
+    )
+    restaurant = TourismPlaceCard(
+        content_id="gyeonggi-restaurant",
+        title="군포식당",
+        address="경기도 군포시",
+        recommendation_reason="음식점으로 확인된 실내 식당입니다.",
+        raw_fields={"음식점": "의자식 테이블 있음"},
+    )
+    (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
+    (sample_dir / "restaurant.md").write_text(normalizer.card_to_markdown(restaurant), encoding="utf-8")
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("성남시 수어 자막 있는 실내식당")
+
+    assert response.cards == []
+    assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
 
 
 def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):

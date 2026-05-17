@@ -59,7 +59,7 @@ def test_quality_region_extraction_matrix(message, expected_region, expected_are
         ("서울에서 무장애 관광지 추천", {"휠체어"}),
         ("서울에서 이동약자와 갈만한 곳", {"휠체어"}),
         ("서울에서 베리어프리 관광지 추천", {"휠체어"}),
-        ("서울에서 장애인 화장실 있는 곳", {"휠체어", "화장실"}),
+        ("서울에서 장애인 화장실 있는 곳", {"화장실"}),
         ("서울에서 유모차 끌고 갈 곳", {"유모차"}),
         ("서울에서 유아차 끌고 갈 곳", {"유모차"}),
         ("서울에서 아이랑 수유실 있는 곳", {"유모차"}),
@@ -68,7 +68,7 @@ def test_quality_region_extraction_matrix(message, expected_region, expected_are
         ("서울에서 영유아 동반 관광지", {"유모차"}),
         ("서울에서 어르신과 갈만한 곳", {"고령자"}),
         ("서울에서 노인 동반 관광지", {"고령자"}),
-        ("서울에서 장애인 주차 가능한 곳", {"휠체어", "주차"}),
+        ("서울에서 장애인 주차 가능한 곳", {"주차"}),
         ("서울에서 주차 편한 무장애 관광지", {"휠체어", "주차"}),
         ("서울에서 화장실 확인되는 곳", {"화장실"}),
         ("서울에서 경사로 있는 곳", {"접근로"}),
@@ -77,22 +77,47 @@ def test_quality_region_extraction_matrix(message, expected_region, expected_are
         ("서울에서 버스로 갈만한 곳", {"대중교통"}),
         ("서울에서 지하철로 갈만한 곳", {"대중교통"}),
         ("서울에서 엘리베이터 있는 곳", {"엘리베이터"}),
+        ("서울에서 휠체어 리프트 있는 곳", {"휠체어", "엘리베이터"}),
+        ("서울에서 지하철 리프트나 승강기 있는 곳", {"대중교통", "엘리베이터"}),
+        ("서울에서 공공기관 리프트 접근 가능한 관광지", {"엘리베이터"}),
+        ("서울에서 관광시설 리프트 있는 전시관", {"엘리베이터"}),
+        ("서울에서 건물 리프트나 계단 리프트 있는 곳", {"엘리베이터"}),
         ("서울에서 승강기 있는 무장애 관광지", {"휠체어", "엘리베이터"}),
         ("서울에서 휠체어와 유모차 모두 편한 곳", {"휠체어", "유모차"}),
         ("서울에서 아이랑 화장실 확인되는 곳", {"유모차", "화장실"}),
         ("서울에서 어르신 모시고 주차 가능한 곳", {"고령자", "주차"}),
-        ("서울에서 접근로와 장애인 화장실 확인되는 곳", {"휠체어", "접근로", "화장실"}),
+        ("서울에서 접근로와 장애인 화장실 확인되는 곳", {"접근로", "화장실"}),
         ("서울에서 휠체어 타는 아빠와 갈만한 곳", {"휠체어"}),
         ("서울에서 휠체어 타시는 어머니와 갈만한 곳", {"휠체어"}),
+        ("서울에서 바퀴 의자 이동 가능한 곳", {"휠체어"}),
+        ("서울에서 휠쳐 관광지 추천", {"휠체어"}),
         ("서울에서 안내견 동반 가능한 곳", {"보조견"}),
+        ("서울에서 보조갼 동반 가능한 곳", {"보조견"}),
         ("서울에서 점자블록이나 오디오가이드 있는 곳", {"시각장애"}),
+        ("서울에서 음성 안내나 촉 지 도 있는 곳", {"시각장애"}),
         ("서울에서 수어 안내나 자막 있는 곳", {"청각장애"}),
+        ("서울에서 영상안내나 자 막 있는 곳", {"청각장애"}),
+        ("서울에서 무단차 출입통로 있는 곳", {"접근로"}),
+        ("서울에서 부모님이 무리 없는 곳", {"고령자"}),
     ],
 )
 def test_quality_condition_extraction_matrix(message, expected_conditions):
     query = TourismQueryService().extract(message)
 
     assert expected_conditions <= set(query["conditions"])
+
+
+def test_quality_query_handles_nearby_sigungu_with_wheelchair_typo():
+    query = TourismQueryService().extract("서울 강남구 근처에서 휄체어 관광지 추천해줘")
+
+    assert query["region"] == "서울 강남구"
+    assert query["area_name"] == "서울"
+    assert query["sigungu_name"] == "강남구"
+    assert query["is_sigungu"] is True
+    assert query["allow_region_expansion"] is False
+    assert "휠체어" in query["conditions"]
+    assert query["normalized_query"] == "서울 강남구 근처에서 휠체어 관광지 추천해줘"
+    assert "휄체어->휠체어" in query["normalization_corrections"]
 
 
 def test_quality_query_extracts_preferences_and_negative_preferences():
@@ -203,6 +228,35 @@ def test_quality_ranking_prefers_soft_preferences_and_excludes_negative_preferen
     ranked = service._rank_cards([hotel, museum], "서울에서 비 오는 날 실내 박물관 추천. 호텔은 빼고", query)
 
     assert [card.content_id for card in ranked] == ["museum"]
+
+
+def test_quality_strong_food_preference_excludes_indoor_gallery(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_sample_path=tmp_path / "samples", tourism_live_cache_path=tmp_path / "live", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+    query = {
+        "preferences": ["실내", "시장_먹거리", "카페_음식점"],
+    }
+    gallery = TourismPlaceCard(
+        content_id="gallery",
+        title="나폴레옹갤러리",
+        address="경기도 성남시",
+        recommendation_reason="실내 미술 갤러리입니다.",
+        raw_fields={"안내": "실내 전시 관람 가능"},
+    )
+    restaurant = TourismPlaceCard(
+        content_id="restaurant",
+        title="성남 실내식당",
+        address="경기도 성남시",
+        recommendation_reason="실내 음식점입니다.",
+        raw_fields={"음식점": "의자식 테이블 있음"},
+    )
+
+    filtered = service._filter_cards_by_preferences([gallery, restaurant], query)
+
+    assert [card.content_id for card in filtered] == ["restaurant"]
 
 
 def test_quality_ranking_scores_sensory_accessibility_evidence(tmp_path):

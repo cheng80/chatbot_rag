@@ -191,7 +191,7 @@ def main() -> None:
         "train_label_counts": count_labels(train),
         "validation_label_counts": count_labels(validation),
         "test_label_counts": count_labels(holdout),
-        "outputs": {name: str(path.relative_to(PROJECT_ROOT)) for name, path in outputs.items()},
+        "outputs": {name: project_relative(path) for name, path in outputs.items()},
     }
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
 

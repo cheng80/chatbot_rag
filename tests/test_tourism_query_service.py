@@ -1,7 +1,28 @@
 from pathlib import Path
 import json
 
+from app.services.korean_external_corrector import ExternalCorrectionResult
 from app.services.tourism_query_service import TourismQueryService
+
+
+class FakeExternalCorrector:
+    def __init__(self, corrected_text: str, accepted: bool = True, damaged_terms: list[str] | None = None):
+        self.corrected_text = corrected_text
+        self.accepted = accepted
+        self.damaged_terms = damaged_terms or []
+        self.calls = 0
+
+    def correct(self, text: str, protected_terms):
+        self.calls += 1
+        return ExternalCorrectionResult(
+            raw_text=text,
+            corrected_text=self.corrected_text,
+            accepted=self.accepted,
+            provider="fake",
+            model="fake-model",
+            reason="accepted" if self.accepted else "protected_term_damaged",
+            damaged_terms=self.damaged_terms,
+        )
 
 
 def test_tourism_query_uses_area_code_cache(tmp_path: Path):
@@ -124,6 +145,19 @@ def test_tourism_query_marks_unsupported_price_comparison(tmp_path: Path):
     assert query["unsupported_intent"] == "wheelchair_rental_price"
 
 
+def test_tourism_query_distinguishes_lift_facility_from_lift_booking(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    facility = service.extract("서울에서 휠체어 리프트 있는 관광지 추천")
+    booking = service.extract("서울에서 리프트 차량 예약 가능한 업체 알려줘")
+
+    assert {"휠체어", "엘리베이터"} <= set(facility["conditions"])
+    assert facility["unsupported_intent"] is None
+    assert booking["unsupported_intent"] == "transport_booking"
+
+
 def test_tourism_query_marks_mixed_scope_request(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -150,6 +184,43 @@ def test_tourism_query_marks_mixed_scope_request(tmp_path: Path):
     assert query["region"] == "서울"
     assert "휠체어" in query["conditions"]
     assert query["unsupported_intent"] == "medical_lookup"
+
+
+def test_tourism_query_normalizes_noisy_region_and_condition(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울": {
+                        "area_code": "1",
+                        "sigungu_code": None,
+                        "area_name": "서울",
+                        "sigungu_name": None,
+                    },
+                    "부산": {
+                        "area_code": "6",
+                        "sigungu_code": None,
+                        "area_name": "부산",
+                        "sigungu_name": None,
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울말고부산휠체여가능한곳추천좀")
+
+    assert query["region"] == "부산"
+    assert query["area_code"] == "6"
+    assert "휠체어" in query["conditions"]
+    assert "휠체여->휠체어" in query["normalization_corrections"]
+    assert "no-spacing-input" in query["normalization_risk_tags"]
+    assert "서울 말고 부산" in query["normalized_query"]
 
 
 def test_tourism_query_ignores_negated_unsupported_keyword(tmp_path: Path):
@@ -253,6 +324,56 @@ def test_tourism_query_maps_legacy_jeju_county_to_current_city(tmp_path: Path):
     assert query["sigungu_name"] == "서귀포시"
     assert query["legacy_region"] == "제주특별자치도 남제주군"
     assert query["legacy_region_notice"] == "남제주군은 현재 서귀포시 기준으로 안내드릴게요."
+
+
+def test_tourism_query_maps_spaced_legacy_jeju_county_to_current_city(tmp_path: Path):
+    cache_path = tmp_path / "area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서귀포시": {
+                        "area_code": "39",
+                        "area_name": "제주",
+                        "sigungu_code": "3",
+                        "sigungu_name": "서귀포시",
+                    },
+                    "남제주군": {
+                        "area_code": "39",
+                        "area_name": "제주",
+                        "sigungu_code": "3",
+                        "sigungu_name": "남제주군",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("남 제주군에서 유모차 관광지 추천해줘")
+
+    assert query["area_code"] == "39"
+    assert query["sigungu_code"] == "3"
+    assert query["region"] == "서귀포시"
+    assert query["legacy_region"] == "남제주군"
+    assert query["legacy_region_notice"] == "남제주군은 현재 서귀포시 기준으로 안내드릴게요."
+
+
+def test_tourism_query_detects_compact_multiple_area_conflict(tmp_path: Path):
+    cache_path = tmp_path / "area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울부산휠체어추천")
+
+    assert query["ambiguous_region"] == "서울/부산"
+    assert query["ambiguous_region_candidates"] == [
+        {"area_name": "서울", "sigungu_name": "서울", "area_code": "1", "sigungu_code": None},
+        {"area_name": "부산", "sigungu_name": "부산", "area_code": "6", "sigungu_code": None},
+    ]
 
 
 def test_tourism_query_falls_back_without_cache(tmp_path: Path):
@@ -708,3 +829,141 @@ def test_tourism_query_requires_all_conditions_only_when_explicit(tmp_path: Path
     assert strict["require_all_conditions"] is True
     assert "soft_and" in loose["context_labels"]
     assert "strict_and" in strict["context_labels"]
+
+
+def test_tourism_query_uses_safe_external_correction_candidate(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울 강남구": {
+                        "area_code": "1",
+                        "sigungu_code": "1",
+                        "area_name": "서울",
+                        "sigungu_name": "강남구",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        external_corrector=FakeExternalCorrector("서울 강남구 근처에서 휠체어 관광지 추천해줘"),
+        enable_external_correction=True,
+    )
+
+    query = service.extract("서울 강남구 근처에서 휠쳐 관광지 추천해줘")
+
+    assert query["region"] == "서울 강남구"
+    assert query["allow_region_expansion"] is False
+    assert "휠체어" in query["conditions"]
+    assert query["external_correction_accepted"] is True
+    assert query["external_correction_query"] == "서울 강남구 근처에서 휠체어 관광지 추천해줘"
+
+
+def test_tourism_query_rejects_external_correction_when_protected_term_is_damaged(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울 강남구": {
+                        "area_code": "1",
+                        "sigungu_code": "1",
+                        "area_name": "서울",
+                        "sigungu_name": "강남구",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        external_corrector=FakeExternalCorrector("서울 근처에서 휠체어 관광지 추천해줘", accepted=False, damaged_terms=["서울 강남구"]),
+        enable_external_correction=True,
+    )
+
+    query = service.extract("서울 강남구 근처에서 휠쳐 관광지 추천해줘")
+
+    assert query["region"] == "서울 강남구"
+    assert query["conditions"] == ["휠체어"]
+    assert query["external_correction_accepted"] is False
+    assert query["external_correction_region_damaged"] is True
+    assert query["external_correction_query"] == "서울 근처에서 휠체어 관광지 추천해줘"
+    assert query["external_correction_damaged_terms"] == ["서울 강남구"]
+
+
+def test_tourism_query_default_external_correction_skips_clean_input(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울": {
+                        "area_code": "1",
+                        "sigungu_code": None,
+                        "area_name": "서울",
+                        "sigungu_name": None,
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_corrector = FakeExternalCorrector("서울 휠체어 관광지 추천해줘")
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        external_corrector=fake_corrector,
+    )
+
+    query = service.extract("서울에서 휠체어 관광지 추천해줘")
+
+    assert query["external_correction_enabled"] is True
+    assert query["external_correction_accepted"] is False
+    assert fake_corrector.calls == 0
+
+
+def test_tourism_query_default_external_correction_runs_on_noisy_input(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "서울 강남구": {
+                        "area_code": "1",
+                        "sigungu_code": "1",
+                        "area_name": "서울",
+                        "sigungu_name": "강남구",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_corrector = FakeExternalCorrector("서울 강남구 근처에서 휠체어 관광지 추천해줘")
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        external_corrector=fake_corrector,
+    )
+
+    query = service.extract("서울강남구근처휄체여관광지추천")
+
+    assert fake_corrector.calls == 1
+    assert query["region"] == "서울 강남구"
+    assert "휠체어" in query["conditions"]
+    assert query["external_correction_accepted"] is True

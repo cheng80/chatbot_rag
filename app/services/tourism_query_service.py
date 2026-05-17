@@ -5,9 +5,12 @@ import json
 import logging
 import re
 
-from app.core.config import PROJECT_ROOT
-from app.services.tourism_intent_classifier import TourismIntentClassifier
+from app.core.config import PROJECT_ROOT, get_settings
+from app.services.korean_external_corrector import DEFAULT_PROTECTED_TERMS, ExternalCorrectionResult, ExternalKoreanCorrector
+from app.services.tourism_condition_transformer import TourismConditionTransformer
 from app.services.tourism_context_classifier import TourismContextClassifier
+from app.services.tourism_intent_classifier import TourismIntentClassifier
+from app.services.korean_query_normalizer import KoreanQueryNormalizer, NormalizedQuery
 
 
 AREA_CODES = {
@@ -39,20 +42,113 @@ DEFAULT_AREA_CODE_CACHE_PATH = PROJECT_ROOT / "data" / "processed" / "tour_area_
 DEFAULT_ADMIN_REGION_ALIAS_PATH = PROJECT_ROOT / "data" / "processed" / "admin_region_aliases.json"
 
 CONDITION_KEYWORDS = {
-    "휠체어": ["휠체어", "장애인", "무장애", "접근성", "이동약자", "베리어프리"],
+    "휠체어": [
+        "휠체어",
+        "무장애",
+        "접근성",
+        "이동약자",
+        "베리어프리",
+        "바퀴 의자",
+        "바퀴의자",
+        "바퀴 달린 의자",
+        "걸음이 불편해도",
+        "계단 없이 갈 수",
+        "턱이 적은",
+    ],
     "유모차": ["유모차", "유아차", "아기", "영유아", "영아", "유아", "아이", "어린이", "가족", "수유", "수유실", "기저귀"],
-    "고령자": ["고령자", "어르신", "노인", "할머니", "할아버지", "많이 걷기 어려", "걷기 어려"],
+    "고령자": [
+        "고령자",
+        "어르신",
+        "노인",
+        "할머니",
+        "할아버지",
+        "부모님",
+        "무릎 불편",
+        "무릎불편",
+        "많이 걷기 어려",
+        "걷기 어려",
+        "오래 걷기 힘든 분",
+        "무리 없는",
+        "쉬어 갈 곳",
+    ],
     "주차": ["주차", "장애인 주차"],
     "화장실": ["화장실", "장애인 화장실"],
-    "접근로": ["접근로", "동선", "경사로", "턱 없음", "턱이 없어", "계단", "걷기 힘", "걷기 어려"],
+    "접근로": [
+        "접근로",
+        "출입통로",
+        "출입 통로",
+        "동선",
+        "경사로",
+        "턱 없음",
+        "턱없음",
+        "턱이 없어",
+        "입구에 턱이 없는",
+        "유모차 바퀴가 걸리지",
+        "무단차",
+        "평탄한 길",
+        "평탄한길",
+        "길이 평평한",
+        "계단",
+        "걷기 힘",
+        "걷기 어려",
+    ],
     "대중교통": ["대중교통", "버스", "지하철"],
-    "엘리베이터": ["엘리베이터", "승강기"],
+    "엘리베이터": [
+        "엘리베이터",
+        "승강기",
+        "휠체어 리프트",
+        "장애인 리프트",
+        "승강 리프트",
+        "승강용 리프트",
+        "계단 리프트",
+        "지하철 리프트",
+        "공공기관 리프트",
+        "공공시설 리프트",
+        "관광시설 리프트",
+        "건물 리프트",
+        "시설 리프트",
+        "층 이동이 편한",
+        "위아래 이동이 쉬운",
+        "계단 말고 올라갈",
+    ],
     "보조견": ["보조견", "안내견"],
-    "시각장애": ["시각장애", "점자", "점자블록", "촉지도", "음성안내", "오디오가이드"],
-    "청각장애": ["청각장애", "수어", "수화", "자막", "문자안내"],
+    "시각장애": [
+        "시각장애",
+        "시각장애인 안내",
+        "점자",
+        "점자블록",
+        "촉지도",
+        "음성안내",
+        "음성 안내",
+        "소리 안내",
+        "손으로 만져 확인할 안내",
+        "오디오가이드",
+    ],
+    "청각장애": [
+        "청각장애",
+        "수어",
+        "수화",
+        "자막",
+        "문자안내",
+        "문자 안내",
+        "영상안내",
+        "영상 안내",
+        "영상에 글자 안내",
+        "소리 없이도 안내를 볼 수",
+    ],
 }
 
-EXPANSION_KEYWORDS = ["근처", "주변", "가까운", "인근"]
+EXPANSION_KEYWORDS = [
+    "전체로",
+    "전체까지",
+    "전체 범위",
+    "범위 넓혀",
+    "범위를 넓혀",
+    "넓혀서",
+    "넓혀 줘",
+    "넓혀줘",
+    "상위 지역",
+]
 FEATURE_KEYWORDS = {
     "바닷가": ["바닷가", "바다", "해변", "해수욕장", "해안", "해변가"],
 }
@@ -150,38 +246,104 @@ class TourismQueryService:
         admin_region_alias_path: Path | None = None,
         intent_classifier: TourismIntentClassifier | None = None,
         context_classifier: TourismContextClassifier | None = None,
+        external_corrector: ExternalKoreanCorrector | None = None,
+        enable_external_correction: bool | None = None,
     ):
         self.area_code_cache_path = area_code_cache_path or DEFAULT_AREA_CODE_CACHE_PATH
         self.admin_region_alias_path = admin_region_alias_path or DEFAULT_ADMIN_REGION_ALIAS_PATH
         self.intent_classifier = intent_classifier or TourismIntentClassifier()
         self.context_classifier = context_classifier or TourismContextClassifier()
+        self.query_normalizer = KoreanQueryNormalizer()
+        settings = get_settings()
+        self.settings = settings
+        self.external_correction_enabled = (
+            settings.tourism_korean_correction_enabled if enable_external_correction is None else enable_external_correction
+        )
+        self.external_corrector = external_corrector or (
+            ExternalKoreanCorrector(settings) if self.external_correction_enabled else None
+        )
+        self.condition_transformer = (
+            TourismConditionTransformer(settings, labels=list(CONDITION_KEYWORDS))
+            if settings.tourism_condition_transformer_enabled
+            else None
+        )
         self.cache_status = "loaded"
         self.cache_warning: str | None = None
         self.ambiguous_region_aliases: dict[str, list[dict[str, str | None]]] = {}
         self.region_index = self._load_region_index()
 
     def extract(self, message: str) -> dict[str, list[str] | str | None]:
-        legacy_region = self._find_legacy_region(message)
-        region = str(legacy_region["replacement_region"]) if legacy_region else self._find_region(message)
-        ambiguous_region = self._find_ambiguous_region(message, region)
+        region_names = list(self.region_index) + list(AREA_CODES)
+        normalization = self.query_normalizer.normalize(message, region_names=region_names)
+        normalized_message = normalization.normalized_text
+        rewrite_message = normalization.rewrite_text
+        external_correction = self._external_correction(message, region_names, normalization)
+        external_normalization = (
+            self.query_normalizer.normalize(external_correction.corrected_text, region_names=region_names)
+            if external_correction and external_correction.accepted
+            else None
+        )
+        interpretation_messages = list(
+            dict.fromkeys(
+                [
+                    message,
+                    normalized_message,
+                    rewrite_message,
+                    external_correction.corrected_text if external_correction and external_correction.accepted else "",
+                    external_normalization.normalized_text if external_normalization else "",
+                    external_normalization.rewrite_text if external_normalization else "",
+                ]
+            )
+        )
+        interpretation_messages = [candidate for candidate in interpretation_messages if candidate]
+        condition_messages = list(interpretation_messages)
+        external_region_damaged = self._external_region_damaged(external_correction, region_names)
+        if external_region_damaged and external_correction:
+            damaged_external_normalization = self.query_normalizer.normalize(external_correction.corrected_text, region_names=region_names)
+            condition_messages = list(
+                dict.fromkeys(
+                    [
+                        *condition_messages,
+                        external_correction.corrected_text,
+                        damaged_external_normalization.normalized_text,
+                        damaged_external_normalization.rewrite_text,
+                    ]
+                )
+            )
+            condition_messages = [candidate for candidate in condition_messages if candidate]
+        legacy_region = self._first_legacy_region(interpretation_messages)
+        region = str(legacy_region["replacement_region"]) if legacy_region else self._first_region(interpretation_messages)
+        multiple_region_conflict = self._find_multiple_area_conflict(interpretation_messages)
+        ambiguous_region = (
+            self._first_ambiguous_region(interpretation_messages, region)
+            or (multiple_region_conflict["alias"] if multiple_region_conflict else None)
+        )
+        ambiguous_region_candidates = (
+            multiple_region_conflict["candidates"]
+            if multiple_region_conflict and ambiguous_region == multiple_region_conflict["alias"]
+            else self.ambiguous_region_aliases.get(ambiguous_region or "", [])
+        )
         conditions = [
             label
             for label, keywords in CONDITION_KEYWORDS.items()
-            if any(keyword in message for keyword in keywords)
+            if any(keyword in candidate for keyword in keywords for candidate in condition_messages)
         ]
-        preferences, excluded_preferences = self._extract_preference_filters(message)
+        transformer_prediction = self._condition_transformer_prediction(condition_messages)
+        if transformer_prediction["labels"]:
+            conditions = list(dict.fromkeys([*conditions, *transformer_prediction["labels"]]))
+        preferences, excluded_preferences = self._merge_preference_filters(condition_messages)
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
-        intent_prediction = self.intent_classifier.predict(message)
-        unsupported_intent = self._find_unsupported_intent(message)
+        intent_prediction = self._best_intent_prediction(interpretation_messages)
+        unsupported_intent = self._first_unsupported_intent(interpretation_messages)
         if (
             not unsupported_intent
             and intent_prediction.intent == "unsupported_request"
-            and not self._has_negated_unsupported_keyword(message)
+            and not any(self._has_negated_unsupported_keyword(candidate) for candidate in interpretation_messages)
         ):
             unsupported_intent = "unsupported_request"
-        context_prediction = self.context_classifier.predict(message)
+        context_prediction = self._best_context_prediction(interpretation_messages)
         return {
             "region": region,
             "area_code": cached_region.get("area_code") or AREA_CODES.get(region or ""),
@@ -189,7 +351,7 @@ class TourismQueryService:
             "area_name": area_name,
             "sigungu_name": cached_region.get("sigungu_name"),
             "is_sigungu": bool(sigungu_code),
-            "allow_region_expansion": any(keyword in message for keyword in EXPANSION_KEYWORDS),
+            "allow_region_expansion": any(keyword in candidate for keyword in EXPANSION_KEYWORDS for candidate in interpretation_messages),
             "conditions": conditions,
             "require_all_conditions": self._requires_all_conditions(message),
             "preferences": preferences,
@@ -197,9 +359,9 @@ class TourismQueryService:
             "features": [
                 label
                 for label, keywords in FEATURE_KEYWORDS.items()
-                if any(keyword in message for keyword in keywords)
+                if any(keyword in candidate for keyword in keywords for candidate in condition_messages)
             ],
-            "required_evidence_terms": self._extract_required_evidence_terms(message),
+            "required_evidence_terms": self._merge_required_evidence_terms(condition_messages),
             "unsupported_intent": unsupported_intent,
             "ml_intent": intent_prediction.intent,
             "ml_intent_confidence": intent_prediction.confidence,
@@ -207,13 +369,164 @@ class TourismQueryService:
             "context_confidence_by_label": context_prediction.confidence_by_label,
             "context_source_by_label": context_prediction.source_by_label,
             "ambiguous_region": ambiguous_region,
-            "ambiguous_region_candidates": self.ambiguous_region_aliases.get(ambiguous_region or "", []),
+            "ambiguous_region_candidates": ambiguous_region_candidates,
             "region_cache_status": self.cache_status,
             "region_cache_warning": self.cache_warning,
             "legacy_region": legacy_region.get("alias") if legacy_region else None,
             "legacy_region_replacement": legacy_region.get("replacement_region") if legacy_region else None,
             "legacy_region_notice": legacy_region.get("notice") if legacy_region else None,
+            "raw_query": normalization.raw_text,
+            "normalized_query": normalization.normalized_text,
+            "rewrite_query": normalization.rewrite_text,
+            "normalization_corrections": normalization.corrections,
+            "normalization_risk_tags": normalization.risk_tags,
+            "external_correction_enabled": self.external_correction_enabled,
+            "external_correction_accepted": external_correction.accepted if external_correction else False,
+            "external_correction_provider": external_correction.provider if external_correction else None,
+            "external_correction_model": external_correction.model if external_correction else None,
+            "external_correction_query": external_correction.corrected_text if external_correction else None,
+            "external_correction_reason": external_correction.reason if external_correction else None,
+            "external_correction_damaged_terms": external_correction.damaged_terms if external_correction else [],
+            "external_correction_region_damaged": external_region_damaged,
+            "condition_transformer_enabled": bool(self.condition_transformer),
+            "condition_transformer_labels": transformer_prediction["labels"],
+            "condition_transformer_reason": transformer_prediction["reason"],
+            "condition_transformer_confidence_by_label": transformer_prediction["confidence_by_label"],
         }
+
+    def _external_correction(
+        self,
+        message: str,
+        region_names: list[str],
+        normalization: NormalizedQuery,
+    ) -> ExternalCorrectionResult | None:
+        if not self.external_correction_enabled or not self.external_corrector:
+            return None
+        if not self._should_try_external_correction(message, normalization):
+            return None
+        protected_terms = sorted(set(DEFAULT_PROTECTED_TERMS + region_names), key=len, reverse=True)
+        return self.external_corrector.correct(message, protected_terms=protected_terms)
+
+    def _should_try_external_correction(self, message: str, normalization: NormalizedQuery) -> bool:
+        if not self.settings.tourism_korean_correction_risky_only:
+            return True
+        if any(tag in {"no-spacing-input", "spacing-noise-input"} for tag in normalization.risk_tags):
+            return True
+        if normalization.corrections:
+            return True
+        compact = "".join(str(message or "").split())
+        if re.search(r"[가-힣]{10,}", compact) and " " not in str(message or ""):
+            return True
+        risky_fragments = [
+            "휄",
+            "휠쳐",
+            "휠체여",
+            "휠채",
+            "유모챠",
+            "유아챠",
+            "엘리배",
+            "앨리",
+            "승강끼",
+            "보조갼",
+            "무릅",
+            "자 막",
+            "촉 지",
+            "장애 인",
+        ]
+        return any(fragment in str(message or "") for fragment in risky_fragments)
+
+    @staticmethod
+    def _external_region_damaged(correction: ExternalCorrectionResult | None, region_names: list[str]) -> bool:
+        if not correction or correction.accepted:
+            return False
+        damaged_terms = set(correction.damaged_terms or [])
+        region_term_set = set(region_names)
+        return bool(damaged_terms and damaged_terms <= region_term_set)
+
+    def _condition_transformer_prediction(self, messages: list[str]) -> dict[str, object]:
+        if not self.condition_transformer:
+            return {"labels": [], "confidence_by_label": {}, "reason": "disabled"}
+        predictions = [self.condition_transformer.predict(candidate) for candidate in messages if candidate]
+        if not predictions:
+            return {"labels": [], "confidence_by_label": {}, "reason": "empty"}
+        labels: list[str] = []
+        confidence_by_label: dict[str, float] = {}
+        reasons: list[str] = []
+        for prediction in predictions:
+            labels.extend(str(label) for label in prediction.get("labels") or [])
+            for label, confidence in (prediction.get("confidence_by_label") or {}).items():
+                current = confidence_by_label.get(str(label), 0.0)
+                confidence_by_label[str(label)] = max(current, float(confidence))
+            reason = str(prediction.get("reason") or "")
+            if reason:
+                reasons.append(reason)
+        return {
+            "labels": list(dict.fromkeys(labels)),
+            "confidence_by_label": confidence_by_label,
+            "reason": ",".join(dict.fromkeys(reasons)) or "ok",
+        }
+
+    def _first_legacy_region(self, messages: list[str]) -> dict[str, str] | None:
+        for candidate in messages:
+            legacy_region = self._find_legacy_region(candidate)
+            if legacy_region:
+                return legacy_region
+        return None
+
+    def _first_region(self, messages: list[str]) -> str | None:
+        for candidate in messages:
+            region = self._find_region(candidate)
+            if region:
+                return region
+        return None
+
+    def _first_ambiguous_region(self, messages: list[str], region: str | None) -> str | None:
+        for candidate in messages:
+            ambiguous_region = self._find_ambiguous_region(candidate, region)
+            if ambiguous_region:
+                return ambiguous_region
+        return None
+
+    def _best_intent_prediction(self, messages: list[str]):
+        predictions = [self.intent_classifier.predict(candidate) for candidate in messages]
+        return max(predictions, key=lambda prediction: prediction.confidence)
+
+    def _first_unsupported_intent(self, messages: list[str]) -> str | None:
+        for candidate in messages:
+            unsupported_intent = self._find_unsupported_intent(candidate)
+            if unsupported_intent:
+                return unsupported_intent
+        return None
+
+    def _best_context_prediction(self, messages: list[str]):
+        predictions = [self.context_classifier.predict(candidate) for candidate in messages]
+        return max(
+            predictions,
+            key=lambda prediction: (len(prediction.labels), sum(prediction.confidence_by_label.values())),
+        )
+
+    @classmethod
+    def _merge_preference_filters(cls, messages: list[str]) -> tuple[list[str], list[str]]:
+        preferences: list[str] = []
+        excluded_preferences: list[str] = []
+        for candidate in messages:
+            candidate_preferences, candidate_excluded = cls._extract_preference_filters(candidate)
+            preferences.extend(candidate_preferences)
+            excluded_preferences.extend(candidate_excluded)
+        return list(dict.fromkeys(preferences)), list(dict.fromkeys(excluded_preferences))
+
+    @classmethod
+    def _merge_required_evidence_terms(cls, messages: list[str]) -> list[list[str]]:
+        merged: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for candidate in messages:
+            for group in cls._extract_required_evidence_terms(candidate):
+                key = tuple(group)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(group)
+        return merged
 
     @staticmethod
     def _extract_required_evidence_terms(message: str) -> list[list[str]]:
@@ -361,6 +674,30 @@ class TourismQueryService:
             ),
             None,
         )
+
+    @staticmethod
+    def _find_multiple_area_conflict(messages: list[str]) -> dict[str, object] | None:
+        for message in messages:
+            matched = [
+                name
+                for name in AREA_CODES
+                if name and TourismQueryService._contains_region_name(message, name) and not TourismQueryService._is_region_negated(message, name)
+            ]
+            matched = list(dict.fromkeys(matched))
+            if len(matched) >= 2:
+                return {
+                    "alias": "/".join(matched),
+                    "candidates": [
+                        {
+                            "area_name": name,
+                            "sigungu_name": name,
+                            "area_code": AREA_CODES.get(name),
+                            "sigungu_code": None,
+                        }
+                        for name in matched
+                    ],
+                }
+        return None
 
     @staticmethod
     def _contains_region_name(message: str, name: str) -> bool:

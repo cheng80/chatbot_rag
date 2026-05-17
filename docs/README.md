@@ -33,10 +33,11 @@ notebooks/
 | 10 | `tourism/tourism_intent_classifier.md` | 후속 질문 의도 분류기와 학습셋 |
 | 11 | `tourism/ml_evaluation_governance.md` | ML 평가 운영 기준, 과적합/과소적합/holdout 판정 |
 | 12 | `tourism/context_llm_dataset_generation.md` | Codex/LLM hard-style 학습셋 생성 절차 |
-| 13 | `tourism/tourism_model_reasoning_benchmark.md` | 로컬 LLM 추론 보조 비교 |
-| 14 | `design/tourism_chatbot_DESIGN.md` | `/tourism-ui/` 디자인 기준 |
-| 15 | `project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 |
-| 16 | `project/mvp_quality_work_log.md` | 작업 이력과 산출물 목록 |
+| 13 | `tourism/tourism_keyword_variant_followup.md` | 핵심어/동의어/오타 보강 후속 작업과 보류 기준 |
+| 14 | `tourism/tourism_model_reasoning_benchmark.md` | 로컬 LLM 추론 보조 비교 |
+| 15 | `design/tourism_chatbot_DESIGN.md` | `/tourism-ui/` 디자인 기준 |
+| 16 | `project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 |
+| 17 | `project/mvp_quality_work_log.md` | 작업 이력과 산출물 목록 |
 
 ## 2. ETC 참조 문서
 

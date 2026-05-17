@@ -2,3 +2,7 @@ torch>=2.3.0
 transformers>=4.41.0
 datasets>=2.20.0
 accelerate>=0.31.0
+sentencepiece>=0.2.0
+scikit-learn>=1.5.0
+quickspacer>=1.0.4
+tensorflow>=2.21.0

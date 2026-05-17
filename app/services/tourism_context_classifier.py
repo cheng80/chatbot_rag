@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from app.core.config import PROJECT_ROOT
+from app.services.korean_query_normalizer import KoreanQueryNormalizer
 
 
 DEFAULT_CONTEXT_MODEL_PATH = PROJECT_ROOT / "data" / "processed" / "tourism_context_classifier.json"
@@ -38,28 +39,52 @@ class TourismContextClassifier:
         self.model_path = model_path or DEFAULT_CONTEXT_MODEL_PATH
         self.threshold = threshold
         self.model: dict[str, Any] | None = self._load_model(self.model_path)
+        self.query_normalizer = KoreanQueryNormalizer()
 
     def predict(self, text: str) -> TourismContextPrediction:
         normalized = " ".join(text.strip().split())
-        rule_labels = self.rule_labels(normalized)
-        confidence_by_label = {label: 0.98 for label in rule_labels}
-        source_by_label = {label: "rule" for label in rule_labels}
-
-        if self.model and normalized:
-            probabilities = self._predict_model_probabilities(normalized)
-            for label, probability in probabilities.items():
-                if probability < self.threshold:
-                    continue
-                if probability > confidence_by_label.get(label, 0.0):
-                    confidence_by_label[label] = round(probability, 4)
-                    source_by_label[label] = "model"
-
-        confidence_by_label, source_by_label = _postprocess_prediction_labels(
-            normalized,
-            set(rule_labels),
-            confidence_by_label,
-            source_by_label,
+        query_normalizer = getattr(self, "query_normalizer", KoreanQueryNormalizer())
+        normalized_query = query_normalizer.normalize(normalized)
+        candidates = list(
+            dict.fromkeys(
+                candidate
+                for candidate in [
+                    normalized,
+                    normalized_query.normalized_text,
+                    normalized_query.rewrite_text,
+                ]
+                if candidate
+            )
         )
+        confidence_by_label: dict[str, float] = {}
+        source_by_label: dict[str, str] = {}
+
+        for candidate_index, candidate_text in enumerate(candidates):
+            suffix = "" if candidate_index == 0 else ":normalized"
+            rule_labels = self.rule_labels(candidate_text)
+            candidate_confidence_by_label = {label: 0.98 for label in rule_labels}
+            candidate_source_by_label = {label: f"rule{suffix}" for label in rule_labels}
+
+            if self.model and candidate_text:
+                probabilities = self._predict_model_probabilities(candidate_text)
+                for label, probability in probabilities.items():
+                    if probability < self.threshold:
+                        continue
+                    if probability > candidate_confidence_by_label.get(label, 0.0):
+                        candidate_confidence_by_label[label] = round(probability, 4)
+                        candidate_source_by_label[label] = f"model{suffix}"
+
+            candidate_confidence_by_label, candidate_source_by_label = _postprocess_prediction_labels(
+                candidate_text,
+                set(rule_labels),
+                candidate_confidence_by_label,
+                candidate_source_by_label,
+            )
+            for label, confidence in candidate_confidence_by_label.items():
+                if confidence > confidence_by_label.get(label, 0.0):
+                    confidence_by_label[label] = confidence
+                    source_by_label[label] = candidate_source_by_label[label]
+
         labels = [label for label in CONTEXT_LABELS if label in confidence_by_label]
         return TourismContextPrediction(labels=labels, confidence_by_label=confidence_by_label, source_by_label=source_by_label)
 
@@ -215,6 +240,7 @@ MOBILITY_CONTEXT_TERMS = [
     "줄 서는 시간이 길지",
     "걷는 시간이 짧",
     "짧은 코스",
+    "짧게 둘러",
     "앉아 쉴",
     "버겁지 않은",
     "걷기 부담",
@@ -646,7 +672,7 @@ def _looks_like_specific_facility_required(text: str) -> bool:
         return False
     if re.search(r"(필수는 아니|필수까진 아니|필수 아님|필수로\s*보진\s*말|필수로\s*묶지|필수로\s*묶진\s*마|보조\s*조건|부가\s*조건|선택\s*조건|참고만|참고\s*수준|은 참고|는 참고|있으면 참고|없으면 넘어가도|없으면 넘어가자|후보가?\s*많을\s*때만|후보가?\s*여럿일\s*때만|없어도 된다|없어도|꼭 맞출 필요는 없어|가산점|가산점으로만|덤)", text):
         return False
-    if re.search(r"(수유실|기저귀|유아용 의자|화장실|주차|점자|수어|자막|경사로|엘리베이터).{0,8}보다.{0,20}중요", text):
+    if re.search(r"(수유실|기저귀|유아용 의자|유아 의자|아이용 의자|화장실|주차|점자|수어|자막|경사로|엘리베이터).{0,8}보다.{0,20}중요", text):
         return False
     if re.search(r"(확인되면|있으면|되면|보이면).{0,8}(좋|가점|참고|고려)", text):
         return False
@@ -681,7 +707,7 @@ def _looks_like_or_condition(text: str) -> bool:
 def _looks_like_replace(text: str) -> bool:
     if "추측하지 말고" in text:
         return False
-    if re.search(r"(야외|실외|붐비|숙박|음식점|카페|시장|계단\s*많|오래\s*걷).{0,14}(빼고|제외하고).{0,20}(실내|조용|관람|산책|관광|평지|넓게|쉬운\s*동선)", text):
+    if re.search(r"(야외|실외|붐비|숙박|음식점|카페|시장|계단\s*많|오래\s*걷).{0,14}(빼고|제외하고).{0,20}(실내|조용|관람|산책|관광|평지|넓게|쉬운\s*동선|한적)", text):
         return False
     if re.search(r"새\s*지역\s*말고\s*같은\s*결과", text):
         return False
@@ -747,6 +773,8 @@ def _looks_like_add(text: str) -> bool:
         return False
     if re.search(r"(시설명만|여부만|표시 여부만|조건은 필요하지만|근거만 있으면|근거\s*찾지\s*말고|근거\s*없으면.{0,12}(?:제외|추천하지\s*마)|라고\s*확인된\s*카드만|문구가\s*있어야|문구가.{0,12}원문에\s*있는\s*카드만|새로 추가하지 마|꼭 맞출 필요는 없어|필수까진 아니|필수로\s*보진\s*말|필수로\s*묶진\s*마|조건을 말한 건 아니|얘기가 아니라|시설 요청은 아니|둘\s*중\s*하나만\s*되는\s*곳은\s*제외)", text):
         return False
+    if re.search(r"(확인되면|있으면|보이면|되면).{0,10}(좋|가점|참고|고려|괜찮)", text):
+        return False
     if _looks_like_soft_preference_phrase(text):
         return False
     if _looks_like_strict_and(text):
@@ -772,7 +800,7 @@ def _looks_like_add(text: str) -> bool:
         text,
     ):
         return _mentions_condition(text)
-    if re.search(r"(목록|후보|결과|카드|추천).{0,12}(안에서|중|에|에서).{0,40}(도|조건|필터|근거|문구|남겨|좁혀|체크|확인|추려|걸러)", text):
+    if re.search(r"(목록|후보|결과|카드|추천).{0,12}(안에서|중|에|에서).{0,40}(조건|필터|근거|문구|남겨|좁혀|체크|확인|추려|걸러)", text):
         return _mentions_condition(text)
     explicit_add_markers = [
         marker
@@ -837,6 +865,8 @@ def _looks_like_soft_preference_phrase(text: str) -> bool:
         re.search(r"(제일 중요|우선|위주|먼저).{0,28}(참고|덤|필수 아님|필수는 아니|꼭 맞출 필요는 없어|있으면 좋)", text)
         or re.search(r"(참고|덤|필수 아님|필수는 아니|꼭 맞출 필요는 없어|있으면 좋).{0,28}(제일 중요|우선|위주|먼저)", text)
         or re.search(r"(만 맞아도 괜찮|면 충분).{0,28}(있으면 좋|덤|참고|필수는 아니)", text)
+        or re.search(r"(우선|먼저|핵심|목적).{0,36}(확인되면|보이면|있으면|가능하면).{0,10}(좋|가점|참고|고려)", text)
+        or re.search(r"(확인되면|보이면|있으면|가능하면).{0,10}(좋|가점|참고|고려).{0,36}(우선|먼저|핵심|목적)", text)
     )
 
 

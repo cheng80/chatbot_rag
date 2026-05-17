@@ -211,9 +211,28 @@ Transformer 파일럿처럼 결과 JSON이 있는 실험은 다음 명령으로 
 | 항목 | 판정 |
 |---|---|
 | intent Naive Bayes | 가볍고 빠른 shadow classifier로 유지 |
-| context hybrid LogisticRegression/LinearSVC | locked test 최신 exact 0.9548/micro-F1 0.9803, independent validation 최신 exact 0.9242/micro-F1 0.9741. v3 rotating blind는 보강 후 hybrid micro-F1 0.9960, rule-only 1.0000이지만 tuned diagnostic이다. v4 fresh blind는 rule-only micro-F1 0.9091, hybrid LinearSVC 0.9012, hybrid LogisticRegression 0.8968이다. LogisticRegression은 계속 비교 대상이지만 현 fresh set 최고는 아니다 |
-| KLUE-RoBERTa small 단독 | 독립 validation은 개선됐지만 locked test 일반화 부족 |
-| KLUE-RoBERTa small + rule hybrid | 기준선과 동률 이하이고 latency 불리 |
+| context rule/hybrid LogisticRegression/LinearSVC | noisy 1000 반영 후 add/soft/exclude 경계를 좁힌 locked hard test 기준 rule-only와 hybrid LogisticRegression exact 0.9781/micro-F1 0.9920. 새 v5 rotating blind 59건은 최초 rule-only micro-F1 0.9579에서 경계 보강 후 0.9948까지 회복했다. 단, 보강 후 v5 수치는 tuned diagnostic이므로 fresh blind와 chat 평가를 계속 분리한다 |
+| KLUE-RoBERTa small 단독 | noisy 1000 포함 fast-track에서도 locked test 일반화 부족 |
+| KLUE-RoBERTa small + rule hybrid | 1 epoch는 기준선에 근접했지만 미달, 3 epoch는 validation만 개선되고 hard test는 악화. latency도 불리 |
 | SuperGemma4 selective labeling | QA/재라벨링 보조. 런타임 보조 아님 |
+
+2026-05-17 noisy 1000을 포함한 빠른 Transformer 재검토 결과:
+
+| 실험 | validation micro-F1 | hard test micro-F1 | rule hybrid hard test micro-F1 | 판정 |
+|---|---:|---:|---:|---|
+| `klue/roberta-small`, 1 epoch | 0.9841 | 0.8510 | 0.9885 | add-condition 경계 보정 후 기준선 0.9908에 근접했지만 미달, latency 약 2배 |
+| `klue/roberta-small`, 3 epochs | 0.9957 | 0.8491 | 0.9747 | validation만 상승하고 hard test는 악화 |
+
+두 실험 모두 `scripts/audit_tourism_ml_experiment.py` 감사 결과 `do_not_adopt_runtime`이다. 따라서 현재 결론은 "Transformer를 배제"가 아니라 "원문 Transformer 분류기만으로는 아직 런타임 교체 근거가 부족"이다.
+
+2026-05-17 추가 경계 정리:
+
+| 평가 | 주요 목적 | exact | micro-F1 | 해석 |
+|---|---|---:|---:|---|
+| locked hard test 4,800건 | 기존 회귀셋 확인 | 0.9781 | 0.9920 | tuned diagnostic. 남은 오류는 주로 OR 시설 조건에 family/mobility를 붙일지의 라벨 정책 차이 |
+| rotating blind v5 최초 59건 | 새 soft/add/exclude 경계 확인 | 0.8983 | 0.9579 | `확인되면 좋아`, `보이면 가점`, `빼고 한적한 곳` 경계 실패 확인 |
+| rotating blind v5 보강 후 59건 | 같은 파일 대응 확인 | 0.9831 | 0.9948 | 같은 파일을 보고 보강한 결과이므로 최종 품질 점수로 쓰지 않음 |
+
+다음 Transformer 작업은 epoch 증가가 아니라 새 blind set에서 반복적으로 드러나는 label policy를 정리한 뒤, `soft_and`와 optional facility 표현을 충분히 포함한 학습 split으로 다시 비교한다.
 
 다음 ML 개선은 모델 epoch를 늘리는 것이 아니라, v4 failure bucket 중 실제 `/tourism/chat` 카드 품질에 영향을 주는 항목을 먼저 고르는 것이다. 현재 chat blind v2는 15/15 통과했으므로, `mobility_context`, `exclude_condition`, `soft_and`, `strict_and`, `specific_facility_required` 오류를 곧바로 런타임 모델 변경으로 연결하지 않는다. 사람이 직접 쓴 듯한 멀티턴 문장, 조건 우선순위가 애매한 문장, 실제 카드 근거까지 포함한 평가셋을 계속 별도로 만든다. 고정 blind나 rotating blind를 보강에 사용한 뒤에는 같은 파일을 최종 점수로 쓰지 않고, `scripts/generate_tourism_context_rotating_blind_holdout.py`로 새 rotating blind를 만들어 확인한다. Codex/LLM으로 hard-style 학습셋을 생성할 때도 `docs/tourism/context_llm_dataset_generation.md`의 schema 검수, 중복/누수 검사, extra train 병합 절차를 먼저 통과해야 한다.

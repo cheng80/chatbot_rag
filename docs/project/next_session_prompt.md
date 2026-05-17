@@ -33,6 +33,8 @@
 - 모델 벤치마크: `scripts/benchmark_tourism_reasoning_models.py`는 후보 카드 재랭킹과 Ollama native thinking 여부를 비교한다.
 - 문맥 해석 classifier: `app/services/tourism_context_classifier.py`는 `strict_and`, `soft_and`, `or_condition`, `add_condition`, `replace_condition`, `exclude_condition`, `family_context`, `mobility_context`, `specific_facility_required`를 shadow label로 예측한다.
 - 문맥 해석 데이터/평가: `scripts/generate_tourism_context_interpretation_data.py`, `scripts/train_tourism_context_classifier.py`, `scripts/eval_tourism_context_classifier.py`
+- 핵심어/동의어/오타 보강은 `docs/tourism/tourism_keyword_variant_followup.md`를 먼저 읽는다. 2026-05-18 기준 핵심어 5,000건에서 promote candidate mismatch는 1,645 -> 726 -> 159까지 줄었고, 남은 159건은 무조건 줄이는 대상이 아니다. `리프트` 단독은 차량/예약 의미와 충돌하므로 보류하지만, `휠체어 리프트`, `장애인 리프트`, `승강 리프트`, `계단 리프트`, `지하철 리프트`, `시설 리프트`, `건물 리프트`, `관광시설 리프트`처럼 접근성 설비 맥락이 분명하면 엘리베이터/승강 설비 조건으로 본다. 공공기관으로만 한정하지 않는다. paraphrase는 사전보다 문맥 학습 후보로 다룬다.
+- 한국어 오타/띄어쓰기 보정은 FastAPI 내부 로컬 모델만 사용한다. 베이스는 `data/models/tourism_korean_corrector_base`, 최종 fine-tuned 모델은 `data/models/tourism_korean_corrector`다. Hugging Face/GitHub는 준비 단계의 출처일 뿐 런타임 호출 경로가 아니다. 기본 설정은 `TOURISM_KOREAN_CORRECTION_ENABLED=true`, `TOURISM_KOREAN_CORRECTION_RISKY_ONLY=true`, `TOURISM_KOREAN_CORRECTION_ALLOW_DOWNLOAD=false`다.
 
 ## 기본 작업 순서
 
@@ -62,6 +64,32 @@ git status --short
 ```
 
 ## 최근 미커밋 작업 메모
+
+2026-05-18 한국어 로컬 교정 모델 작업:
+
+- `scripts/prepare_tourism_korean_correction_finetune_data.py`로 correction fine-tuning split을 만들었다. 산출물은 `data/processed/korean_correction_finetune/train.jsonl`, `validation.jsonl`, `summary.json`이다. train 5,453 rows, validation 605 rows다.
+- `scripts/materialize_korean_correction_base_model.py --local-files-only`로 `j5ng/et5-typos-corrector` 계열 베이스를 `data/models/tourism_korean_corrector_base`에 materialize했다.
+- CPU/MPS 짧은 벤치에서는 CPU 29.83초, MPS 47.58초로 CPU가 빨라 CPU를 채택했다.
+- 최종 학습은 `scripts/train_tourism_korean_corrector.py --epochs 5 --batch-size 8 --eval-steps 100 --save-steps 100 --early-stopping-patience 4 --device cpu --output-dir data/models/tourism_korean_corrector`로 수행했다. early stopping으로 2,900 step에서 종료했고 best validation loss는 2,500 step의 0.0631057620이다.
+- 이후 `scripts/eval_tourism_korean_corrector.py`로 generation accuracy도 추가 확인했다. 기존 모델 beams=3 기준 exact accuracy 0.7107, compact accuracy 0.7488, mean similarity 0.9494다.
+- 추가 fine-tuning 후보 두 개는 loss는 낮췄지만 accuracy가 떨어져 미채택했다. lr=1e-5/wd=0.01 후보는 loss 0.0627810955, exact 0.7091, compact 0.7438이고, lr=5e-6 후보는 loss 0.0616126321, exact 0.7025, compact 0.7339다.
+- decoding sweep에서는 기존 모델 beams=1과 beams=4가 exact 0.7124, compact 0.7521로 더 높았다. beams=4는 느리므로 런타임 기본값은 `TOURISM_KOREAN_CORRECTION_NUM_BEAMS=1`로 둔다.
+- 다음 fine-tuning에서는 validation loss만 보지 말고 exact/compact accuracy와 실제 `/tourism/chat` 카드 품질을 함께 승격 기준으로 본다.
+- 런타임은 `app/services/korean_external_corrector.py`가 로컬 모델 디렉터리만 `local_files_only`로 로드한다. `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`도 설정해 기본 경로에서 네트워크를 사용하지 않는다.
+- 서비스 확인 예시: `서울 강남구 근처에서 휄체어 관광지 추천해줘`는 `서울 강남구`와 `휠체어`, `부산엘베있는실내관광지`는 `부산`과 `엘리베이터`로 해석된다.
+- 핵심어 변형 5,000건에서 수동/도메인 정규화와 로컬 교정 모델 병행을 비교했다. `scripts/eval_tourism_keyword_correction_coverage.py` 결과는 `data/generated/tour_api/keyword_variant_reports/keyword_correction_coverage_20260518.json`에 있다. 수동/도메인 정규화는 exact 0.8596(4,298/5,000), 로컬 교정 모델 병행은 exact 0.8598(4,299/5,000)이다. promote 후보 exact는 0.9602 -> 0.9604, 개선 1건, 회귀 0건이다. 추가 이득은 작지만 위험 회귀는 없었다. extra condition rows가 532 -> 537로 늘었으므로 원문 대체가 아니라 후보 레이어로만 유지한다.
+- 검증: `.venv/bin/python -m pytest tests/test_tourism_query_service.py tests/test_tourism_quality_regression.py tests/test_korean_query_normalizer.py -q`는 200 passed다.
+
+2026-05-18 교수 검토 문서와 조건 모델 추가 작업:
+
+- `docs/project/professor_review_brief.md`와 `docs/project/professor_review_brief.pdf`를 갱신했다. PDF는 A4 출력용 페이지 안에 A5 폭 본문으로 렌더링한다. 10번 섹션은 삭제했고, 현재 강제 페이지 넘김은 `4. 기술 구조`, `6. 데이터와 지역 기준` 앞에만 둔다. 렌더 스크립트는 `scripts/render_professor_review_pdf.py`다.
+- `quickspacer`는 후보로만 비교했다. `scripts/eval_tourism_spacing_candidates.py --limit 500` 결과 수동/도메인 정규화 exact 0.838, quickspacer 병행 exact 0.832라 런타임 적용하지 않았다. `점자`, `수어자막`, `바퀴의자`, `이동약자` 같은 보호어를 잘못 쪼개는 회귀가 있었다.
+- 조건 라벨 Transformer는 `data/models/klue_roberta_small` 로컬 베이스를 사용해 `scripts/prepare_tourism_condition_transformer_data.py --augment-rows 10000`, `scripts/train_tourism_condition_transformer.py --model-name data/models/klue_roberta_small --epochs 2 --batch-size 32 --learning-rate 2e-5 --save-model --output-dir data/generated/tour_api/condition_transformer_robust_e2`로 학습했다. synthetic validation exact 0.9867/micro-F1 0.9904, synthetic test exact 0.9925/micro-F1 0.9941이지만 과적합 가능성이 있어 런타임 채택은 보류한다. fresh chat-card 평가에서 실제 카드 품질 개선이 확인될 때만 승격한다.
+- 중간 길이 실제 대화형 blind eval v3는 `scripts/generate_tourism_context_blind_chat_eval.py --variant v3`로 생성했고 direct 평가 20건 중 18건 통과했다. 실패는 대전 시각장애/안내견/점자와 강릉 보조견 후속 지역 변경 케이스다. 둘 다 모델 epoch보다 데이터/조건/지역 확장 정책 검토 대상이다.
+- `강남구 근처`는 사용자가 보통 강남권을 기대하므로 상위 광역 지역 확장 신호로 쓰지 않는다. `근처`, `주변`, `가까운`, `인근`은 자동으로 서울 전체 후보를 섞지 않고, `서울 전체로 넓혀줘`, `범위 넓혀줘`처럼 명시적으로 확장한 경우에만 광역 후보를 포함한다. 안내 문구의 `expanded`도 실제 반환 카드에 질의 시군구 밖 카드가 포함됐는지로 판단한다. 관련 단위 테스트는 `tests/test_tourism_chat_service.py::test_tourism_chat_expansion_copy_requires_actual_outside_sigungu_cards`와 `tests/test_tourism_chat_service.py::test_tourism_chat_keeps_nearby_sigungu_inside_requested_region`이다.
+- 중간 길이 v4 120건 평가셋은 `scripts/generate_tourism_medium_chat_eval_v4.py`로 생성했다. 결과 파일은 `data/eval/tourism_context_medium_chat_eval_v4_120.jsonl`이다. `scripts/compare_tourism_medium_chat_models.py`로 rule/parser, ET5 local, quickspacer, RoBERTa-small candidate를 같은 `/tourism/chat` 카드 품질 기준으로 비교했다. 결과는 `data/generated/tour_api/medium_chat_model_compare_20260518/summary.json`와 `docs/tourism/tourism_medium_chat_model_comparison.md`에 정리했다. 네 변형 모두 100/120 통과, 조건 라벨 micro-F1 0.8380으로 동일해 런타임 승격하지 않는다. 실패는 모델보다 청각/시각 접근성 근거 카드 부족, 일부 지역 엘리베이터/유모차 커버리지, 보조견 조건 유지 후 지역 변경 같은 데이터/정책 문제다.
+- `서울 전체로 넓혀서 더 찾아줘` 같은 명시적 확장 후속질문이 이전 조건을 잃고 일반 관광지 요청으로 처리되던 문제를 수정했다. 이제 `allow_region_expansion`도 대화 맥락 유지 조건으로 인정한다. 관련 단위 테스트는 `tests/test_tourism_chat_service.py::test_tourism_chat_explicit_expand_followup_keeps_previous_condition`이다.
+- 검증: `.venv/bin/python -m pytest tests/test_tourism_chat_service.py tests/test_tourism_query_service.py tests/test_korean_query_normalizer.py -q`는 89 passed다. `git diff --check`와 새 스크립트 `py_compile`도 통과했다.
 
 2026-05-17 마지막 작업은 문맥 해석 v4 rotating blind와 실제 `/tourism/chat` 카드 적합성 v2 평가 추가다. 다음 세션에서 `git status --short`에 아래 파일들이 남아 있으면 같은 작업 묶음으로 보면 된다.
 
@@ -134,6 +162,7 @@ KoBERT/KLUE-RoBERTa 파일럿 split은 `data/processed/context_finetune/`에 있
 PyTorch/Transformers 파일럿은 기본 의존성과 분리된 `requirements-ml.txt`를 쓴다. 실행은 `.venv/bin/python -m pip install -r requirements-ml.txt` 후 `.venv/bin/python scripts/prepare_tourism_context_finetune_data.py --validation-ratio 0 --extra-train-input data/processed/tourism_context_hard_style_extra_train.valid.jsonl --hard-validation-input data/eval/tourism_context_independent_validation.jsonl --strict-family-split`, `.venv/bin/python scripts/train_tourism_context_transformer.py --epochs 3 --batch-size 32 --learning-rate 2e-5 --model-name klue/roberta-small --baseline-metrics data/generated/tour_api/context_classifier_eval_independent_test_latest.json --output-dir data/generated/tour_api/context_transformer_independent_validation` 순서다. 독립 validation 적용 뒤 `klue/roberta-small`은 validation exact 0.8417/micro-F1 0.9241, locked test 단독 exact 0.7165/micro-F1 0.8594, rule hybrid locked test exact 0.8969/micro-F1 0.9474다. 최신 기준선 hybrid LogisticRegression locked test exact 0.9187/micro-F1 0.9688을 넘지 못하고 latency도 느려 런타임 채택은 보류한다.
 ML/DL 실험은 `docs/tourism/ml_evaluation_governance.md`를 먼저 적용한다. validation 1.0000, focused holdout 1.0000, 단일 accuracy 상승은 채택 근거가 아니다. `.venv/bin/python scripts/audit_tourism_ml_experiment.py --transformer-metrics data/generated/tour_api/context_transformer_independent_validation/metrics.json --context-baseline-metrics data/generated/tour_api/context_classifier_eval_independent_test_latest.json`로 overfit/underfit/leakage/hard holdout gap/latency를 감사한다. 현재 판정은 `do_not_adopt_runtime`이다.
 Codex/LLM으로 hard-style 학습셋을 만들 때는 `docs/tourism/context_llm_dataset_generation.md`를 따른다. 프롬프트 생성은 `.venv/bin/python scripts/build_tourism_context_llm_generation_prompt.py --target-rows 300 --batch-id 001`, LLM 출력 검수는 `.venv/bin/python scripts/validate_tourism_context_llm_dataset.py --input ...`, 병합은 `.venv/bin/python scripts/prepare_tourism_context_finetune_data.py --extra-train-input ...` 순서다.
+핵심어/동의어/오타 후보는 `scripts/build_tourism_keyword_variant_generation_prompt.py`, `scripts/generate_tourism_keyword_variant_seed.py`, `scripts/validate_tourism_keyword_variant_dataset.py`, `scripts/build_tourism_keyword_promotion_candidates.py`로 관리한다. 리포트만 만들고 끝내지 말고, `parser_missing_conditions`와 `parser_extra_conditions`를 나눠 원인을 고친 뒤 다시 검증한다. 단독 `리프트`, 넓은 `편한 곳`류 paraphrase, 미지원 예약/차량 의미와 충돌하는 표현은 바로 런타임 사전에 넣지 않는다. 접근성 설비 맥락이 붙은 리프트 표현은 예외적으로 조건 후보로 다룬다.
 SuperGemma4 문맥 보조는 `.venv/bin/python scripts/eval_supergemma_context_labels.py`로 재평가한다. 2026-05-17 이전 1,320건 holdout의 전체 오답 221건 실험에서는 exact가 0.8326에서 0.8879로 올랐지만 micro-F1이 0.9179에서 0.9105로 내려가 기본 런타임 보조 판단자로 채택하지 않았다. QA/재라벨링 보조로만 둔다. 4,800건 holdout 기준 selective 재평가는 아직 하지 않았다.
 
 5. Ollama 모델 준비 확인
@@ -216,7 +245,7 @@ curl -X POST http://localhost:8000/chat \
 - 공공데이터포털 화면에서 `한국관광공사_무장애 여행 정보` 개발계정 승인은 확인됐다.
 - 승인 반영 후 `KorWithService2/areaCode2`, `KorWithService2/detailWithTour2`, `KorWithService2/areaBasedList2` 호출이 200 OK로 확인됐다.
 - 전국 시군구 코드는 수동 하드코딩하지 않는다. `scripts/fetch_tour_area_codes.py`로 `data/processed/tour_area_codes.json` 캐시를 만들고 `TourismQueryService`가 이 캐시를 우선 사용한다. 중복되는 시군구 별칭은 캐시에 넣지 않는다.
-- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. 사용자가 `근처`, `주변`, `가까운`, `인근` 같은 확장 의도를 말한 경우에만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 기본 추천은 최대 5장이다. 후보가 5장보다 많으면 `suggested_messages`에 `더 보기` 후속 질문을 넣고, 사용자가 `더 보기`, `전체`, `전부`, `20곳` 같은 의도를 말하면 확인된 후보를 가능한 만큼 반환한다. 저장된 후보가 5장 미만이고 live TourAPI를 사용할 수 있으면 자동 호출하지 않고 사용자에게는 `최신 정보 더 찾기` 후속 버튼을 제공한다. 답변 문구에는 API/fallback/cache 같은 내부 용어를 노출하지 않는다. 사용자가 이 버튼을 누른 경우에만 live TourAPI로 후보를 보강한다.
+- 지역 추천 정책은 다음과 같다. 사용자가 시군구를 명시하면 해당 시군구 결과만 먼저 제공한다. 결과가 3개 미만이어도 자동으로 다른 구/군을 섞지 않고 부족 안내를 한다. `근처`, `주변`, `가까운`, `인근`은 시군구 안의 가까운 후보 선호로 보고 상위 광역 지역 확장 신호로 쓰지 않는다. `서울 전체로 넓혀줘`, `범위 넓혀줘`처럼 명시적 확장 표현이 있을 때만 상위 광역 지역 후보를 함께 포함하고 답변에 확장 사실을 명시한다. 기본 추천은 최대 5장이다. 후보가 5장보다 많으면 `suggested_messages`에 `더 보기` 후속 질문을 넣고, 사용자가 `더 보기`, `전체`, `전부`, `20곳` 같은 의도를 말하면 확인된 후보를 가능한 만큼 반환한다. 저장된 후보가 5장 미만이고 live TourAPI를 사용할 수 있으면 자동 호출하지 않고 사용자에게는 `최신 정보 더 찾기` 후속 버튼을 제공한다. 답변 문구에는 API/fallback/cache 같은 내부 용어를 노출하지 않는다. 사용자가 이 버튼을 누른 경우에만 live TourAPI로 후보를 보강한다.
 - 다음 세션에서 지역 코드가 이상하면 아래 캐시 재생성부터 실행한다.
 
 ```bash
@@ -266,7 +295,7 @@ curl -X POST http://localhost:8000/chat \
 - 서버 없이 현재 코드 기준 eval을 빠르게 확인할 때는 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct`를 사용한다.
 - 전국 시군구 단위 fallback을 늘릴 경우 예상 규모와 호출량은 `docs/tourism/tourism_data_operations.md`를 참고한다. 기준 수는 TourAPI 234개이며, 행안부 alias 매칭은 228개다.
 - 행정동/법정동 지역명 매칭 데이터는 `scripts/build_admin_region_aliases.py`로 생성했다. 결과는 `data/processed/admin_region_aliases.json`이고, 설계 기록은 `docs/tourism/admin_region_aliases.md`에 있다. `TourismQueryService`는 이 파일을 읽어 `부산 중구`, `해운대 좌동`, `창원 마산합포구`, `성남 분당구` 같은 예외 입력을 시군구 후보로 해석한다.
-- 2026-05-15 스모크 결과 `서울 강남구에서 휠체어 관광지 추천해줘`는 강남구 결과 2건과 부족 안내를 반환했고, `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 서울 범위 확장 안내와 함께 5건을 반환했다.
+- 2026-05-18 기준 `서울 강남구에서 휠체어 관광지 추천해줘`와 `서울 강남구 근처에서 휠체어 관광지 추천해줘`는 모두 강남구 결과를 먼저 반환한다. 서울 전체 후보를 섞으려면 `서울 전체로 넓혀줘`처럼 명시적 확장 표현이 필요하다.
 - VS Code 오류 `Environment manager 'ms-python.python:conda' is not registered`는 `.vscode/settings.json`의 conda 환경 관리자 설정이 원인이었다.
 - 현재 `.vscode/settings.json`은 다음처럼 `.venv`를 직접 보도록 정리했다.
 

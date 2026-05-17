@@ -91,7 +91,31 @@ CONDITION_RAW_FIELD_KEYS = {
 PREFERENCE_EVIDENCE_KEYWORDS = {
     "실내": ["실내", "박물관", "전시관", "미술관", "체험관", "기념관", "문화관"],
     "박물관_전시": ["박물관", "전시관", "전시", "미술관", "체험관", "기념관", "문화관"],
-    "시장_먹거리": ["시장", "먹거리", "맛집", "음식", "식당", "먹자골목", "음식점", "유아용 의자", "의자식 테이블"],
+    "시장_먹거리": [
+        "시장",
+        "먹거리",
+        "맛집",
+        "음식",
+        "식당",
+        "먹자골목",
+        "음식점",
+        "게장",
+        "돈가스",
+        "국시",
+        "국수",
+        "백숙",
+        "막국수",
+        "오리",
+        "칼국수",
+        "해장",
+        "구이",
+        "분식",
+        "한식",
+        "중식",
+        "양식",
+        "갈비",
+        "고기",
+    ],
     "공원_산책": ["공원", "산책", "산책로", "숲길", "정원", "둘레길", "생태"],
     "숙박": ["호텔", "숙박", "리조트", "펜션", "캠핑장", "야영장"],
     "카페_음식점": [
@@ -101,16 +125,30 @@ PREFERENCE_EVIDENCE_KEYWORDS = {
         "음식점",
         "맛집",
         "레스토랑",
-        "의자식 테이블",
-        "테이블 간격",
         "국수",
         "칼국수",
         "해장",
         "구이",
         "흑돼지",
         "에스프레소",
+        "베이커리",
+        "돈가스",
+        "막국수",
+        "백숙",
+        "게장",
     ],
     "조용한": ["조용", "한적", "숲", "정원", "산책", "생태"],
+}
+SOFT_PLACE_PREFERENCES = {"실내", "조용한"}
+PLACE_TYPE_PREFERENCES = {"박물관_전시", "시장_먹거리", "공원_산책", "숙박", "카페_음식점"}
+PREFERENCE_DISPLAY_LABELS = {
+    "실내": "실내",
+    "박물관_전시": "박물관/전시",
+    "시장_먹거리": "먹거리/식당",
+    "공원_산책": "공원/산책",
+    "숙박": "숙박",
+    "카페_음식점": "카페/음식점",
+    "조용한": "조용한 곳",
 }
 STRICT_CONDITION_EVIDENCE = {"유모차", "보조견", "시각장애", "청각장애"}
 CONTEXTUAL_ML_INTENTS = {
@@ -147,6 +185,10 @@ CONTEXTUAL_FOLLOWUP_KEYWORDS = [
     "박물관",
     "전시관",
     "좁혀",
+    "넓혀",
+    "넓혀서",
+    "전체로",
+    "범위",
     "있는 곳",
     "있는 곳만",
     "주차",
@@ -260,6 +302,19 @@ class TourismChatService:
                 degraded=False,
                 warnings=self._build_warnings(query, degraded=False),
                 suggested_messages=self._build_missing_region_suggestions(query),
+            )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            self._remember_session_query(session_id, query, response)
+            return response
+        if self._is_general_tourism_only_query(query):
+            response = TourismChatResponse(
+                answer=self._build_general_tourism_scope_answer(query),
+                cards=[],
+                sources=[],
+                lookup_mode="unsupported",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                suggested_messages=self._build_general_tourism_scope_suggestions(query),
             )
             self._log_event(message, session_id, query, response, live_api_called=False)
             self._remember_session_query(session_id, query, response)
@@ -555,11 +610,14 @@ class TourismChatService:
             return False
         if query.get("ambiguous_region"):
             return False
+        if query.get("region") and query.get("ml_intent") == "change_region":
+            return True
         return not query.get("region") or bool(
             query.get("conditions")
             or query.get("preferences")
             or query.get("excluded_preferences")
             or query.get("features")
+            or query.get("allow_region_expansion")
         )
 
     @staticmethod
@@ -938,6 +996,9 @@ class TourismChatService:
             query_region_cards = self._filter_cards_by_conditions(query_region_cards, query)
             query_region_cards = self._filter_cards_by_required_evidence_terms(query_region_cards, query)
             if not query_region_cards:
+                expanded_cards = self._select_place_type_area_expansion(cards, message, query, more_requested)
+                if expanded_cards:
+                    return expanded_cards
                 return [], False, False
             if query.get("features"):
                 query_region_cards = self._filter_cards_by_features(query_region_cards, query)
@@ -945,6 +1006,9 @@ class TourismChatService:
                     return [], False, False
             query_region_cards = self._filter_cards_by_preferences(query_region_cards, query)
             if not query_region_cards:
+                expanded_cards = self._select_place_type_area_expansion(cards, message, query, more_requested)
+                if expanded_cards:
+                    return expanded_cards
                 return [], False, False
             region_cards = self._rank_cards(
                 query_region_cards,
@@ -966,7 +1030,9 @@ class TourismChatService:
                 filter_region=False,
             )
             ranked_cards = self._deduplicate([*region_cards, *expanded_cards])
-            return self._limit_cards(ranked_cards, more_requested), True, self._has_more_cards(ranked_cards, more_requested)
+            limited_cards = self._limit_cards(ranked_cards, more_requested)
+            actual_expanded = self._cards_include_outside_query_region(limited_cards, query)
+            return limited_cards, actual_expanded, self._has_more_cards(ranked_cards, more_requested)
 
         if region:
             cards = self._filter_cards_by_query_region(cards, query)
@@ -981,6 +1047,30 @@ class TourismChatService:
             return [], False, False
         ranked_cards = self._rank_cards(cards, message, query, filter_region=False)
         return self._limit_cards(ranked_cards, more_requested), False, self._has_more_cards(ranked_cards, more_requested)
+
+    def _select_place_type_area_expansion(
+        self,
+        cards: list[TourismPlaceCard],
+        message: str,
+        query: dict,
+        more_requested: bool,
+    ) -> tuple[list[TourismPlaceCard], bool, bool] | None:
+        if not self._should_expand_place_type_only_query(query):
+            return None
+        area_name = query.get("area_name")
+        expanded_candidates = self._filter_cards_by_region(cards, area_name)
+        expanded_candidates = self._filter_cards_by_preferences(expanded_candidates, query)
+        if not expanded_candidates:
+            return None
+        ranked_cards = self._rank_cards(
+            expanded_candidates,
+            message,
+            query,
+            filter_region=False,
+        )
+        limited_cards = self._limit_cards(ranked_cards, more_requested)
+        actual_expanded = self._cards_include_outside_query_region(limited_cards, query)
+        return limited_cards, actual_expanded, self._has_more_cards(ranked_cards, more_requested)
 
     def _rank_cards(
         self,
@@ -1087,12 +1177,44 @@ class TourismChatService:
         preferences = query.get("preferences") or []
         if not preferences:
             return cards
+        strong_preferences = [preference for preference in preferences if preference not in SOFT_PLACE_PREFERENCES]
+        soft_requested = [preference for preference in preferences if preference in SOFT_PLACE_PREFERENCES]
+
+        if strong_preferences:
+            strong_matches = [
+                card
+                for card in cards
+                if any(cls._preference_evidence_score(card, preference) > 0 for preference in strong_preferences)
+            ]
+            if not strong_matches:
+                return []
+            soft_matches = [
+                card
+                for card in strong_matches
+                if any(cls._preference_evidence_score(card, preference) > 0 for preference in soft_requested)
+            ]
+            return soft_matches or strong_matches
+
         matched_cards = [
             card
             for card in cards
-            if any(cls._preference_evidence_score(card, preference) > 0 for preference in preferences)
+            if any(cls._preference_evidence_score(card, preference) > 0 for preference in soft_requested)
         ]
         return matched_cards or cards
+
+    @staticmethod
+    def _place_type_preferences(query: dict) -> list[str]:
+        return [preference for preference in query.get("preferences") or [] if preference in PLACE_TYPE_PREFERENCES]
+
+    @classmethod
+    def _should_expand_place_type_only_query(cls, query: dict) -> bool:
+        if not query.get("is_sigungu") or not query.get("area_name"):
+            return False
+        if query.get("allow_region_expansion"):
+            return False
+        if query.get("conditions") or query.get("features") or query.get("required_evidence_terms"):
+            return False
+        return bool(cls._place_type_preferences(query))
 
     @staticmethod
     def _card_haystack(card: TourismPlaceCard) -> str:
@@ -1211,6 +1333,12 @@ class TourismChatService:
         return filtered
 
     @staticmethod
+    def _cards_include_outside_query_region(cards: list[TourismPlaceCard], query: dict) -> bool:
+        if not cards or not query.get("is_sigungu") or not query.get("sigungu_name"):
+            return False
+        return len(TourismChatService._filter_cards_by_query_region(cards, query)) < len(cards)
+
+    @staticmethod
     def _card_region_text(card: TourismPlaceCard) -> str:
         return card.address or ""
 
@@ -1278,18 +1406,22 @@ class TourismChatService:
         live_top_up_available: bool = False,
     ) -> str:
         region = self._display_region(query)
-        conditions = ", ".join(query.get("conditions") or ["무장애/가족 친화"])
-        lines = [f"{region} 기준으로 {conditions} 조건에 맞는 관광지 {len(cards)}곳을 추천합니다."]
+        focus_label = self._query_focus_label(query)
+        area_name = query.get("area_name") or "상위 지역"
+        if expanded:
+            lines = [
+                f"{region} 안의 후보가 부족해 {area_name} 범위까지 넓혀 "
+                f"{focus_label}에 맞는 후보 {len(cards)}곳을 추천합니다."
+            ]
+        else:
+            lines = [f"{region} 기준으로 {focus_label}에 맞는 후보 {len(cards)}곳을 추천합니다."]
         if query.get("legacy_region_notice"):
             lines.append(str(query["legacy_region_notice"]))
         if query.get("is_sigungu") and len(cards) < 3 and not expanded:
             lines.append(
                 f"{region} 안에서 확인된 후보가 {len(cards)}곳이라 요청 지역 안의 결과만 먼저 제공합니다. "
-                "더 많은 후보가 필요하면 '근처'나 '주변'을 포함해 다시 물어보면 상위 지역까지 넓혀 찾겠습니다."
+                "더 많은 후보가 필요하면 '서울 전체로 넓혀줘'처럼 상위 지역 확장을 명확히 말해 주세요."
             )
-        if expanded:
-            area_name = query.get("area_name") or "상위 지역"
-            lines.append(f"{region} 안의 후보가 부족해 요청 표현에 따라 {area_name} 범위 후보를 함께 포함했습니다.")
         scope_note = self._build_scope_note(query)
         if scope_note:
             lines.append(scope_note)
@@ -1302,6 +1434,19 @@ class TourismChatService:
             lines.append("지금 확인된 후보만 먼저 보여드렸습니다. 더 찾아보려면 '최신 정보 더 찾기'를 눌러 주세요.")
         lines.append("방문 전 운영시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 공식 안내나 전화로 한 번 더 확인해 주세요.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _query_focus_label(query: dict) -> str:
+        conditions = query.get("conditions") or []
+        if conditions:
+            return f"{', '.join(conditions)} 조건"
+        preferences = [
+            PREFERENCE_DISPLAY_LABELS.get(preference, str(preference))
+            for preference in query.get("preferences") or []
+        ]
+        if preferences:
+            return f"{', '.join(dict.fromkeys(preferences))} 요청"
+        return "확인 가능한 무장애/가족 친화 정보"
 
     @staticmethod
     def _display_region(query: dict) -> str:
@@ -1366,7 +1511,7 @@ class TourismChatService:
             area_name = candidate.get("area_name")
             sigungu_name = candidate.get("sigungu_name") or alias
             if area_name and sigungu_name:
-                options.append(f"{area_name} {sigungu_name}")
+                options.append(str(area_name) if area_name == sigungu_name else f"{area_name} {sigungu_name}")
         option_text = ", ".join(dict.fromkeys(options))
         if not option_text:
             return f"'{alias}' 지역이 여러 곳에 있어 어느 지역인지 먼저 알려 주세요."
@@ -1386,7 +1531,7 @@ class TourismChatService:
             area_name = candidate.get("area_name")
             sigungu_name = candidate.get("sigungu_name") or alias
             if area_name and sigungu_name:
-                region_text = f"{area_name} {sigungu_name}"
+                region_text = str(area_name) if area_name == sigungu_name else f"{area_name} {sigungu_name}"
                 if alias and alias in message:
                     suggestions.append(message.replace(alias, region_text, 1))
                 else:
@@ -1419,6 +1564,25 @@ class TourismChatService:
         return [f"{region}에서 {condition_text} 관광지 추천해줘"]
 
     @staticmethod
+    def _build_general_tourism_scope_answer(query: dict) -> str:
+        region = query.get("region") or "해당 지역"
+        return (
+            f"죄송합니다. 현재 챗봇은 {region}의 일반 관광지, 식당, 카페 전체 목록이 아니라 "
+            "무장애 관광 연관 장소만 제공하고 있습니다. "
+            "휠체어, 유모차, 장애인 화장실, 점자, 수어/자막처럼 확인할 접근성 조건을 함께 알려주시면 "
+            "보유한 무장애 관광 카드 기준으로 추천하겠습니다."
+        )
+
+    @staticmethod
+    def _build_general_tourism_scope_suggestions(query: dict) -> list[str]:
+        region = query.get("region") or "서울"
+        return [
+            f"{region}에서 휠체어 접근 가능한 관광지 추천해줘",
+            f"{region}에서 장애인 화장실 있는 관광지 추천해줘",
+            f"{region}에서 유모차로 갈 만한 관광지 추천해줘",
+        ]
+
+    @staticmethod
     def _build_no_card_suggestions(query: dict) -> list[str]:
         conditions = [str(condition) for condition in query.get("conditions") or []]
         condition_text = " ".join(conditions[:2]) or "무장애"
@@ -1426,7 +1590,7 @@ class TourismChatService:
         suggestions = []
         if query.get("is_sigungu") and query.get("area_name"):
             suggestions.append(f"{query['area_name']}에서 {condition_text} 관광지 추천해줘")
-            suggestions.append(f"{region} 근처까지 넓혀서 {condition_text} 관광지 추천해줘")
+            suggestions.append(f"{query['area_name']} 전체로 넓혀서 {condition_text} 관광지 추천해줘")
         elif region:
             suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
         return suggestions[:2]
@@ -1546,6 +1710,17 @@ class TourismChatService:
     def _has_supported_tourism_part(query: dict) -> bool:
         supported_conditions = [condition for condition in query.get("conditions") or [] if condition != "대중교통"]
         return bool(query.get("region") and supported_conditions)
+
+    @staticmethod
+    def _is_general_tourism_only_query(query: dict) -> bool:
+        if query.get("unsupported_intent"):
+            return False
+        supported_conditions = [condition for condition in query.get("conditions") or [] if condition != "대중교통"]
+        if supported_conditions:
+            return False
+        if query.get("required_evidence_terms"):
+            return True
+        return bool(query.get("preferences") or query.get("features") or query.get("region"))
 
     @staticmethod
     def _should_clarify_unsupported_core(query: dict) -> bool:

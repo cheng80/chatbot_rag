@@ -41,6 +41,18 @@ class Settings(BaseSettings):
         default="https://apis.data.go.kr/B551011/KorWithService2",
         alias="TOUR_API_ACCESSIBLE_BASE_URL",
     )
+    tour_api_hub_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/LocgoHubTarService1",
+        alias="TOUR_API_HUB_BASE_URL",
+    )
+    tour_api_related_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/TarRlteTarService1",
+        alias="TOUR_API_RELATED_BASE_URL",
+    )
+    tour_api_wellness_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/WellnessTursmService",
+        alias="TOUR_API_WELLNESS_BASE_URL",
+    )
     tour_api_mobile_os: str = Field(default="ETC", alias="TOUR_API_MOBILE_OS")
     tour_api_mobile_app: str = Field(default="chatbot_rag", alias="TOUR_API_MOBILE_APP")
     tour_api_timeout: float = Field(default=20.0, alias="TOUR_API_TIMEOUT")
@@ -68,6 +80,33 @@ class Settings(BaseSettings):
     tourism_sample_path: Path = Field(default=PROJECT_ROOT / "data" / "raw" / "tourism_accessible", alias="TOURISM_SAMPLE_PATH")
     tourism_reasoning_assist_enabled: bool = Field(default=False, alias="TOURISM_REASONING_ASSIST_ENABLED")
     tourism_reasoning_assist_max_cards: int = Field(default=5, alias="TOURISM_REASONING_ASSIST_MAX_CARDS")
+    tourism_korean_correction_enabled: bool = Field(default=True, alias="TOURISM_KOREAN_CORRECTION_ENABLED")
+    tourism_korean_correction_provider: str = Field(default="hf_seq2seq", alias="TOURISM_KOREAN_CORRECTION_PROVIDER")
+    tourism_korean_correction_model: str = Field(
+        default=str(PROJECT_ROOT / "data" / "models" / "tourism_korean_corrector"),
+        alias="TOURISM_KOREAN_CORRECTION_MODEL",
+    )
+    tourism_korean_correction_base_model: str = Field(
+        default="j5ng/et5-typos-corrector",
+        alias="TOURISM_KOREAN_CORRECTION_BASE_MODEL",
+    )
+    tourism_korean_correction_device: str = Field(default="auto", alias="TOURISM_KOREAN_CORRECTION_DEVICE")
+    tourism_korean_correction_risky_only: bool = Field(default=True, alias="TOURISM_KOREAN_CORRECTION_RISKY_ONLY")
+    tourism_korean_correction_allow_download: bool = Field(default=False, alias="TOURISM_KOREAN_CORRECTION_ALLOW_DOWNLOAD")
+    tourism_korean_correction_max_chars: int = Field(default=80, alias="TOURISM_KOREAN_CORRECTION_MAX_CHARS")
+    tourism_korean_correction_max_length: int = Field(default=128, alias="TOURISM_KOREAN_CORRECTION_MAX_LENGTH")
+    tourism_korean_correction_num_beams: int = Field(default=1, alias="TOURISM_KOREAN_CORRECTION_NUM_BEAMS")
+    tourism_condition_transformer_enabled: bool = Field(default=False, alias="TOURISM_CONDITION_TRANSFORMER_ENABLED")
+    tourism_condition_transformer_model: str = Field(
+        default=str(PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_robust_e2" / "model"),
+        alias="TOURISM_CONDITION_TRANSFORMER_MODEL",
+    )
+    tourism_condition_transformer_metrics_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_robust_e2" / "metrics.json",
+        alias="TOURISM_CONDITION_TRANSFORMER_METRICS_PATH",
+    )
+    tourism_condition_transformer_device: str = Field(default="auto", alias="TOURISM_CONDITION_TRANSFORMER_DEVICE")
+    tourism_condition_transformer_max_length: int = Field(default=96, alias="TOURISM_CONDITION_TRANSFORMER_MAX_LENGTH")
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

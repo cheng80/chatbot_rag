@@ -71,9 +71,20 @@ python3 -m http.server 5173
 
 ## 외부 임시 확인
 
-Mac mini에서 FastAPI를 먼저 실행한다.
+프로젝트 루트에서 아래 스크립트 중 하나를 실행한다.
 
-FastAPI와 Cloudflare는 같은 명령이 아니다. 터미널을 2개 열어 각각 실행한다.
+```bash
+./run_tourism_debug_tunnel.sh
+./run_tourism_release_tunnel.sh
+```
+
+- debug 스크립트는 FastAPI를 `--reload`로 실행하고 `/tourism-ui/` 개발 화면을 연다.
+- release 스크립트는 reload 없이 실행하고 `/tourism-ui/?mode=release` 사용자 화면을 연다.
+- 8000번 FastAPI가 이미 `/health`에 응답하면 새 서버를 띄우지 않고 기존 서버를 재사용한다.
+- 이전 스크립트가 만든 Quick Tunnel 주소가 아직 살아 있으면 새 터널을 만들지 않고 그 주소를 연다.
+- 새 터널을 만든 경우 `data/generated/tour_api/tunnel_logs/*_public_url.txt`에 public base URL을 저장한다.
+
+수동으로 나눠 실행하고 싶으면 FastAPI와 Cloudflare를 서로 다른 터미널에서 실행한다.
 
 터미널 1: FastAPI 서버
 

@@ -196,3 +196,73 @@ def test_detail_with_tour_uses_accessible_base_url(monkeypatch):
         "base_url": "https://example.com/with",
         "service_key": "accessible",
     }
+
+
+def test_hub_area_based_list_uses_bigdata_region_codes(monkeypatch):
+    settings = Settings(tour_api_service_key="test", tour_api_hub_base_url="https://example.com/hub")
+    service = TourAPIService(settings)
+    captured = {}
+
+    def fake_request_items(operation, params, base_url=None):
+        captured["operation"] = operation
+        captured["params"] = params
+        captured["base_url"] = base_url
+        return []
+
+    monkeypatch.setattr(service, "_request_items", fake_request_items)
+
+    assert service.hub_area_based_list("41", signgu_cd="41135", base_ym="202504") == []
+    assert captured == {
+        "operation": "areaBasedList1",
+        "params": {
+            "areaCd": "41",
+            "signguCd": "41135",
+            "baseYm": "202504",
+            "numOfRows": 10,
+            "pageNo": 1,
+        },
+        "base_url": "https://example.com/hub",
+    }
+
+
+def test_related_search_keyword_uses_related_service(monkeypatch):
+    settings = Settings(tour_api_service_key="test", tour_api_related_base_url="https://example.com/related")
+    service = TourAPIService(settings)
+    captured = {}
+
+    def fake_request_items(operation, params, base_url=None):
+        captured["operation"] = operation
+        captured["params"] = params
+        captured["base_url"] = base_url
+        return []
+
+    monkeypatch.setattr(service, "_request_items", fake_request_items)
+
+    assert service.related_search_keyword("뮤지엄산", area_cd="51", signgu_cd="51130") == []
+    assert captured["operation"] == "searchKeyword1"
+    assert captured["params"]["keyword"] == "뮤지엄산"
+    assert captured["params"]["areaCd"] == "51"
+    assert captured["params"]["signguCd"] == "51130"
+    assert captured["base_url"] == "https://example.com/related"
+
+
+def test_wellness_area_based_list_uses_ldong_codes(monkeypatch):
+    settings = Settings(tour_api_service_key="test", tour_api_wellness_base_url="https://example.com/wellness")
+    service = TourAPIService(settings)
+    captured = {}
+
+    def fake_request_items(operation, params, base_url=None):
+        captured["operation"] = operation
+        captured["params"] = params
+        captured["base_url"] = base_url
+        return []
+
+    monkeypatch.setattr(service, "_request_items", fake_request_items)
+
+    assert service.wellness_area_based_list("41", "135", content_type_id="39") == []
+    assert captured["operation"] == "areaBasedList"
+    assert captured["params"]["langDivCd"] == "KOR"
+    assert captured["params"]["lDongRegnCd"] == "41"
+    assert captured["params"]["lDongSignguCd"] == "135"
+    assert captured["params"]["contentTypeId"] == "39"
+    assert captured["base_url"] == "https://example.com/wellness"

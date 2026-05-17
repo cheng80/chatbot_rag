@@ -25,6 +25,18 @@ def test_tourism_context_classifier_rule_labels_hard_boundaries():
     assert "strict_and" in TourismContextClassifier.rule_labels("점자블록만 있고 안내견이 없으면 안 돼")
     assert "add_condition" not in TourismContextClassifier.rule_labels("수유실 여부를 추측하지 말고 있는 곳")
     assert "exclude_condition" not in TourismContextClassifier.rule_labels("수유실 여부를 추측하지 말고 있는 곳")
+    assert "add_condition" not in TourismContextClassifier.rule_labels("아까 추천에서 아이 때문에 수유나 기저귀도 확인되면 좋아")
+    assert "add_condition" in TourismContextClassifier.rule_labels("아까 추천에서 그중 수유실까지 확인되는 곳만 찾아줘")
+
+
+def test_tourism_context_classifier_predicts_normalized_noisy_input():
+    classifier = TourismContextClassifier()
+
+    prediction = classifier.predict("수어안내나자막자료중하나만있음됨")
+
+    assert "or_condition" in prediction.labels
+    assert "specific_facility_required" in prediction.labels
+    assert any(source.endswith(":normalized") or source == "model" for source in prediction.source_by_label.values())
 
 
 def test_tourism_context_classifier_training_predicts_multilabel(tmp_path):

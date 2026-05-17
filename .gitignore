@@ -155,6 +155,9 @@ analysis_benchmark.json
 **/htmlcov/
 **/.ipynb_checkpoints/
 
+# Local source datasets and generated heavy artifacts
+data/source/
+
 # Leveling simulation / ML generated heavy artifacts
 logs/sim/*.jsonl
 analysis/leveling/generated/
@@ -179,9 +182,11 @@ analysis/leveling/data/raw/
 **/*.sql~
 data/vector_store/chroma/
 data/external/
+data/models/
 data/source/admin_regions/
 data/generated/nanobanana-images/
 data/generated/tour_api/
+tmp/
 
 ############################################################
 # Symbols / Debug

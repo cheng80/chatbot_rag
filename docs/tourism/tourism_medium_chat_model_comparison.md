@@ -45,7 +45,9 @@
 
 이번 120건에서는 ET5, quickspacer, RoBERTa 후보가 실제 카드 품질을 개선하지 못했다. ET5와 quickspacer는 응답 시간이 늘었고, RoBERTa도 통과율 개선이 없었다.
 
-따라서 현재 런타임 승격은 하지 않는다. 기본 구조는 rule/parser + 도메인 정규화 + ET5 후보 레이어를 유지하되, 새 모델을 카드 필터 기준으로 승격하지 않는다.
+따라서 이 평가셋만 기준으로는 런타임 승격을 하지 않는다. 다만 이 세트는 명시 조건과 기존 룰이 잘 잡는 문장이 많아, 모델 간 차이를 드러내기에는 약했다.
+
+후속으로 `data/eval/tourism_hard_nlu_holdout_20260518.jsonl`과 `data/eval/tourism_hard_semantic_chat_eval_20260518.jsonl`을 추가했다. hard 의미 평가에서는 hard 증강 RoBERTa 보조가 기본 rule/parser보다 뚜렷하게 나았다. 세부 결과는 `docs/tourism/tourism_hard_nlu_condition_transformer.md`에 정리한다.
 
 남은 실패는 모델 선택보다 데이터 커버리지와 후속 정책 문제에 가깝다.
 
@@ -62,5 +64,5 @@
 
 1. 청각/시각 접근성 근거 카드 커버리지부터 보강한다.
 2. 보조견/점자/수어/자막처럼 희소 조건은 결과 없음 안내와 조건 완화 제안을 더 명확히 한다.
-3. 모델 승격은 새 평가셋에서 카드 품질 통과율이 실제로 상승할 때만 검토한다.
+3. hard 의미 표현은 `tourism_hard_nlu_condition_transformer.md` 기준으로 RoBERTa 보조를 평가한다.
 4. 조건 라벨 평가는 “무장애” 표현이 휠체어 조건으로 보정되는 현재 정책을 반영해 기대 라벨을 재정리한다.

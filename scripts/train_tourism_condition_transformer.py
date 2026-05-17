@@ -199,6 +199,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260518)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--save-model", action="store_true")
+    parser.add_argument(
+        "--skip-rule-baselines",
+        action="store_true",
+        help="Skip slow parser/corrector baselines when running repeated Transformer experiments.",
+    )
     return parser.parse_args()
 
 
@@ -278,14 +283,18 @@ def main() -> None:
     test_expected = [[int(value) for value in row["label_vector"]] for row in test_rows]
     test_predicted = predict_with_thresholds(test_probabilities, thresholds)
     test_metrics = evaluate(test_expected, test_predicted, test_rows, test_latency_ms)
-    rule_baseline = evaluate_rule_baseline(test_rows, enable_external_correction=False)
-    corrected_rule_baseline = evaluate_rule_baseline(test_rows, enable_external_correction=True)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if args.save_model:
         model_dir = args.output_dir / "model"
         model.save_pretrained(model_dir)
         tokenizer.save_pretrained(model_dir)
+
+    rule_baseline = None
+    corrected_rule_baseline = None
+    if not args.skip_rule_baselines:
+        rule_baseline = evaluate_rule_baseline(test_rows, enable_external_correction=False)
+        corrected_rule_baseline = evaluate_rule_baseline(test_rows, enable_external_correction=True)
 
     report = {
         "model_name": str(args.model_name),

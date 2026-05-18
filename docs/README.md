@@ -35,9 +35,10 @@ notebooks/
 | 12 | `tourism/context_llm_dataset_generation.md` | Codex/LLM hard-style 학습셋 생성 절차 |
 | 13 | `tourism/tourism_keyword_variant_followup.md` | 핵심어/동의어/오타 보강 후속 작업과 보류 기준 |
 | 14 | `tourism/tourism_model_reasoning_benchmark.md` | 로컬 LLM 추론 보조 비교 |
-| 15 | `design/tourism_chatbot_DESIGN.md` | `/tourism-ui/` 디자인 기준 |
-| 16 | `project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 |
-| 17 | `project/mvp_quality_work_log.md` | 작업 이력과 산출물 목록 |
+| 15 | `tourism/tourism_service_enhancement_ideas.md` | 기본 추천 기능 이후의 편의 기능 보강안 |
+| 16 | `design/tourism_chatbot_DESIGN.md` | `/tourism-ui/` 디자인 기준 |
+| 17 | `project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 |
+| 18 | `project/mvp_quality_work_log.md` | 작업 이력과 산출물 목록 |
 
 ## 2. ETC 참조 문서
 

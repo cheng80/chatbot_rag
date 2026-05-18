@@ -15,6 +15,7 @@
 3. 필요한 경우 .venv/bin/python -m pytest 를 실행해 현재 테스트 상태를 본다.
 4. README.md 와 docs/rag/rag_chatbot_design.md 의 실행 순서를 기준으로 RAG 챗봇 작업을 이어간다.
 5. 관광 MVP 작업은 docs/project/GOAL.md, docs/tourism/accessible_tourism_mvp_plan.md, docs/tourism/tourism_data_operations.md 의 최신 API 메모를 먼저 확인한다.
+6. 기본 추천 기능 이후의 UX/서비스 보강 후보는 docs/tourism/tourism_service_enhancement_ideas.md 를 확인한다.
 
 로컬 VS Code 설정(.vscode/settings.json)은 git ignore 대상이다. 여기에 있는 python.defaultInterpreterPath 설정은 커밋 대상이 아니다.
 ```

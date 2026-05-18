@@ -693,6 +693,50 @@ def test_tourism_chat_distinguishes_exact_evidence_missing_from_no_card_output(t
     assert "수어/수화" in response.answer
 
 
+def test_tourism_chat_accepts_one_alternative_evidence_group(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    library = TourismPlaceCard(
+        content_id="seongnam-library",
+        title="성남도서관",
+        address="경기도 성남시",
+        recommendation_reason="점자블록이 확인된 도서관입니다.",
+        accessibility_tags=["점자블록"],
+        raw_fields={"점자블록": "점자블록 있음(계단 앞)"},
+    )
+    (sample_dir / "library.md").write_text(normalizer.card_to_markdown(library), encoding="utf-8")
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("성남시 점자나 음성안내 둘 중 하나라도 있으면 추천해줘")
+
+    assert response.cards
+    assert response.cards[0].title == "성남도서관"
+
+
+def test_tourism_chat_remembers_region_after_condition_clarification(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
+
+    first = service.answer("대전 계단 적은 관광지 추천", session_id="clarify-region-memory")
+    second = service.answer("그중 엘레베터 되는 곳만", session_id="clarify-region-memory")
+
+    assert first.lookup_mode == "clarification"
+    assert "대전" in second.answer
+    assert "추천할 지역을 먼저" not in second.answer
+
+
 def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(

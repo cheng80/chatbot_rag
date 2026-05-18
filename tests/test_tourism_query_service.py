@@ -923,6 +923,46 @@ def test_tourism_query_removes_excluded_condition_from_required_evidence_terms(t
     assert any("유모차" in group for group in query["required_evidence_terms"])
 
 
+def test_tourism_query_extracts_alternative_evidence_terms_for_or_sensory_request(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        enable_external_correction=False,
+        condition_transformer=FakeConditionTransformer([]),
+    )
+
+    query = service.extract("점자나 음성안내 둘 중 하나라도 있으면 추천해줘")
+
+    assert query["required_evidence_terms"] == []
+    assert ["점자", "점자블록", "음성안내", "음성 안내", "오디오가이드", "점자홍보물"] in query["alternative_evidence_terms"]
+
+
+def test_tourism_query_does_not_treat_floor_movement_as_ambiguous_region(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {
+                    "이동": [
+                        {"area_code": "31", "sigungu_code": "10", "area_name": "경기", "sigungu_name": "의왕시"},
+                        {"area_code": "36", "sigungu_code": "4", "area_name": "경남", "sigungu_name": "김해시"},
+                    ]
+                },
+                "region_index": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("층 이동 쉬운 곳")
+
+    assert query["ambiguous_region"] is None
+
+
 def test_tourism_query_marks_ambiguous_condition_boundary(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")

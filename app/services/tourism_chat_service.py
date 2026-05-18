@@ -537,10 +537,18 @@ class TourismChatService:
         current_required = [tuple(group) for group in merged.get("required_evidence_terms") or []]
         previous_required = [tuple(group) for group in previous.get("required_evidence_terms") or []]
         required_groups = current_required if replacing_context else [*previous_required, *current_required]
+        current_alternative = [tuple(group) for group in merged.get("alternative_evidence_terms") or []]
+        previous_alternative = [tuple(group) for group in previous.get("alternative_evidence_terms") or []]
+        alternative_groups = current_alternative if replacing_context else [*previous_alternative, *current_alternative]
         excluded_preferences = set(merged.get("excluded_preferences") or [])
         merged["required_evidence_terms"] = [
             list(group)
             for group in dict.fromkeys(required_groups)
+            if not self._required_group_matches_excluded_preference(group, excluded_preferences)
+        ]
+        merged["alternative_evidence_terms"] = [
+            list(group)
+            for group in dict.fromkeys(alternative_groups)
             if not self._required_group_matches_excluded_preference(group, excluded_preferences)
         ]
         merged["allow_region_expansion"] = bool(merged.get("allow_region_expansion") or previous.get("allow_region_expansion"))
@@ -708,7 +716,8 @@ class TourismChatService:
         if not session_id:
             return
         if response.lookup_mode == "clarification" and not response.cards:
-            return
+            if not query.get("region"):
+                return
         if not query.get("region"):
             return
         self._session_queries[session_id] = {
@@ -726,6 +735,7 @@ class TourismChatService:
                 "excluded_conditions",
                 "ambiguous_conditions",
                 "required_evidence_terms",
+                "alternative_evidence_terms",
                 "features",
                 "preferences",
                 "excluded_preferences",
@@ -1174,6 +1184,13 @@ class TourismChatService:
         )
         if not required_covered:
             return False
+        alternative_groups = query.get("alternative_evidence_terms") or []
+        alternative_covered = not alternative_groups or any(
+            any(any(term in cls._card_haystack(card) for term in group) for card in cards)
+            for group in alternative_groups
+        )
+        if not alternative_covered:
+            return False
         # Preferences are ranking signals. They should not invalidate otherwise
         # relevant cards when the local data has no explicit preference evidence.
         return True
@@ -1207,12 +1224,17 @@ class TourismChatService:
     @classmethod
     def _filter_cards_by_required_evidence_terms(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
         required_groups = query.get("required_evidence_terms") or []
-        if not required_groups:
+        alternative_groups = query.get("alternative_evidence_terms") or []
+        if not required_groups and not alternative_groups:
             return cards
         return [
             card
             for card in cards
             if all(any(term in cls._card_haystack(card) for term in group) for group in required_groups)
+            and (
+                not alternative_groups
+                or any(any(term in cls._card_haystack(card) for term in group) for group in alternative_groups)
+            )
         ]
 
     @classmethod
@@ -1629,7 +1651,8 @@ class TourismChatService:
         if not candidates:
             return None
         required_groups = query.get("required_evidence_terms") or []
-        if not required_groups:
+        alternative_groups = query.get("alternative_evidence_terms") or []
+        if not required_groups and not alternative_groups:
             return None
 
         scoped = cls._filter_cards_by_query_region(cls._deduplicate(candidates), query) if query.get("region") else cls._deduplicate(candidates)
@@ -1642,7 +1665,7 @@ class TourismChatService:
         if exact_candidates:
             return None
 
-        requested = cls._display_required_evidence_groups(required_groups)
+        requested = cls._display_required_evidence_groups([*required_groups, *alternative_groups])
         alternatives = cls._summarize_alternative_evidence(condition_candidates)
         if alternatives:
             return f"다만 같은 범주의 대체 근거({alternatives})가 있는 후보는 확인됩니다. 요청하신 기준은 {requested}로 더 엄격하게 보았습니다."
@@ -1877,6 +1900,8 @@ class TourismChatService:
         if "대중교통" in (query.get("conditions") or []) and query.get("excluded_conditions"):
             return False
         if query.get("required_evidence_terms"):
+            return True
+        if query.get("alternative_evidence_terms"):
             return True
         return bool(query.get("preferences") or query.get("features") or query.get("region"))
 

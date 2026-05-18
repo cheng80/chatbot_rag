@@ -75,7 +75,7 @@ CONDITION_KEYWORDS = {
         "무리 없는",
         "쉬어 갈 곳",
     ],
-    "주차": ["주차", "주챠", "주차ㅏ", "주자창", "차대기", "차 댈", "차댈곳", "차 댈 곳", "차 세우", "장애인 주차"],
+    "주차": ["주차", "주챠", "주차ㅏ", "주자창", "차대기", "차 댈", "차댈곳", "차 댈 곳", "차 대는 곳", "차 세우", "장애인 주차"],
     "화장실": ["화장실", "장애인 화장실", "장실", "장애인 장실"],
     "접근로": [
         "접근로",
@@ -353,10 +353,9 @@ class TourismQueryService:
         )
         ambiguous_conditions = self._find_ambiguous_condition_request(condition_messages, conditions)
         preferences, excluded_preferences = self._merge_preference_filters(condition_messages)
-        required_evidence_terms = self._filter_required_evidence_terms(
-            self._merge_required_evidence_terms(condition_messages),
-            excluded_conditions,
-        )
+        required_evidence_terms, alternative_evidence_terms = self._merge_evidence_filters(condition_messages)
+        required_evidence_terms = self._filter_required_evidence_terms(required_evidence_terms, excluded_conditions)
+        alternative_evidence_terms = self._filter_required_evidence_terms(alternative_evidence_terms, excluded_conditions)
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
@@ -389,6 +388,7 @@ class TourismQueryService:
                 if any(keyword in candidate for keyword in keywords for candidate in condition_messages)
             ],
             "required_evidence_terms": required_evidence_terms,
+            "alternative_evidence_terms": alternative_evidence_terms,
             "unsupported_intent": unsupported_intent,
             "ml_intent": intent_prediction.intent,
             "ml_intent_confidence": intent_prediction.confidence,
@@ -750,6 +750,26 @@ class TourismQueryService:
         return merged
 
     @classmethod
+    def _merge_evidence_filters(cls, messages: list[str]) -> tuple[list[list[str]], list[list[str]]]:
+        required: list[list[str]] = []
+        alternative: list[list[str]] = []
+        seen_required: set[tuple[str, ...]] = set()
+        seen_alternative: set[tuple[str, ...]] = set()
+        for candidate in messages:
+            candidate_required, candidate_alternative = cls._extract_evidence_filters(candidate)
+            for group in candidate_required:
+                key = tuple(group)
+                if key not in seen_required:
+                    seen_required.add(key)
+                    required.append(group)
+            for group in candidate_alternative:
+                key = tuple(group)
+                if key not in seen_alternative:
+                    seen_alternative.add(key)
+                    alternative.append(group)
+        return required, alternative
+
+    @classmethod
     def _filter_required_evidence_terms(cls, required_groups: list[list[str]], excluded_conditions: list[str]) -> list[list[str]]:
         if not required_groups or not excluded_conditions:
             return required_groups
@@ -782,7 +802,13 @@ class TourismQueryService:
 
     @staticmethod
     def _extract_required_evidence_terms(message: str) -> list[list[str]]:
+        required, alternative = TourismQueryService._extract_evidence_filters(message)
+        return [*required, *alternative]
+
+    @staticmethod
+    def _extract_evidence_filters(message: str) -> tuple[list[list[str]], list[list[str]]]:
         term_groups: list[list[str]] = []
+        alternative_groups: list[list[str]] = []
         skip_individual_terms: set[str] = set()
         hearing_or_request = (
             any(term in message for term in ["수어", "수화"])
@@ -790,8 +816,36 @@ class TourismQueryService:
             and any(marker in message for marker in ["나", "이나", "또는", "혹은"])
         )
         if hearing_or_request:
-            term_groups.append(["수어", "수화", "자막", "문자안내", "영상안내"])
+            alternative_groups.append(["수어", "수화", "자막", "문자안내", "영상안내"])
             skip_individual_terms.update({"수어", "수화", "자막"})
+        sensory_or_patterns = [
+            (
+                ("점자", "점자블록"),
+                ("음성안내", "음성 안내", "오디오가이드"),
+                ["점자", "점자블록", "음성안내", "음성 안내", "오디오가이드", "점자홍보물"],
+            ),
+            (
+                ("점자블록", "점자 블럭", "점자 유도블록"),
+                ("촉지도", "촉지 안내도"),
+                ["점자블록", "점자", "촉지도"],
+            ),
+            (
+                ("보조견", "안내견"),
+                ("점자", "점자 안내", "점자블록", "촉지도"),
+                ["보조견", "안내견", "점자", "점자블록", "촉지도"],
+            ),
+        ]
+        compact = re.sub(r"\s+", "", message)
+        for left_terms, right_terms, evidence_terms in sensory_or_patterns:
+            left_match = any(term in message or re.sub(r"\s+", "", term) in compact for term in left_terms)
+            right_match = any(term in message or re.sub(r"\s+", "", term) in compact for term in right_terms)
+            has_or_marker = any(marker in message for marker in ["나", "이나", "또는", "혹은", "둘 중", "둘중"]) or any(
+                marker in compact for marker in ["나", "이나", "또는", "혹은", "둘중"]
+            )
+            if left_match and right_match and has_or_marker:
+                alternative_groups.append(evidence_terms)
+                for term in [*left_terms, *right_terms]:
+                    skip_individual_terms.add(term)
         term_map = [
             (["점자블록", "점자"], ["점자블록", "점자"]),
             (["시각장애", "시각 장애"], ["점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "점자홍보물"]),
@@ -824,7 +878,7 @@ class TourismQueryService:
             and not TourismQueryService._is_preference_excluded(message, "시장")
         ):
             term_groups.append(["시장", "먹자골목", "전통시장"])
-        return term_groups
+        return term_groups, alternative_groups
 
     @staticmethod
     def _requires_all_conditions(message: str) -> bool:
@@ -981,6 +1035,8 @@ class TourismQueryService:
         return None
 
     def _find_ambiguous_region(self, message: str, region: str | None) -> str | None:
+        if any(term in message for term in ["층 이동", "이동 쉬", "이동이 쉬", "위아래 이동"]):
+            message = message.replace("이동", "")
         for alias in sorted(self.ambiguous_region_aliases, key=len, reverse=True):
             candidates = self.ambiguous_region_aliases[alias]
             if alias not in message:

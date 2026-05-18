@@ -37,6 +37,20 @@
 | 실패 | 76 |
 | 통과율 | 62.0% |
 
+OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는 다음과 같다.
+
+| 항목 | 보강 전 | 보강 후 |
+|---|---:|---:|
+| 통과 | 124 | 132 |
+| 실패 | 76 | 68 |
+| 통과율 | 62.0% | 66.0% |
+| hard_v2_sensory_alternative 실패 | 13 | 7 |
+
+출력 파일:
+
+- 보강 전: `data/generated/tour_api/eval_runs/hard_chat_v2_200_gated_roberta_20260518.jsonl`
+- 보강 후: `data/generated/tour_api/eval_runs/hard_chat_v2_200_after_or_policy_20260518.jsonl`
+
 실패 유형은 다음과 같다.
 
 | failure class | 건수 | 해석 |
@@ -98,12 +112,12 @@
 하지만 현재 query parser는 `required_evidence_terms`를 여러 그룹으로 만들고, chat filter는 모든 그룹을 만족해야 하는 AND처럼 처리한다.  
 따라서 실제로는 대체 가능한 조건인데도 카드가 0장이 되는 경우가 있다.
 
-다음 보강 우선순위가 높다.
+2026-05-18 보강:
 
-- OR 근거 그룹을 표현할 구조 추가
-- 기존 `required_evidence_terms`는 AND로 유지
-- 새 필드 예: `alternative_evidence_terms`
-- 필터에서는 `required_evidence_terms` AND + `alternative_evidence_terms` 중 하나 이상으로 처리
+- OR 근거 그룹을 표현하는 `alternative_evidence_terms`를 추가했다.
+- 기존 `required_evidence_terms`는 AND로 유지한다.
+- 필터에서는 `required_evidence_terms` AND + `alternative_evidence_terms` 중 하나 이상으로 처리한다.
+- hard v2의 `hard_v2_sensory_alternative` 실패가 13건에서 7건으로 감소했다.
 
 ### 2. strict sensory 조건은 데이터 커버리지 영향을 강하게 받음
 
@@ -143,11 +157,11 @@
 
 ## 다음 보강 순서
 
-1. `alternative_evidence_terms` 도입
-2. 감각 접근성 OR 표현 파서 보강
-3. clarification 이후 region 맥락 저장 정책 검토
-4. hard v2를 다시 실행해 OR/멀티턴 개선분만 확인
-5. 남은 0장 케이스는 데이터 커버리지 리포트로 분리
+1. 남은 strict sensory 0장 케이스를 데이터 커버리지 리포트로 분리
+2. 촉지도 strict 요청에서 점자블록 카드가 반환되는 mismatch를 더 좁게 제한
+3. clarification 이후 region 맥락 저장 정책을 추가로 검증
+4. 접근성 조건 + 장소 선호 조합에서 선호를 언제 soft ranking으로 낮출지 정책화
+5. hard v2를 재실행해 개선 항목별 회귀 여부 확인
 
 ### 즉시 수정 후보
 

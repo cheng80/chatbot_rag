@@ -47,6 +47,44 @@
 
 ## 새로 드러난 문제
 
+## 상세 실패 bucket
+
+단순 실패 사유만 보면 대부분 `card_count_low`와 `card_missing_required_terms`로 보이지만, 실제 원인은 다음처럼 나뉜다.
+
+| bucket | 건수 | 의미 | 우선순위 |
+|---|---:|---|---|
+| strict_sensory_sparse_data | 28 | 수어, 자막, 점자안내, 촉지도 등 엄격 감각 접근성 조건의 지역별 카드 부족 | 중 |
+| or_condition_encoded_as_strict_or_sparse | 23 | `A 또는 B`, `A나 B`가 대체 가능 조건인데 내부에서 AND처럼 해석되거나, OR 후보가 충분히 살아나지 않음 | 높음 |
+| multiturn_context_or_policy_loss | 6 | 첫 턴 clarification/unsupported 이후 둘째 턴이 지역 또는 조건 맥락을 잃음 | 높음 |
+| accessibility_plus_preference_sparse | 6 | 접근성 조건과 장소 선호가 동시에 들어오면 지역 내 후보가 0장으로 떨어짐 | 중 |
+| strict_evidence_mismatch_cards_returned | 4 | 카드는 반환됐지만 요청한 정확 근거가 아니라 더 넓은 시각/청각 접근성 카드가 반환됨 | 높음 |
+| multiturn_sparse_followup | 4 | 멀티턴 조건 교체는 됐지만 둘째 조건의 카드 자체가 부족함 | 중 |
+| negation_replace_boundary_or_sparse | 2 | `처음엔 A였는데 그건 빼고 B`류에서 제외 조건 근거가 남거나 B 후보가 부족함 | 중 |
+| clarification_policy_too_strict_or_expected_wrong | 2 | 평가셋은 카드 반환을 기대했지만 서비스는 clarification을 선택함 | 낮음 |
+| unsupported_policy_false_positive | 1 | 접근성 조건이 남아 있는데 일반 관광 unsupported로 빠짐 | 높음 |
+
+이 분류 기준에서는 “카드가 0장”과 “평가 실패”를 분리한다.  
+예를 들어 `strict_evidence_mismatch_cards_returned`는 사용자가 카드를 보기는 하지만, 평가상으로는 요청한 정확 근거가 아니므로 실패다.
+
+### 실패가 많은 카테고리
+
+| category | 실패 |
+|---|---:|
+| hard_v2_sensory_alternative | 13 |
+| hard_v2_sensory_strict:자막 | 12 |
+| hard_v2_multiturn | 10 |
+| hard_v2_sensory_strict:촉지도 | 6 |
+| hard_v2_negation_replace | 5 |
+| hard_v2_supported:고령자 | 5 |
+| hard_v2_sensory_strict:청각장애 | 5 |
+| hard_v2_sensory_strict:수어 | 5 |
+| hard_v2_supported:보조견 | 4 |
+| hard_v2_supported:휠체어 | 3 |
+| hard_v2_sensory_strict:점자블록 | 3 |
+
+가장 중요한 신호는 `hard_v2_sensory_alternative` 실패 13건이다.  
+이는 단순 데이터 부족이 아니라 `OR 조건 구조화`가 부족하다는 뜻이다.
+
 ### 1. 감각 접근성 OR 표현이 AND처럼 처리됨
 
 예:
@@ -110,6 +148,26 @@
 3. clarification 이후 region 맥락 저장 정책 검토
 4. hard v2를 다시 실행해 OR/멀티턴 개선분만 확인
 5. 남은 0장 케이스는 데이터 커버리지 리포트로 분리
+
+### 즉시 수정 후보
+
+다음은 데이터 추가 없이 코드 정책으로 개선할 수 있는 항목이다.
+
+- `수어 또는 자막`, `점자나 음성안내`, `점자블록이나 촉지도`를 `alternative_evidence_terms`로 분리한다.
+- `손으로 만져 확인할 안내`, `촉지 안내도`는 `시각장애` 포괄 조건으로 넓히지 않고 `촉지도` strict 조건으로 유지한다. strict 근거가 없으면 카드 반환 대신 정확 근거 부족 안내로 처리한다.
+- 첫 턴이 clarification이어도 `region`, `area_code`, `sigungu_code`, 원문 조건 후보는 세션에 저장한다.
+- 후속 문장에 `층 이동 쉬운`이 있을 때 `이동`을 지명 후보로 오인하지 않도록 ambiguous region 후보에서 제외한다.
+- `유아차 아니고 차 대는 곳`처럼 접근성 조건이 남아 있는 문장은 general tourism unsupported로 보내지 않는다.
+
+### 보류 후보
+
+다음은 성급히 코드로 해결하면 과보정 위험이 있다.
+
+- strict sensory 조건을 무조건 시각장애/청각장애 포괄 조건으로 낮추는 것
+- 지역 안에 카드가 없다고 자동으로 광역 확장하는 것
+- 장소 선호를 전부 soft ranking으로 낮추는 것
+
+이 셋은 사용자 의도와 다른 카드를 보여줄 가능성이 높으므로, 안내 문구와 후속 제안으로 처리하는 편이 낫다.
 
 ## 판단
 

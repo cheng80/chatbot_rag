@@ -123,6 +123,11 @@ CONDITION_KEYWORDS = {
         "점자",
         "점자블록",
         "촉지도",
+        "촉지 안내도",
+        "촉지안내도",
+        "촉지 안내판",
+        "촉지안내판",
+        "촉지판",
         "음성안내",
         "음성 안내",
         "소리 안내",
@@ -630,12 +635,14 @@ class TourismQueryService:
     def _extract_condition_filters(cls, message: str) -> tuple[list[str], list[str]]:
         conditions: list[str] = []
         excluded_conditions: list[str] = []
+        compact = re.sub(r"\s+", "", message)
         for label, keywords in CONDITION_KEYWORDS.items():
             label_excluded = False
-            for keyword in keywords:
-                if keyword not in message:
+            for keyword in sorted(keywords, key=lambda value: len(re.sub(r"\s+", "", value)), reverse=True):
+                compact_keyword = re.sub(r"\s+", "", keyword)
+                if keyword not in message and compact_keyword not in compact:
                     continue
-                if cls._is_condition_excluded(message, keyword):
+                if cls._is_condition_excluded(message, keyword) or cls._is_condition_excluded_by_anaphora(message, keyword):
                     excluded_conditions.append(label)
                     label_excluded = True
                     break
@@ -657,6 +664,19 @@ class TourismQueryService:
             rf"{escaped}(조건|기준|정보)?(은|는|이|가|을|를|도|만)?(있는|잇는|되는|가능한|가능|편한)?(취소|빼줘|빼고)",
         ]
         return any(re.search(pattern, compact) for pattern in exclusion_patterns)
+
+    @staticmethod
+    def _is_condition_excluded_by_anaphora(message: str, keyword: str) -> bool:
+        compact = re.sub(r"\s+", "", message)
+        compact_keyword = re.sub(r"\s+", "", keyword)
+        if not compact_keyword:
+            return False
+        escaped = re.escape(compact_keyword)
+        patterns = [
+            rf"{escaped}(이었|였|이였|였었|이었었)?(는데|지만|다가).{{0,14}}(그건|그거|그조건|그기준|이건|이거)(은|는|을|를)?(빼고|말고|제외|제외하고)",
+            rf"(처음엔|처음에는|처음은).{{0,12}}{escaped}.{{0,14}}(그건|그거|그조건|그기준|이건|이거)(은|는|을|를)?(빼고|말고|제외|제외하고)",
+        ]
+        return any(re.search(pattern, compact) for pattern in patterns)
 
     @classmethod
     def _find_ambiguous_condition_request(cls, messages: list[str], conditions: list[str]) -> list[str]:
@@ -794,7 +814,19 @@ class TourismQueryService:
             return "접근로"
         if term_set & {"보조견", "안내견"}:
             return "보조견"
-        if term_set & {"점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "점자홍보물"}:
+        if term_set & {
+            "점자",
+            "점자블록",
+            "촉지도",
+            "촉지 안내도",
+            "촉지안내도",
+            "촉지 안내판",
+            "촉지안내판",
+            "촉지판",
+            "음성안내",
+            "오디오가이드",
+            "점자홍보물",
+        }:
             return "시각장애"
         if term_set & {"수어", "수화", "자막", "문자안내", "영상안내"}:
             return "청각장애"
@@ -846,11 +878,35 @@ class TourismQueryService:
                 alternative_groups.append(evidence_terms)
                 for term in [*left_terms, *right_terms]:
                     skip_individual_terms.add(term)
+        tactile_evidence_terms = [
+            "촉지도",
+            "촉지 안내도",
+            "촉지안내도",
+            "촉지 안내판",
+            "촉지안내판",
+            "촉지판",
+            "촉지·음성 안내판",
+            "촉지",
+        ]
         term_map = [
             (["점자블록", "점자"], ["점자블록", "점자"]),
-            (["시각장애", "시각 장애"], ["점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "점자홍보물"]),
             (["오디오가이드", "음성안내", "음성 안내"], ["오디오가이드", "음성안내", "음성 안내"]),
-            (["촉지도"], ["촉지도"]),
+            (
+                [
+                    "촉지도",
+                    "촉지 안내도",
+                    "촉지안내도",
+                    "촉지 안내판",
+                    "촉지안내판",
+                    "촉지판",
+                    "손으로 만져 확인할 안내",
+                    "손으로만져확인할안내",
+                    "손으로 만져 확인",
+                    "손으로만져확인",
+                ],
+                tactile_evidence_terms,
+            ),
+            (["시각장애", "시각 장애"], ["점자", "점자블록", *tactile_evidence_terms, "음성안내", "오디오가이드", "점자홍보물"]),
             (["보조견", "안내견"], ["보조견", "안내견"]),
             (["청각장애", "청각 장애"], ["수어", "수화", "자막", "문자안내", "영상안내"]),
             (["수어", "수화"], ["수어", "수화"]),
@@ -867,7 +923,7 @@ class TourismQueryService:
         for triggers, terms in term_map:
             if skip_individual_terms and any(term in skip_individual_terms for term in triggers):
                 continue
-            if any(trigger in message for trigger in triggers):
+            if any(trigger in message or re.sub(r"\s+", "", trigger) in compact for trigger in triggers):
                 term_groups.append(terms)
         family_context_terms = ["아이랑", "아이와", "아이 동반", "어린이", "가족", "영유아", "아기"]
         if any(term in message for term in family_context_terms):

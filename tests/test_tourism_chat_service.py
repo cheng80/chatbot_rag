@@ -722,6 +722,43 @@ def test_tourism_chat_accepts_one_alternative_evidence_group(tmp_path):
     assert response.cards[0].title == "성남도서관"
 
 
+def test_tourism_chat_keeps_tactile_map_strict_from_braille_block(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    braille_only = TourismPlaceCard(
+        content_id="seongnam-braille-only",
+        title="성남 점자블록 전시관",
+        address="경기도 성남시",
+        recommendation_reason="점자블록이 확인된 전시관입니다.",
+        accessibility_tags=["점자블록"],
+        raw_fields={"점자블록": "점자블록 있음"},
+    )
+    tactile = TourismPlaceCard(
+        content_id="seongnam-tactile",
+        title="성남 촉지 안내관",
+        address="경기도 성남시",
+        recommendation_reason="촉지 안내판이 확인된 전시관입니다.",
+        accessibility_tags=["시각장애"],
+        raw_fields={"안내시스템": "촉지 안내판 있음"},
+    )
+    (sample_dir / "braille.md").write_text(normalizer.card_to_markdown(braille_only), encoding="utf-8")
+    (sample_dir / "tactile.md").write_text(normalizer.card_to_markdown(tactile), encoding="utf-8")
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("성남시손으로만져확인할안내되는곳만보여줘.비슷한접근성말고")
+
+    assert [card.title for card in response.cards] == ["성남 촉지 안내관"]
+
+
 def test_tourism_chat_remembers_region_after_condition_clarification(tmp_path):
     service = TourismChatService(
         Settings(tourism_live_cache_path=tmp_path / "live_cache"),

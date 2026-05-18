@@ -803,6 +803,17 @@ def test_tourism_query_removes_negated_conditions(tmp_path: Path):
     assert query["excluded_conditions"] == ["유모차"]
 
 
+def test_tourism_query_removes_anaphoric_previous_condition(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("강릉 처음엔 유아차였는데 그건 빼고 차 대는 곳로 다시")
+
+    assert query["conditions"] == ["주차"]
+    assert query["excluded_conditions"] == ["유모차"]
+
+
 def test_tourism_query_removes_negated_parking_condition(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
@@ -1044,6 +1055,20 @@ def test_tourism_query_extracts_required_evidence_terms_for_explicit_details(tmp
     assert ["점자블록", "점자"] in query["required_evidence_terms"]
     assert ["보조견", "안내견"] in query["required_evidence_terms"]
     assert "specific_facility_required" in query["context_labels"]
+
+
+def test_tourism_query_extracts_tactile_map_from_compact_phrases(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    compact_query = service.extract("제주시쪽손으로만져확인할안내가능한곳")
+    spaced_query = service.extract("제주시 근처 촉지 안내도 확인된 실내 관광지")
+
+    assert any("촉지도" in group and "촉지판" in group for group in compact_query["required_evidence_terms"])
+    assert any("촉지도" in group and "촉지판" in group for group in spaced_query["required_evidence_terms"])
+    assert "시각장애" in compact_query["conditions"]
+    assert "시각장애" in spaced_query["conditions"]
 
 
 def test_tourism_query_requires_all_conditions_only_when_explicit(tmp_path: Path):

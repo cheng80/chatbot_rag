@@ -4,7 +4,7 @@
 
 ## 목적
 
-기존 noisy realistic 200건은 여러 차례 보강에 사용되어 tuned diagnostic 성격이 강해졌다.  
+기존 noisy realistic 200건은 여러 차례 보강에 사용되어 tuned diagnostic 성격이 강해졌다.
 이번 평가는 남은 실패를 끝까지 줄이는 대신, 새로운 사용자 문장 패턴에서 어떤 문제가 드러나는지 확인하기 위한 hard eval이다.
 
 ## 파일
@@ -46,18 +46,34 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 | 통과율 | 62.0% | 66.0% |
 | hard_v2_sensory_alternative 실패 | 13 | 7 |
 
+촉지도 strict 경계와 대명사형 제외 조건을 보강한 뒤 최신 재평가 결과는 다음과 같다.
+
+| 항목 | OR 보강 후 | 촉지/대명사 보강 후 |
+|---|---:|---:|
+| 통과 | 132 | 133 |
+| 실패 | 68 | 67 |
+| 통과율 | 66.0% | 66.5% |
+| strict_evidence_mismatch | 4 | 0 |
+| no_card_output | 64 | 67 |
+
+이 변화는 단순 통과율보다 의미가 크다.
+이전에는 `손으로 만져 확인할 안내`, `촉지 안내도` 같은 문장이 `시각장애` 포괄 조건으로만 처리되어 점자블록 카드가 반환될 수 있었다.
+현재는 촉지도/촉지 안내도/촉지 안내판/촉지판을 strict 촉지 계열 근거로 보고, 정확 근거가 없으면 카드를 내보내지 않는다.
+따라서 일부 케이스는 “카드 반환 실패”로 남지만, 요청한 근거가 없는 카드를 보여주는 mismatch는 제거됐다.
+
 출력 파일:
 
 - 보강 전: `data/generated/tour_api/eval_runs/hard_chat_v2_200_gated_roberta_20260518.jsonl`
-- 보강 후: `data/generated/tour_api/eval_runs/hard_chat_v2_200_after_or_policy_20260518.jsonl`
+- OR 보강 후: `data/generated/tour_api/eval_runs/hard_chat_v2_200_after_or_policy_20260518.jsonl`
+- 촉지/대명사 보강 후: `data/generated/tour_api/eval_runs/hard_chat_v2_200_after_tactile_anaphora_policy_20260518.jsonl`
 
-실패 유형은 다음과 같다.
+최신 실패 유형은 다음과 같다.
 
 | failure class | 건수 | 해석 |
 |---|---:|---|
-| no_card_output | 72 | 최종 응답 카드가 0장 |
-| strict_evidence_unverifiable_no_card | 72 | 카드가 없어 필수 근거 검증 불가 |
-| strict_evidence_mismatch | 4 | 카드는 있으나 요구한 정확 근거가 없음 |
+| no_card_output | 67 | 최종 응답 카드가 0장 |
+| strict_evidence_unverifiable_no_card | 67 | 카드가 없어 필수 근거 검증 불가 |
+| strict_evidence_mismatch | 0 | 카드는 있으나 요구한 정확 근거가 없는 경우는 제거됨 |
 
 ## 새로 드러난 문제
 
@@ -77,8 +93,11 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 | clarification_policy_too_strict_or_expected_wrong | 2 | 평가셋은 카드 반환을 기대했지만 서비스는 clarification을 선택함 | 낮음 |
 | unsupported_policy_false_positive | 1 | 접근성 조건이 남아 있는데 일반 관광 unsupported로 빠짐 | 높음 |
 
-이 분류 기준에서는 “카드가 0장”과 “평가 실패”를 분리한다.  
+이 분류 기준에서는 “카드가 0장”과 “평가 실패”를 분리한다.
 예를 들어 `strict_evidence_mismatch_cards_returned`는 사용자가 카드를 보기는 하지만, 평가상으로는 요청한 정확 근거가 아니므로 실패다.
+
+2026-05-18 추가 보강 뒤 `strict_evidence_mismatch_cards_returned`는 0건이 됐다.
+남은 실패는 대부분 strict sensory 조건의 실제 근거 카드 부족 또는 멀티턴/선호 결합 정책 문제로 봐야 한다.
 
 ### 실패가 많은 카테고리
 
@@ -96,7 +115,7 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 | hard_v2_supported:휠체어 | 3 |
 | hard_v2_sensory_strict:점자블록 | 3 |
 
-가장 중요한 신호는 `hard_v2_sensory_alternative` 실패 13건이다.  
+가장 중요한 신호는 `hard_v2_sensory_alternative` 실패 13건이다.
 이는 단순 데이터 부족이 아니라 `OR 조건 구조화`가 부족하다는 뜻이다.
 
 ### 1. 감각 접근성 OR 표현이 AND처럼 처리됨
@@ -108,8 +127,8 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 - `보조견이나 점자 안내`
 - `수어 또는 자막`
 
-평가 의도는 “둘 중 하나라도 있으면 허용”이다.  
-하지만 현재 query parser는 `required_evidence_terms`를 여러 그룹으로 만들고, chat filter는 모든 그룹을 만족해야 하는 AND처럼 처리한다.  
+평가 의도는 “둘 중 하나라도 있으면 허용”이다.
+하지만 현재 query parser는 `required_evidence_terms`를 여러 그룹으로 만들고, chat filter는 모든 그룹을 만족해야 하는 AND처럼 처리한다.
 따라서 실제로는 대체 가능한 조건인데도 카드가 0장이 되는 경우가 있다.
 
 2026-05-18 보강:
@@ -119,9 +138,27 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 - 필터에서는 `required_evidence_terms` AND + `alternative_evidence_terms` 중 하나 이상으로 처리한다.
 - hard v2의 `hard_v2_sensory_alternative` 실패가 13건에서 7건으로 감소했다.
 
+### 1-1. 촉지 계열 strict 요청은 점자블록으로 대체하지 않음
+
+예:
+
+- `손으로 만져 확인할 안내`
+- `촉지 안내도`
+- `촉지도`
+- `촉지 안내판`
+
+이 표현들은 같은 시각장애 지원 범주에 속하지만, 사용자가 strict하게 요청한 경우에는 일반 점자블록과 다르게 본다.
+현재 parser는 위 표현을 `required_evidence_terms`의 촉지 계열 그룹으로 넣고, 카드 필터는 실제 카드에 촉지도/촉지 안내도/촉지 안내판/촉지판 근거가 있는 경우만 통과시킨다.
+
+결과:
+
+- hard v2 통과: 132/200 -> 133/200
+- `strict_evidence_mismatch`: 4건 -> 0건
+- noisy realistic 200: 174/200 유지, 회귀 없음
+
 ### 2. strict sensory 조건은 데이터 커버리지 영향을 강하게 받음
 
-수어, 자막, 점자안내, 촉지도, 보조견 단독 요청은 다수 지역에서 카드가 0장으로 떨어진다.  
+수어, 자막, 점자안내, 촉지도, 보조견 단독 요청은 다수 지역에서 카드가 0장으로 떨어진다.
 이는 파서 문제가 아니라 원천 카드의 근거 필드 분포 문제일 가능성이 크다.
 
 다만 이때도 사용자 응답은 단순 “없음”보다 다음처럼 분리해야 한다.
@@ -140,7 +177,7 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 - `제주시많이안걷는관광지추천 / 많이안걷는 말고 턱 적은`
 - `대전 계단 적은 관광지 추천 / 그중 엘레베터 되는 곳만`
 
-첫 턴이 ambiguity clarification으로 끝나면 세션에 지역/조건이 기억되지 않는다.  
+첫 턴이 ambiguity clarification으로 끝나면 세션에 지역/조건이 기억되지 않는다.
 둘째 턴이 `그중`, `말고` 같은 후속 표현이면 지역이 없다고 다시 묻는 경우가 생긴다.
 
 정책 선택이 필요하다.
@@ -150,7 +187,7 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 
 ### 4. 조건 제외 후 required evidence 제거는 일부 해결됨
 
-이번 작업 전에는 `승강기 말고 애기랑` 같은 문장에서 `엘리베이터`가 제외 조건임에도 `required_evidence_terms`에 남아 카드를 모두 제거했다.  
+이번 작업 전에는 `승강기 말고 애기랑` 같은 문장에서 `엘리베이터`가 제외 조건임에도 `required_evidence_terms`에 남아 카드를 모두 제거했다.
 이번 보강으로 제외 조건의 required evidence는 제거하도록 고쳤고, hard v2에서도 일부 케이스가 통과로 바뀌었다.
 
 남은 케이스는 주로 OR/AND 경계, 데이터 부족, 멀티턴 clarification 이후 맥락 문제다.
@@ -158,20 +195,21 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 ## 다음 보강 순서
 
 1. 남은 strict sensory 0장 케이스를 데이터 커버리지 리포트로 분리
-2. 촉지도 strict 요청에서 점자블록 카드가 반환되는 mismatch를 더 좁게 제한
-3. clarification 이후 region 맥락 저장 정책을 추가로 검증
-4. 접근성 조건 + 장소 선호 조합에서 선호를 언제 soft ranking으로 낮출지 정책화
-5. hard v2를 재실행해 개선 항목별 회귀 여부 확인
+2. clarification 이후 region/조건 후보 맥락 저장 정책을 추가로 검증
+3. 접근성 조건 + 장소 선호 조합에서 선호를 언제 soft ranking으로 낮출지 정책화
+4. 멀티턴에서 `그건 빼고`, `그쪽 말고` 같은 대명사형 제외 표현을 추가 수집
+5. hard v2와 noisy 200을 함께 재실행해 개선 항목별 회귀 여부 확인
 
 ### 즉시 수정 후보
 
 다음은 데이터 추가 없이 코드 정책으로 개선할 수 있는 항목이다.
 
 - `수어 또는 자막`, `점자나 음성안내`, `점자블록이나 촉지도`를 `alternative_evidence_terms`로 분리한다.
-- `손으로 만져 확인할 안내`, `촉지 안내도`는 `시각장애` 포괄 조건으로 넓히지 않고 `촉지도` strict 조건으로 유지한다. strict 근거가 없으면 카드 반환 대신 정확 근거 부족 안내로 처리한다.
+- `손으로 만져 확인할 안내`, `촉지 안내도`는 `시각장애` 포괄 조건으로 넓히지 않고 `촉지도` strict 조건으로 유지한다. strict 근거가 없으면 카드 반환 대신 정확 근거 부족 안내로 처리한다. 2026-05-18 적용 완료.
 - 첫 턴이 clarification이어도 `region`, `area_code`, `sigungu_code`, 원문 조건 후보는 세션에 저장한다.
 - 후속 문장에 `층 이동 쉬운`이 있을 때 `이동`을 지명 후보로 오인하지 않도록 ambiguous region 후보에서 제외한다.
 - `유아차 아니고 차 대는 곳`처럼 접근성 조건이 남아 있는 문장은 general tourism unsupported로 보내지 않는다.
+- `처음엔 유아차였는데 그건 빼고 차 대는 곳`처럼 앞 조건을 대명사로 제외하는 문장은 이전 조건을 제거하고 새 조건만 남긴다. 2026-05-18 적용 완료.
 
 ### 보류 후보
 
@@ -185,5 +223,5 @@ OR 근거 구조와 일부 멀티턴 정책을 보강한 뒤 재평가 결과는
 
 ## 판단
 
-이번 hard v2는 기존 noisy 200보다 훨씬 많은 실패를 만들었고, 그중 실제 새 이슈가 확인됐다.  
+이번 hard v2는 기존 noisy 200보다 훨씬 많은 실패를 만들었고, 그중 실제 새 이슈가 확인됐다.
 특히 감각 접근성 OR 표현은 모델 학습보다 구조화된 의미 표현이 먼저 필요하다.

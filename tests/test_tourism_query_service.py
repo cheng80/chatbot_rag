@@ -778,6 +778,61 @@ def test_tourism_query_handles_particle_before_exclusion_marker(tmp_path: Path):
     assert query["excluded_preferences"] == ["숙박"]
 
 
+def test_tourism_query_removes_negated_conditions(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("유모차 말고 휠체어로 갈 수 있는 곳")
+
+    assert query["conditions"] == ["휠체어"]
+    assert query["excluded_conditions"] == ["유모차"]
+
+
+def test_tourism_query_removes_negated_parking_condition(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("주차말고 대중교통으로 갈 수 있는 관광지")
+
+    assert query["conditions"] == ["대중교통"]
+    assert query["excluded_conditions"] == ["주차"]
+
+
+def test_tourism_query_normalizes_negated_parking_typo(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("강릉에서 주챠 아니고 대중교통으로 갈 곳")
+
+    assert query["conditions"] == ["대중교통"]
+    assert query["excluded_conditions"] == ["주차"]
+
+
+def test_tourism_query_marks_ambiguous_condition_boundary(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울에서 계단 적게 다니는 편한 관광지")
+
+    assert "접근로" in query["conditions"]
+    assert query["ambiguous_conditions"] == ["고령자", "접근로"]
+
+
+def test_tourism_query_does_not_mark_explicit_wheelchair_as_ambiguous(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울에서 휠체어로 갈 수 있는 편한 관광지")
+
+    assert "휠체어" in query["conditions"]
+    assert query["ambiguous_conditions"] == []
+
+
 def test_tourism_query_ignores_negated_legacy_region(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(

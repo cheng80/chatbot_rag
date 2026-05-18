@@ -98,11 +98,11 @@ class Settings(BaseSettings):
     tourism_korean_correction_num_beams: int = Field(default=1, alias="TOURISM_KOREAN_CORRECTION_NUM_BEAMS")
     tourism_condition_transformer_enabled: bool = Field(default=False, alias="TOURISM_CONDITION_TRANSFORMER_ENABLED")
     tourism_condition_transformer_model: str = Field(
-        default=str(PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_hard_aug_e2_fast" / "model"),
+        default=str(PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_residual_aug_e2_fast" / "model"),
         alias="TOURISM_CONDITION_TRANSFORMER_MODEL",
     )
     tourism_condition_transformer_metrics_path: Path = Field(
-        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_hard_aug_e2_fast" / "metrics.json",
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "condition_transformer_residual_aug_e2_fast" / "metrics.json",
         alias="TOURISM_CONDITION_TRANSFORMER_METRICS_PATH",
     )
     tourism_condition_transformer_device: str = Field(default="auto", alias="TOURISM_CONDITION_TRANSFORMER_DEVICE")

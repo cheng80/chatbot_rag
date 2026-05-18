@@ -717,6 +717,26 @@ def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
     ]
 
 
+def test_tourism_chat_asks_to_clarify_ambiguous_condition_boundary(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울에서 계단 적게 다니는 편한 관광지")
+
+    assert response.cards == []
+    assert response.lookup_mode == "clarification"
+    assert "접근성 의미가 조금 애매합니다" in response.answer
+    assert "어르신 이동 부담 적은 곳" in response.answer
+    assert "입구/동선 접근로" in response.answer
+    assert response.suggested_messages == [
+        "서울에서 어르신 이동 부담 적은 곳 관광지 추천해줘",
+        "서울에서 입구/동선 접근로 관광지 추천해줘",
+    ]
+
+
 def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
     sample_dir = tmp_path / "tourism"
     sample_dir.mkdir()

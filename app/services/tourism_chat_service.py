@@ -65,7 +65,26 @@ STROLLER_FAMILY_EVIDENCE = [
 CONDITION_EVIDENCE_KEYWORDS = {
     "휠체어": ["휠체어", "무장애", "장애인", "턱이 없어", "경사로", "출입통로"],
     "유모차": [*STROLLER_FAMILY_EVIDENCE, *STROLLER_MOBILITY_EVIDENCE],
-    "고령자": ["고령자", "어르신", "노인", "쉬움", "의자", "휴식", "휠체어", "장애인", "무단차", "경사로", "평탄"],
+    "고령자": [
+        "고령자",
+        "어르신",
+        "노인",
+        "노약자",
+        "쉬움",
+        "의자",
+        "휴식",
+        "휠체어",
+        "장애인",
+        "무단차",
+        "경사로",
+        "평탄",
+        "출입통로",
+        "접근로",
+        "대중교통",
+        "화장실",
+        "엘리베이터",
+        "승강기",
+    ],
     "주차": ["주차", "주차장"],
     "화장실": ["화장실", "기저귀", "보호의자"],
     "접근로": ["접근로", "동선", "경사로", "턱이 없어", "출입통로"],
@@ -290,6 +309,19 @@ class TourismChatService:
             self._log_event(message, session_id, query, response, live_api_called=False)
             self._remember_session_query(session_id, query, response)
             return response
+        if query.get("ambiguous_conditions"):
+            response = TourismChatResponse(
+                answer=self._build_condition_clarification_answer(query),
+                cards=[],
+                sources=[],
+                lookup_mode="clarification",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                suggested_messages=self._build_condition_clarification_suggestions(query),
+            )
+            self._log_event(message, session_id, query, response, live_api_called=False)
+            self._remember_session_query(session_id, query, response)
+            return response
         if not query.get("region"):
             response = TourismChatResponse(
                 answer=(
@@ -428,6 +460,7 @@ class TourismChatService:
             self._remember_session_query(session_id, query, response)
             return response
 
+        cards = self._annotate_cards_for_query_evidence(cards, query)
         cards, reasoning_used, reasoning_notes = self._apply_reasoning_assist(cards, effective_message, query)
         answer = self._build_answer(
             cards,
@@ -481,7 +514,7 @@ class TourismChatService:
                 if not merged.get(key) and previous.get(key):
                     merged[key] = previous[key]
         replacing_context = query.get("ml_intent") == "replace_condition" or self._looks_like_condition_reset_followup(message, query)
-        for key in ["conditions", "features", "preferences", "excluded_preferences"]:
+        for key in ["conditions", "features", "preferences", "excluded_preferences", "excluded_conditions"]:
             current = list(merged.get(key) or [])
             previous_values = list(previous.get(key) or [])
             if replacing_context and key in {"conditions", "features", "preferences"}:
@@ -490,6 +523,9 @@ class TourismChatService:
                 merged[key] = list(dict.fromkeys([*previous_values, *current]))
             else:
                 merged[key] = previous_values
+        if merged.get("excluded_conditions"):
+            excluded_conditions = set(merged.get("excluded_conditions") or [])
+            merged["conditions"] = [condition for condition in merged.get("conditions") or [] if condition not in excluded_conditions]
         if merged.get("excluded_preferences"):
             excluded = set(merged.get("excluded_preferences") or [])
             merged["preferences"] = [preference for preference in merged.get("preferences") or [] if preference not in excluded]
@@ -682,6 +718,8 @@ class TourismChatService:
                 "allow_region_expansion",
                 "require_all_conditions",
                 "conditions",
+                "excluded_conditions",
+                "ambiguous_conditions",
                 "required_evidence_terms",
                 "features",
                 "preferences",
@@ -1173,6 +1211,21 @@ class TourismChatService:
         ]
 
     @classmethod
+    def _annotate_cards_for_query_evidence(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
+        if "고령자" not in (query.get("conditions") or []):
+            return cards
+        annotated: list[TourismPlaceCard] = []
+        for card in cards:
+            if cls._condition_evidence_score(card, "고령자") <= 0:
+                annotated.append(card)
+                continue
+            reason = card.recommendation_reason
+            if "고령자 요청" not in reason:
+                reason = f"{reason} 고령자 요청은 휠체어 접근, 경사로, 화장실, 대중교통 같은 이동 편의 근거를 함께 확인합니다."
+            annotated.append(card.model_copy(update={"recommendation_reason": reason}))
+        return annotated
+
+    @classmethod
     def _filter_cards_by_preferences(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
         preferences = query.get("preferences") or []
         if not preferences:
@@ -1539,6 +1592,35 @@ class TourismChatService:
         return list(dict.fromkeys(suggestions))
 
     @staticmethod
+    def _build_condition_clarification_answer(query: dict) -> str:
+        region = query.get("region") or "해당 지역"
+        options = TourismChatService._condition_clarification_options(query)
+        option_text = ", ".join(options)
+        return (
+            f"{region} 요청의 접근성 의미가 조금 애매합니다. "
+            f"{option_text} 중 어떤 기준을 우선할지 알려 주세요."
+        )
+
+    @staticmethod
+    def _build_condition_clarification_suggestions(query: dict) -> list[str]:
+        region = query.get("region") or "서울"
+        suggestions = []
+        for condition in TourismChatService._condition_clarification_options(query):
+            suggestions.append(f"{region}에서 {condition} 관광지 추천해줘")
+        return suggestions
+
+    @staticmethod
+    def _condition_clarification_options(query: dict) -> list[str]:
+        ambiguous = list(query.get("ambiguous_conditions") or [])
+        label_map = {
+            "휠체어": "휠체어 접근",
+            "접근로": "입구/동선 접근로",
+            "고령자": "어르신 이동 부담 적은 곳",
+        }
+        options = [label_map.get(condition, str(condition)) for condition in ambiguous]
+        return list(dict.fromkeys(options)) or ["휠체어 접근", "입구/동선 접근로", "어르신 이동 부담 적은 곳"]
+
+    @staticmethod
     def _build_missing_region_suggestions(query: dict) -> list[str]:
         conditions = query.get("conditions") or ["무장애"]
         condition_text = " ".join(str(condition) for condition in conditions[:2])
@@ -1709,7 +1791,9 @@ class TourismChatService:
     @staticmethod
     def _has_supported_tourism_part(query: dict) -> bool:
         supported_conditions = [condition for condition in query.get("conditions") or [] if condition != "대중교통"]
-        return bool(query.get("region") and supported_conditions)
+        if supported_conditions:
+            return bool(query.get("region"))
+        return bool(query.get("region") and "대중교통" in (query.get("conditions") or []) and query.get("excluded_conditions"))
 
     @staticmethod
     def _is_general_tourism_only_query(query: dict) -> bool:
@@ -1717,6 +1801,8 @@ class TourismChatService:
             return False
         supported_conditions = [condition for condition in query.get("conditions") or [] if condition != "대중교통"]
         if supported_conditions:
+            return False
+        if "대중교통" in (query.get("conditions") or []) and query.get("excluded_conditions"):
             return False
         if query.get("required_evidence_terms"):
             return True

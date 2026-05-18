@@ -26,6 +26,11 @@
 - hard NLU 비교기: `scripts/eval_tourism_hard_nlu_models.py`
 - hard 증강 데이터 생성기: `scripts/prepare_tourism_hard_condition_aug_data.py`
 - hard 증강 학습 결과: `data/generated/tour_api/condition_transformer_hard_aug_e2_fast/`
+- 잔여 hard NLU 평가: `data/eval/tourism_residual_hard_nlu_20260518.jsonl`
+- 잔여 hard chat 평가: `data/eval/tourism_residual_hard_chat_20260518.jsonl`
+- 잔여 hard 평가 생성기: `scripts/generate_tourism_residual_hard_eval.py`
+- 잔여 증강 데이터 생성기: `scripts/prepare_tourism_residual_condition_aug_data.py`
+- 잔여 증강 학습 결과: `data/generated/tour_api/condition_transformer_residual_aug_e2_fast/`
 
 모델은 Hugging Face 런타임 호출이 아니라 로컬 `data/models/klue_roberta_small` 베이스를 사용해 로컬에서 fine-tuning했다.
 
@@ -45,6 +50,37 @@
 - 기존 RoBERTa는 recall을 올렸지만 false positive가 많았다.
 - hard 실패 유형을 별도로 증강한 뒤 RoBERTa는 recall과 precision이 함께 개선됐다.
 
+## 잔여 실패 전용 평가
+
+hard 증강 뒤에도 남은 실패는 세 가지로 분리했다.
+
+- `고령자`: 오래 서 있지 않기, 쉬어가기, 계단 적음, 부모님/어르신 동행 표현
+- `주차`: `주챠`, `주차ㅏ`, `차대기`, `입구앞 차`, `승하차` 같은 오타/구어 표현
+- `접근로`/`휠체어`: 단차, 출입통로, 바퀴 이동, 휠체어 사용자의 경계 표현
+
+잔여 hard NLU 250건 결과:
+
+| 변형 | exact | micro-F1 | precision | recall | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|
+| hard 증강 RoBERTa 단독 | 0.7440 | 0.8560 | 0.8785 | 0.8346 | 30 | 43 |
+| 잔여 증강 RoBERTa 단독 | 0.9360 | 0.9549 | 0.9338 | 0.9769 | 18 | 6 |
+| hard 증강 rule+RoBERTa | 0.6640 | 0.8452 | 0.8028 | 0.8923 | 57 | 28 |
+| 잔여 증강 rule+RoBERTa | 0.7720 | 0.8889 | 0.8000 | 1.0000 | 65 | 0 |
+| 잔여 증강 rule+RoBERTa + 조건 부정 처리 | 0.8240 | 0.9072 | 0.8328 | 0.9962 | 52 | 1 |
+| 현재 정책 적용 후 rule/parser | 0.8240 | 0.9184 | 0.8520 | 0.9962 | 45 | 1 |
+| 현재 정책 적용 후 잔여 증강 RoBERTa 단독 | 0.9360 | 0.9549 | 0.9338 | 0.9769 | 18 | 6 |
+
+해석:
+
+- 잔여 증강은 RoBERTa 단독 판단을 크게 개선했다.
+- 런타임 union은 rule/parser가 만든 extra label을 제거하지 못하므로 precision 한계가 남는다.
+- `주차말고`, `유모차 말고 휠체어` 같은 조건 부정은 rule과 Transformer union 양쪽에서 제외하도록 보강했다.
+- `주챠`, `주차ㅏ`, `주자창` 같은 주차 오타는 로컬 정규화와 기본 조건 사전에 반영했다. Transformer가 꺼져도 제외/포함 판단이 가능해야 하기 때문이다.
+- `계단 적게`, `걷기 편한`, `편한 관광지`처럼 고령자/접근로/휠체어 중 무엇을 뜻하는지 불명확한 문장은 바로 카드 검색으로 단정하지 않고 `clarification`으로 보낸다.
+- 명시 표현이 있으면 추가질문하지 않는다. 예를 들어 `휠체어`, `경사로`, `접근로`, `출입통로`, `어르신`, `부모님`, `무릎`, `쉬어`, `앉` 같은 기준어가 있으면 해당 조건으로 처리한다.
+- 고령자 조건은 원천 데이터에 고령자 전용 필드가 부족하므로, 응답 카드에서 휠체어 접근, 경사로, 화장실, 대중교통 같은 이동 편의 근거를 함께 확인한다고 명시한다.
+- 남은 구조 개선은 접근로/휠체어 경계의 rule extra를 더 정밀하게 줄이는 정책이다.
+
 ## Chat 카드 품질 확인
 
 중간 길이 120건 회귀 평가:
@@ -60,12 +96,23 @@ focused hard 의미 chat 평가 40건:
 |---|---:|---:|
 | 기본 rule/parser | 21/40 | 19 |
 | hard 증강 RoBERTa 보조 활성화 | 36/40 | 4 |
+| 잔여 증강 RoBERTa 보조 활성화 | 36/40 | 4 |
+
+잔여 hard chat 80건:
+
+| 설정 | 통과 | 실패 |
+|---|---:|---:|
+| 기본 rule/parser | 15/80 | 65 |
+| hard 증강 RoBERTa 보조 활성화 | 53/80 | 27 |
+| 잔여 증강 RoBERTa 보조 활성화 | 62/80 | 18 |
+| 잔여 증강 RoBERTa + 조건 부정/모호 조건 추가질문 | 62/80 | 18 |
+| 현재 정책 적용 후 | 80/80 | 0 |
 
 결론:
 
 - 기존 중간 길이 회귀셋에서는 품질 하락이 없었다.
 - hard 의미 표현에서는 카드 반환 품질이 크게 개선됐다.
-- 따라서 로컬 시연 환경에서는 hard 증강 RoBERTa 조건 보조를 켜서 운영한다.
+- 따라서 로컬 시연 환경에서는 잔여 증강 RoBERTa 조건 보조를 켜서 운영한다.
 
 ## 적용 방식
 
@@ -75,15 +122,15 @@ focused hard 의미 chat 평가 40건:
 
 - 기존 rule/parser가 먼저 조건을 찾는다.
 - 로컬 ET5 교정은 위험 입력에서만 후보 문장을 추가한다.
-- hard 증강 RoBERTa는 조건 라벨 보조 후보를 추가한다.
+- 잔여 증강 RoBERTa는 조건 라벨 보조 후보를 추가한다.
 - 최종 카드 반환은 기존 지역/조건/근거 필터와 `/tourism/chat` 품질 기준을 계속 통과해야 한다.
 
 로컬 `.env` 적용값:
 
 ```bash
 TOURISM_CONDITION_TRANSFORMER_ENABLED=true
-TOURISM_CONDITION_TRANSFORMER_MODEL=./data/generated/tour_api/condition_transformer_hard_aug_e2_fast/model
-TOURISM_CONDITION_TRANSFORMER_METRICS_PATH=./data/generated/tour_api/condition_transformer_hard_aug_e2_fast/metrics.json
+TOURISM_CONDITION_TRANSFORMER_MODEL=./data/generated/tour_api/condition_transformer_residual_aug_e2_fast/model
+TOURISM_CONDITION_TRANSFORMER_METRICS_PATH=./data/generated/tour_api/condition_transformer_residual_aug_e2_fast/metrics.json
 TOURISM_CONDITION_TRANSFORMER_DEVICE=auto
 TOURISM_CONDITION_TRANSFORMER_MAX_LENGTH=96
 ```
@@ -113,4 +160,20 @@ TOURISM_CONDITION_TRANSFORMER_MAX_LENGTH=96
   --output-dir data/generated/tour_api/hard_nlu_model_compare_hard_aug_20260518 \
   --model-dir data/generated/tour_api/condition_transformer_hard_aug_e2_fast/model \
   --metrics-path data/generated/tour_api/condition_transformer_hard_aug_e2_fast/metrics.json
+.venv/bin/python scripts/generate_tourism_residual_hard_eval.py
+.venv/bin/python scripts/prepare_tourism_residual_condition_aug_data.py
+.venv/bin/python scripts/train_tourism_condition_transformer.py \
+  --model-name data/models/klue_roberta_small \
+  --data-dir data/processed/tourism_condition_transformer_residual_aug \
+  --output-dir data/generated/tour_api/condition_transformer_residual_aug_e2_fast \
+  --epochs 2 \
+  --batch-size 32 \
+  --learning-rate 2e-5 \
+  --save-model \
+  --skip-rule-baselines
+.venv/bin/python scripts/eval_tourism_hard_nlu_models.py \
+  --input data/eval/tourism_residual_hard_nlu_20260518.jsonl \
+  --output-dir data/generated/tour_api/residual_hard_nlu_compare_residual_aug_20260518 \
+  --model-dir data/generated/tour_api/condition_transformer_residual_aug_e2_fast/model \
+  --metrics-path data/generated/tour_api/condition_transformer_residual_aug_e2_fast/metrics.json
 ```

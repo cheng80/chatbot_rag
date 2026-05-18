@@ -20,6 +20,7 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "eval_ru
 TOUR_API_OPERATIONS = ["areaBasedList2", "detailCommon2", "detailWithTour2"]
 TERM_EQUIVALENTS = {
     "유모차": ["유모차", "유아용 의자", "휠체어", "무장애", "턱이 없어", "경사로", "출입통로", "접근로"],
+    "고령자": ["고령자", "어르신", "노약자", "쉬어", "휴식", "의자", "휠체어", "장애인", "경사로", "접근로", "출입통로", "화장실", "대중교통", "무단차", "평탄"],
     "영유아": ["영유아", "유아용 의자"],
     "가족": ["가족", "유아용 의자"],
     "기저귀": ["기저귀", "유아용 의자"],

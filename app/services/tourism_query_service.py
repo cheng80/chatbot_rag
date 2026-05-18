@@ -71,7 +71,7 @@ CONDITION_KEYWORDS = {
         "무리 없는",
         "쉬어 갈 곳",
     ],
-    "주차": ["주차", "장애인 주차"],
+    "주차": ["주차", "주챠", "주차ㅏ", "주자창", "차대기", "차 댈", "차 세우", "장애인 주차"],
     "화장실": ["화장실", "장애인 화장실"],
     "접근로": [
         "접근로",
@@ -323,14 +323,22 @@ class TourismQueryService:
             if multiple_region_conflict and ambiguous_region == multiple_region_conflict["alias"]
             else self.ambiguous_region_aliases.get(ambiguous_region or "", [])
         )
-        conditions = [
-            label
-            for label, keywords in CONDITION_KEYWORDS.items()
-            if any(keyword in candidate for keyword in keywords for candidate in condition_messages)
-        ]
+        conditions, excluded_conditions = self._merge_condition_filters(condition_messages)
         transformer_prediction = self._condition_transformer_prediction(condition_messages)
         if transformer_prediction["labels"]:
-            conditions = list(dict.fromkeys([*conditions, *transformer_prediction["labels"]]))
+            conditions = list(
+                dict.fromkeys(
+                    [
+                        *conditions,
+                        *[
+                            label
+                            for label in transformer_prediction["labels"]
+                            if str(label) not in excluded_conditions
+                        ],
+                    ]
+                )
+            )
+        ambiguous_conditions = self._find_ambiguous_condition_request(condition_messages, conditions)
         preferences, excluded_preferences = self._merge_preference_filters(condition_messages)
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
@@ -353,6 +361,8 @@ class TourismQueryService:
             "is_sigungu": bool(sigungu_code),
             "allow_region_expansion": any(keyword in candidate for keyword in EXPANSION_KEYWORDS for candidate in interpretation_messages),
             "conditions": conditions,
+            "excluded_conditions": excluded_conditions,
+            "ambiguous_conditions": ambiguous_conditions,
             "require_all_conditions": self._requires_all_conditions(message),
             "preferences": preferences,
             "excluded_preferences": excluded_preferences,
@@ -504,6 +514,116 @@ class TourismQueryService:
             predictions,
             key=lambda prediction: (len(prediction.labels), sum(prediction.confidence_by_label.values())),
         )
+
+    @classmethod
+    def _merge_condition_filters(cls, messages: list[str]) -> tuple[list[str], list[str]]:
+        conditions: list[str] = []
+        excluded_conditions: list[str] = []
+        for candidate in messages:
+            candidate_conditions, candidate_excluded = cls._extract_condition_filters(candidate)
+            conditions.extend(candidate_conditions)
+            excluded_conditions.extend(candidate_excluded)
+        excluded_conditions = list(dict.fromkeys(excluded_conditions))
+        conditions = [label for label in dict.fromkeys(conditions) if label not in excluded_conditions]
+        return conditions, excluded_conditions
+
+    @classmethod
+    def _extract_condition_filters(cls, message: str) -> tuple[list[str], list[str]]:
+        conditions: list[str] = []
+        excluded_conditions: list[str] = []
+        for label, keywords in CONDITION_KEYWORDS.items():
+            label_excluded = False
+            for keyword in keywords:
+                if keyword not in message:
+                    continue
+                if cls._is_condition_excluded(message, keyword):
+                    excluded_conditions.append(label)
+                    label_excluded = True
+                    break
+                conditions.append(label)
+                break
+            if label_excluded:
+                conditions = [condition for condition in conditions if condition != label]
+        return list(dict.fromkeys(conditions)), list(dict.fromkeys(excluded_conditions))
+
+    @staticmethod
+    def _is_condition_excluded(message: str, keyword: str) -> bool:
+        compact = re.sub(r"\s+", "", message)
+        compact_keyword = re.sub(r"\s+", "", keyword)
+        if not compact_keyword:
+            return False
+        escaped = re.escape(compact_keyword)
+        exclusion_patterns = [
+            rf"{escaped}(은|는|이|가|을|를|도|만)?(말고|빼고|제외|아니고|아닌)",
+            rf"{escaped}(조건|기준|정보)?(은|는|이|가|을|를|도|만)?(취소|빼줘|빼고)",
+        ]
+        return any(re.search(pattern, compact) for pattern in exclusion_patterns)
+
+    @classmethod
+    def _find_ambiguous_condition_request(cls, messages: list[str], conditions: list[str]) -> list[str]:
+        if not messages:
+            return []
+        condition_set = set(conditions)
+        if not condition_set & {"휠체어", "접근로", "고령자"}:
+            return []
+        text = " ".join(messages)
+        if cls._has_explicit_condition_anchor(text):
+            return []
+        compact = re.sub(r"\s+", "", text)
+        ambiguous_markers = [
+            "걷기편",
+            "걷기좋",
+            "이동편",
+            "편한곳",
+            "편하게",
+            "편한관광",
+            "계단적",
+            "계단오르내림",
+            "많이안걷",
+            "오래안걷",
+            "무리적",
+            "부담적",
+            "막히지않",
+            "돌아나오지",
+        ]
+        if not any(marker in compact for marker in ambiguous_markers):
+            return []
+        if any(marker in compact for marker in ["계단적", "많이안걷", "오래안걷", "무리적", "부담적"]):
+            labels = ["고령자", *[label for label in ["접근로"] if label in condition_set]]
+            return list(dict.fromkeys(labels))
+        if "고령자" in condition_set and condition_set & {"휠체어", "접근로"}:
+            return ["고령자", *[label for label in ["휠체어", "접근로"] if label in condition_set]]
+        if {"휠체어", "접근로"} <= condition_set:
+            return ["휠체어", "접근로"]
+        return []
+
+    @staticmethod
+    def _has_explicit_condition_anchor(text: str) -> bool:
+        explicit_terms = [
+            "휠체어",
+            "휠챠",
+            "휠체여",
+            "휠채",
+            "바퀴의자",
+            "바퀴 의자",
+            "이동 보조기구",
+            "경사로",
+            "접근로",
+            "출입통로",
+            "출입 통로",
+            "단차",
+            "문턱",
+            "턱",
+            "어르신",
+            "고령자",
+            "노약자",
+            "부모님",
+            "무릎",
+            "허리 불편",
+            "쉬어",
+            "앉",
+        ]
+        return any(term in text for term in explicit_terms)
 
     @classmethod
     def _merge_preference_filters(cls, messages: list[str]) -> tuple[list[str], list[str]]:

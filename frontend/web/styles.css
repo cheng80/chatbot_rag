@@ -71,6 +71,7 @@ body.modal-open {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -85,6 +86,7 @@ button:disabled {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
   outline: 3px solid rgba(35, 132, 95, 0.34);
@@ -213,6 +215,8 @@ h1 {
 .suggestions button:hover,
 .quick-prompts button:hover,
 .selector-row button:hover,
+.mode-switch-button:hover,
+.chip-grid label:hover,
 .card-actions button:hover,
 .card-actions a:hover,
 .more-button:hover,
@@ -253,6 +257,7 @@ label,
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -260,7 +265,8 @@ textarea {
   background: var(--surface);
 }
 
-input {
+input,
+select {
   height: 38px;
   border-radius: var(--radius-md);
   padding: 0 12px;
@@ -862,11 +868,13 @@ a.source-item {
   box-shadow: 0 -6px 24px rgba(31, 52, 42, 0.08);
 }
 
-.prompt-drawer {
+.prompt-drawer,
+.option-drawer {
   min-width: 0;
 }
 
-.prompt-drawer summary {
+.prompt-drawer summary,
+.option-drawer summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -883,11 +891,13 @@ a.source-item {
   list-style: none;
 }
 
-.prompt-drawer summary::-webkit-details-marker {
+.prompt-drawer summary::-webkit-details-marker,
+.option-drawer summary::-webkit-details-marker {
   display: none;
 }
 
-.prompt-drawer summary strong {
+.prompt-drawer summary strong,
+.option-drawer summary strong {
   border-radius: var(--radius-pill);
   background: var(--primary-container);
   color: var(--accent);
@@ -895,7 +905,8 @@ a.source-item {
   font-size: 11px;
 }
 
-.prompt-drawer[open] summary {
+.prompt-drawer[open] summary,
+.option-drawer[open] summary {
   margin-bottom: 8px;
 }
 
@@ -910,6 +921,128 @@ a.source-item {
   gap: 8px;
 }
 
+.input-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  border: 1px solid rgba(20, 108, 78, 0.15);
+  border-radius: var(--radius-md);
+  background: var(--surface-container-low);
+  padding: 4px;
+}
+
+.mode-switch-button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 950;
+  transition:
+    transform var(--spring),
+    background var(--fast),
+    color var(--fast);
+}
+
+.mode-switch-button[aria-selected="true"] {
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  box-shadow: 0 3px 12px rgba(31, 52, 42, 0.08);
+}
+
+.option-builder {
+  display: grid;
+  gap: 9px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  border: 1px solid rgba(20, 108, 78, 0.12);
+  border-radius: var(--radius-md);
+  background: var(--surface-container-low);
+  padding: 10px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.option-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.option-grid label span,
+.option-group h3 {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.option-group {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.option-group h3 {
+  margin: 0 0 6px;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip-grid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid rgba(20, 108, 78, 0.16);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px 0 8px;
+  font-size: 12px;
+  font-weight: 850;
+  transition:
+    transform var(--spring),
+    background var(--fast),
+    border-color var(--fast);
+}
+
+.chip-grid label:has(input:checked) {
+  border-color: var(--header-press);
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+.chip-grid input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+}
+
+.option-summary {
+  border: 1px dashed rgba(20, 108, 78, 0.24);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--muted);
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.generated-query {
+  background: var(--surface-container-low);
+  color: var(--muted);
+}
+
 .input-row {
   display: grid;
   grid-template-columns: 1fr 106px;
@@ -917,7 +1050,7 @@ a.source-item {
   align-items: stretch;
 }
 
-.chat-form label {
+.chat-form > label {
   display: none;
 }
 
@@ -1098,8 +1231,13 @@ a.source-item {
   }
 
   .quick-prompts button,
-  .selector-row button {
+  .selector-row button,
+  .chip-grid label {
     flex: 1 1 calc(50% - 7px);
+  }
+
+  .option-grid {
+    grid-template-columns: 1fr;
   }
 
   .input-row {

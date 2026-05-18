@@ -30,6 +30,14 @@ const userEcho = document.querySelector("#userEcho");
 const typingIndicator = document.querySelector("#typingIndicator");
 const toast = document.querySelector("#toast");
 const promptDrawer = document.querySelector("#promptDrawer");
+const optionDrawer = document.querySelector("#optionDrawer");
+const chatModeButton = document.querySelector("#chatModeButton");
+const optionModeButton = document.querySelector("#optionModeButton");
+const optionArea = document.querySelector("#optionArea");
+const optionSigungu = document.querySelector("#optionSigungu");
+const optionIntensity = document.querySelector("#optionIntensity");
+const optionExpansion = document.querySelector("#optionExpansion");
+const optionSummary = document.querySelector("#optionSummary");
 const debugMode = isLocalDebugMode();
 
 const accessibilityLabels = {
@@ -47,6 +55,11 @@ let compactAnswerText = "";
 let isAnswerExpanded = false;
 let sessionId = createSessionId();
 let lastSubmittedMessage = "";
+let inputMode = "chat";
+let chatDraftMessage = "";
+let regionOptions = fallbackRegionOptions();
+let optionGeneratedMessage = "";
+let optionManualEdit = false;
 
 const demoPreview = {
   answer:
@@ -92,6 +105,7 @@ debugToggleButton.addEventListener("click", toggleDebugPanel);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
 promptDrawer?.addEventListener("toggle", syncPromptDrawerSummary);
+optionDrawer?.addEventListener("toggle", syncOptionDrawerSummary);
 answerToggleButton.addEventListener("click", () => {
   setAnswerExpanded(!isAnswerExpanded);
 });
@@ -99,12 +113,34 @@ helpModal.addEventListener("click", (event) => {
   if (event.target === helpModal) closeHelp();
 });
 renderDemoPreview();
+initializeRegionOptions();
+syncInputMode();
+syncOptionFlowMessage({ silent: true });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !helpModal.hidden) closeHelp();
 });
 
+chatModeButton?.addEventListener("click", () => setInputMode("chat"));
+optionModeButton?.addEventListener("click", () => setInputMode("option"));
+optionArea?.addEventListener("change", () => {
+  populateSigunguOptions(optionArea.value);
+  syncOptionFlowMessage();
+});
+optionSigungu?.addEventListener("change", syncOptionFlowMessage);
+optionIntensity?.addEventListener("change", syncOptionFlowMessage);
+optionExpansion?.addEventListener("change", syncOptionFlowMessage);
+document.querySelectorAll("[data-option-condition], [data-option-preference], [data-option-exclusion]").forEach((control) => {
+  control.addEventListener("change", syncOptionFlowMessage);
+});
+messageInput.addEventListener("input", () => {
+  if (inputMode === "option") {
+    optionManualEdit = messageInput.value.trim() !== optionGeneratedMessage.trim();
+  }
+});
+
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
+    setInputMode("chat");
     messageInput.value = button.dataset.prompt;
     closePromptDrawer();
     messageInput.focus();
@@ -114,6 +150,7 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
 
 document.querySelectorAll("[data-region]").forEach((button) => {
   button.addEventListener("click", () => {
+    setInputMode("chat");
     document.querySelectorAll("[data-region]").forEach((regionButton) => {
       regionButton.setAttribute("aria-pressed", String(regionButton === button));
     });
@@ -135,6 +172,11 @@ clearButton.addEventListener("click", () => {
   suggestions.replaceChildren();
   suggestions.classList.remove("clarification-options", "condition-options", "region-options");
   sessionId = createSessionId();
+  chatDraftMessage = "";
+  optionGeneratedMessage = "";
+  optionManualEdit = false;
+  resetOptionFlow();
+  setInputMode("chat");
   userEcho.hidden = true;
   userEcho.textContent = "";
   typingIndicator.hidden = true;
@@ -161,6 +203,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   setLoading(true);
+  collapseComposerAfterSubmit();
   lastSubmittedMessage = message;
   renderUserMessage(message);
   preparePendingResponse();
@@ -236,10 +279,181 @@ function syncDebugVisibility() {
   debugToggleButton.setAttribute("aria-expanded", String(debugMode));
 }
 
+function collapseComposerAfterSubmit() {
+  if (inputMode === "option" && optionDrawer) {
+    optionDrawer.open = false;
+    syncOptionDrawerSummary();
+  }
+  closePromptDrawer();
+}
+
+async function initializeRegionOptions() {
+  renderAreaOptions();
+  populateSigunguOptions(optionArea?.value || "");
+  try {
+    const response = await fetch(`${normalizedApiBase()}/tourism/regions`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    const fetched = normalizeRegionOptions(payload?.areas);
+    if (fetched.length === 0) return;
+    regionOptions = fetched;
+    renderAreaOptions();
+    populateSigunguOptions(optionArea?.value || "");
+    syncOptionFlowMessage({ silent: true });
+  } catch {
+    populateSigunguOptions(optionArea?.value || "");
+  }
+}
+
+function normalizeRegionOptions(areas) {
+  if (!Array.isArray(areas)) return [];
+  return areas
+    .map((area) => ({
+      name: String(area?.name || "").trim(),
+      sigungu: Array.isArray(area?.sigungu)
+        ? area.sigungu.map((name) => String(name || "").trim()).filter(Boolean)
+        : [],
+    }))
+    .filter((area) => area.name);
+}
+
+function renderAreaOptions() {
+  if (!optionArea) return;
+  const selected = optionArea.value;
+  optionArea.replaceChildren(createSelectOption("", "광역 지역 선택"));
+  regionOptions.forEach((area) => {
+    optionArea.append(createSelectOption(area.name, area.name));
+  });
+  optionArea.value = regionOptions.some((area) => area.name === selected) ? selected : "";
+}
+
+function populateSigunguOptions(areaName) {
+  if (!optionSigungu) return;
+  const area = regionOptions.find((candidate) => candidate.name === areaName);
+  optionSigungu.replaceChildren();
+  if (!area) {
+    optionSigungu.append(createSelectOption("", "광역 지역을 먼저 선택"));
+    optionSigungu.disabled = true;
+    return;
+  }
+  optionSigungu.disabled = false;
+  optionSigungu.append(createSelectOption("", "전체"));
+  area.sigungu.forEach((sigungu) => {
+    optionSigungu.append(createSelectOption(sigungu, sigungu));
+  });
+  optionSigungu.value = "";
+}
+
+function createSelectOption(value, label) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function fallbackRegionOptions() {
+  return [
+    { name: "서울", sigungu: ["강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "구로구", "금천구", "노원구", "도봉구", "동대문구", "동작구", "마포구", "서대문구", "서초구", "성동구", "성북구", "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중구", "중랑구"] },
+    { name: "부산", sigungu: ["강서구", "금정구", "기장군", "남구", "동구", "동래구", "부산진구", "북구", "사상구", "사하구", "서구", "수영구", "연제구", "영도구", "중구", "해운대구"] },
+    { name: "인천", sigungu: ["강화군", "계양구", "미추홀구", "남동구", "동구", "부평구", "서구", "연수구", "옹진군", "중구"] },
+    { name: "대전", sigungu: ["대덕구", "동구", "서구", "유성구", "중구"] },
+    { name: "대구", sigungu: ["남구", "달서구", "달성군", "동구", "북구", "서구", "수성구", "중구", "군위군"] },
+    { name: "광주", sigungu: ["광산구", "남구", "동구", "북구", "서구"] },
+    { name: "울산", sigungu: ["중구", "남구", "동구", "북구", "울주군"] },
+    { name: "세종", sigungu: ["세종특별자치시"] },
+    { name: "제주", sigungu: ["제주시", "서귀포시", "북제주군", "남제주군"] },
+  ];
+}
+
+function setInputMode(mode) {
+  if (!["chat", "option"].includes(mode) || inputMode === mode) return;
+  if (inputMode === "chat") {
+    chatDraftMessage = messageInput.value;
+  }
+  inputMode = mode;
+  syncInputMode();
+  if (mode === "chat") {
+    messageInput.value = chatDraftMessage;
+    messageInput.focus();
+    return;
+  }
+  syncOptionFlowMessage({ silent: true });
+  optionArea?.focus();
+}
+
+function syncInputMode() {
+  const isOption = inputMode === "option";
+  promptDrawer.hidden = isOption;
+  optionDrawer.hidden = !isOption;
+  optionSummary.hidden = true;
+  if (isOption) {
+    closePromptDrawer();
+    optionDrawer.open = true;
+    syncOptionDrawerSummary();
+  }
+  chatModeButton?.setAttribute("aria-selected", String(!isOption));
+  optionModeButton?.setAttribute("aria-selected", String(isOption));
+  messageInput.readOnly = false;
+  messageInput.classList.remove("generated-query");
+  if (isOption) {
+    submitButton.textContent = "선택 조건으로 찾기";
+  } else if (!submitButton.disabled) {
+    submitButton.textContent = "추천 받기";
+  }
+}
+
+function syncOptionFlowMessage(options = {}) {
+  if (!window.OptionFlowBuilder) return;
+  const state = readOptionFlowState();
+  const message = window.OptionFlowBuilder.buildOptionFlowMessage(state);
+  const hasRegion = Boolean(state.area || state.sigungu);
+  const hasSignal = hasRegion || state.conditions.length > 0 || state.preferences.length > 0 || state.exclusions.length > 0;
+  const previousGeneratedMessage = optionGeneratedMessage;
+  optionGeneratedMessage = hasSignal ? message : "";
+
+  optionSummary.textContent = hasSignal ? message : "지역과 조건을 고르면 질문 문장으로 정리됩니다.";
+  if (inputMode === "option" && (!optionManualEdit || !messageInput.value.trim() || messageInput.value.trim() === previousGeneratedMessage.trim())) {
+    messageInput.value = hasSignal ? message : "";
+    optionManualEdit = false;
+  }
+  if (!options.silent && hasSignal && inputMode === "option") {
+    showToast("선택값을 질문 문장으로 정리했습니다.", "ok");
+  }
+}
+
+function readOptionFlowState() {
+  return {
+    area: optionArea?.value || "",
+    sigungu: optionSigungu?.value || "",
+    conditions: checkedValues("[data-option-condition]"),
+    preferences: checkedValues("[data-option-preference]"),
+    exclusions: checkedValues("[data-option-exclusion]"),
+    intensity: optionIntensity?.value || "required",
+    expansion: optionExpansion?.value || "local_only",
+  };
+}
+
+function checkedValues(selector) {
+  return [...document.querySelectorAll(selector)]
+    .filter((control) => control.checked)
+    .map((control) => control.dataset.optionCondition || control.dataset.optionPreference || control.dataset.optionExclusion);
+}
+
+function resetOptionFlow() {
+  if (optionArea) optionArea.value = "";
+  populateSigunguOptions("");
+  if (optionIntensity) optionIntensity.value = "required";
+  if (optionExpansion) optionExpansion.value = "local_only";
+  document.querySelectorAll("[data-option-condition], [data-option-preference], [data-option-exclusion]").forEach((control) => {
+    control.checked = false;
+  });
+  syncOptionFlowMessage({ silent: true });
+}
+
 function setLoading(isLoading) {
   submitButton.disabled = isLoading;
   submitButton.classList.toggle("is-loading", isLoading);
-  submitButton.textContent = isLoading ? "찾는 중" : "추천 받기";
+  submitButton.textContent = isLoading ? "찾는 중" : inputMode === "option" ? "선택 조건으로 찾기" : "추천 받기";
   typingIndicator.hidden = !isLoading;
   if (isLoading) {
     demoMoreButton.disabled = true;
@@ -588,6 +802,11 @@ function closePromptDrawer() {
 function syncPromptDrawerSummary() {
   const state = promptDrawer?.querySelector("summary strong");
   if (state) state.textContent = promptDrawer.open ? "접기" : "열기";
+}
+
+function syncOptionDrawerSummary() {
+  const state = optionDrawer?.querySelector("summary strong");
+  if (state) state.textContent = optionDrawer.open ? "접기" : "열기";
 }
 
 function renderCard(card, queryText = "") {

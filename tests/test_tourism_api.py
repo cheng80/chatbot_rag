@@ -64,3 +64,16 @@ def test_tourism_chat_hides_internal_exception_details():
         "message": "관광 상담 응답을 만드는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
     }
     assert "secret internal path" not in response.text
+
+
+def test_tourism_regions_lists_area_then_sigungu_options():
+    client = TestClient(app)
+
+    response = client.get("/tourism/regions")
+
+    assert response.status_code == 200
+    areas = response.json()["areas"]
+    seoul = next(area for area in areas if area["name"] == "서울")
+    busan = next(area for area in areas if area["name"] == "부산")
+    assert "강남구" in seoul["sigungu"]
+    assert "중구" in busan["sigungu"]

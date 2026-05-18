@@ -88,37 +88,39 @@
 
         <section class="composer" aria-label="질문 입력">
           <div class="composer-sheet">
-            <div class="region-panel" aria-label="지역 선택">
-              <div class="panel-title-row">
-                <div>
-                  <p class="eyebrow">Region</p>
-                  <h2>지역 선택</h2>
-                </div>
-                <span class="release-hint">가고 싶은 지역을 먼저 골라보세요</span>
-              </div>
-              <div class="selector-row">
-                <button type="button" data-region="서울" aria-pressed="false">서울</button>
-                <button type="button" data-region="서울 강남구" aria-pressed="false">서울 강남구</button>
-                <button type="button" data-region="서울 용산구" aria-pressed="false">서울 용산구</button>
-                <button type="button" data-region="부산" aria-pressed="false">부산</button>
-                <button type="button" data-region="부산 중구" aria-pressed="false">부산 중구</button>
-                <button type="button" data-region="인천 중구" aria-pressed="false">인천 중구</button>
-                <button type="button" data-region="제주" aria-pressed="false">제주</button>
-                <button type="button" data-region="강릉" aria-pressed="false">강릉</button>
-              </div>
-            </div>
+            <details id="promptDrawer" class="prompt-drawer">
+              <summary>
+                <span>지역·예시 선택</span>
+                <strong>열기</strong>
+              </summary>
 
-            <div class="quick-prompts" aria-label="빠른 질문">
-              <button type="button" data-prompt="서울 강남구에서 휠체어 관광지 추천해줘">강남구 휠체어</button>
-              <button type="button" data-prompt="서울 강남구 근처에서 휠체어 관광지 추천해줘">강남구 근처</button>
-              <button type="button" data-prompt="중구에서 휠체어 타시는 아버지와 갈 관광지 추천">중구 추가질문</button>
-              <button type="button" data-prompt="해운대 좌동에서 유모차로 갈만한 관광지 추천">좌동 법정동</button>
-              <button type="button" data-prompt="창원 마산합포구에서 이동약자 관광지 추천">일반구 매칭</button>
-              <button type="button" data-prompt="서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천">복합 조건</button>
-              <button type="button" data-prompt="서울에서 유아차로 가기 좋은 관광지 추천해줘">서울 유아차</button>
-              <button type="button" data-prompt="부산에서 가족과 가기 좋은 무장애 관광지 추천해줘">부산 가족</button>
-              <button type="button" data-prompt="제주에서 휠체어 접근 가능한 관광지 추천해줘">제주 휠체어</button>
-            </div>
+              <div class="drawer-content">
+                <div class="region-panel" aria-label="지역 선택">
+                  <div class="selector-row">
+                    <button type="button" data-region="서울" aria-pressed="false">서울</button>
+                    <button type="button" data-region="서울 강남구" aria-pressed="false">서울 강남구</button>
+                    <button type="button" data-region="서울 용산구" aria-pressed="false">서울 용산구</button>
+                    <button type="button" data-region="부산" aria-pressed="false">부산</button>
+                    <button type="button" data-region="부산 중구" aria-pressed="false">부산 중구</button>
+                    <button type="button" data-region="인천 중구" aria-pressed="false">인천 중구</button>
+                    <button type="button" data-region="제주" aria-pressed="false">제주</button>
+                    <button type="button" data-region="강릉" aria-pressed="false">강릉</button>
+                  </div>
+                </div>
+
+                <div class="quick-prompts" aria-label="빠른 질문">
+                  <button type="button" data-prompt="서울 강남구에서 휠체어 관광지 추천해줘">강남구 휠체어</button>
+                  <button type="button" data-prompt="서울 강남구 근처에서 휠체어 관광지 추천해줘">강남구 근처</button>
+                  <button type="button" data-prompt="중구에서 휠체어 타시는 아버지와 갈 관광지 추천">중구 추가질문</button>
+                  <button type="button" data-prompt="해운대 좌동에서 유모차로 갈만한 관광지 추천">좌동 법정동</button>
+                  <button type="button" data-prompt="창원 마산합포구에서 이동약자 관광지 추천">일반구 매칭</button>
+                  <button type="button" data-prompt="서울에서 휠체어 타는 아버지와 아이가 비 오면 이동하기 편한 실내 관광지 추천">복합 조건</button>
+                  <button type="button" data-prompt="서울에서 유아차로 가기 좋은 관광지 추천해줘">서울 유아차</button>
+                  <button type="button" data-prompt="부산에서 가족과 가기 좋은 무장애 관광지 추천해줘">부산 가족</button>
+                  <button type="button" data-prompt="제주에서 휠체어 접근 가능한 관광지 추천해줘">제주 휠체어</button>
+                </div>
+              </div>
+            </details>
 
             <form id="chatForm" class="chat-form">
               <label for="message">질문</label>
@@ -144,7 +146,6 @@
           <p class="address"></p>
           <p class="reason"></p>
           <div class="evidence-highlights"></div>
-          <div class="tag-group accessibility-tags"></div>
           <dl class="details"></dl>
         </div>
       </article>

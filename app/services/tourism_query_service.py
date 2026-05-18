@@ -159,6 +159,18 @@ EXPANSION_KEYWORDS = [
     "넓혀줘",
     "상위 지역",
 ]
+CONDITIONAL_EXPANSION_KEYWORDS = [
+    "부족하면",
+    "부족할 때",
+    "부족할때",
+    "모자라면",
+    "모자를 때",
+    "모자를때",
+    "적으면",
+    "없으면",
+    "안 나오면",
+    "안나오면",
+]
 FEATURE_KEYWORDS = {
     "바닷가": ["바닷가", "바다", "해변", "해수욕장", "해안", "해변가"],
 }
@@ -373,6 +385,9 @@ class TourismQueryService:
         ):
             unsupported_intent = "unsupported_request"
         context_prediction = self._best_context_prediction(interpretation_messages)
+        allow_region_expansion = any(
+            keyword in candidate for keyword in EXPANSION_KEYWORDS for candidate in interpretation_messages
+        )
         return {
             "region": region,
             "area_code": cached_region.get("area_code") or AREA_CODES.get(region or ""),
@@ -380,7 +395,9 @@ class TourismQueryService:
             "area_name": area_name,
             "sigungu_name": cached_region.get("sigungu_name"),
             "is_sigungu": bool(sigungu_code),
-            "allow_region_expansion": any(keyword in candidate for keyword in EXPANSION_KEYWORDS for candidate in interpretation_messages),
+            "allow_region_expansion": allow_region_expansion,
+            "conditional_region_expansion": allow_region_expansion
+            and any(keyword in candidate for keyword in CONDITIONAL_EXPANSION_KEYWORDS for candidate in interpretation_messages),
             "conditions": conditions,
             "excluded_conditions": excluded_conditions,
             "ambiguous_conditions": ambiguous_conditions,
@@ -704,9 +721,14 @@ class TourismQueryService:
             "부담적",
             "막히지않",
             "돌아나오지",
+            "접근성좋",
+            "접근좋",
         ]
         if not any(marker in compact for marker in ambiguous_markers):
             return []
+        if any(marker in compact for marker in ["접근성좋", "접근좋"]):
+            labels = ["휠체어", "접근로", "고령자"]
+            return [label for label in labels if label in condition_set or label in {"접근로", "고령자"}]
         if any(marker in compact for marker in ["계단적", "많이안걷", "오래안걷", "무리적", "부담적"]):
             labels = ["고령자", *[label for label in ["접근로"] if label in condition_set]]
             return list(dict.fromkeys(labels))

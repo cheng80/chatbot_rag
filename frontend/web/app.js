@@ -29,6 +29,7 @@ const chatScroll = document.querySelector("#chatScroll");
 const userEcho = document.querySelector("#userEcho");
 const typingIndicator = document.querySelector("#typingIndicator");
 const toast = document.querySelector("#toast");
+const promptDrawer = document.querySelector("#promptDrawer");
 const debugMode = isLocalDebugMode();
 
 const accessibilityLabels = {
@@ -45,6 +46,7 @@ let fullAnswerText = "";
 let compactAnswerText = "";
 let isAnswerExpanded = false;
 let sessionId = createSessionId();
+let lastSubmittedMessage = "";
 
 const demoPreview = {
   answer:
@@ -84,10 +86,12 @@ const demoPreview = {
 apiBaseInput.value = defaultApiBase();
 syncApiDocLinks();
 syncDebugVisibility();
+syncPromptDrawerSummary();
 apiBaseInput.addEventListener("input", syncApiDocLinks);
 debugToggleButton.addEventListener("click", toggleDebugPanel);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
+promptDrawer?.addEventListener("toggle", syncPromptDrawerSummary);
 answerToggleButton.addEventListener("click", () => {
   setAnswerExpanded(!isAnswerExpanded);
 });
@@ -102,6 +106,7 @@ document.addEventListener("keydown", (event) => {
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
     messageInput.value = button.dataset.prompt;
+    closePromptDrawer();
     messageInput.focus();
     showToast("질문 예시를 입력했습니다.", "ok");
   });
@@ -114,6 +119,7 @@ document.querySelectorAll("[data-region]").forEach((button) => {
     });
     const condition = inferConditionText(messageInput.value);
     messageInput.value = `${button.dataset.region}에서 ${condition} 관광지 추천해줘`;
+    closePromptDrawer();
     messageInput.focus();
     showToast(`${button.dataset.region} 기준으로 질문을 준비했습니다.`, "ok");
   });
@@ -155,7 +161,9 @@ form.addEventListener("submit", async (event) => {
   }
 
   setLoading(true);
+  lastSubmittedMessage = message;
   renderUserMessage(message);
+  preparePendingResponse();
   suggestions.replaceChildren();
   renderClarificationBanner(null);
   suggestions.classList.remove("clarification-options", "condition-options", "region-options");
@@ -235,12 +243,25 @@ function setLoading(isLoading) {
   typingIndicator.hidden = !isLoading;
   if (isLoading) {
     demoMoreButton.disabled = true;
-    scrollChatToBottom();
     if (debugMode) {
       setState("질문 분석 중");
       diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
     }
   }
+}
+
+function preparePendingResponse() {
+  renderClarificationBanner(null);
+  suggestions.replaceChildren();
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options");
+  sourceList.replaceChildren(createSourceEmpty("응답을 준비하는 중입니다."));
+  setAnswerText("질문을 분석하고 추천 후보를 찾는 중입니다.", { empty: true });
+  cardsGrid.replaceChildren();
+  cardCount.textContent = "0개";
+  demoMoreButton.disabled = true;
+  demoMoreButton.hidden = true;
+  demoMoreButton.textContent = "더 보기";
+  scrollToResponseStart();
 }
 
 function setState(text, tone = "") {
@@ -272,11 +293,11 @@ function renderResponse(payload) {
   renderSuggestions(payload.suggested_messages || [], suggestionType);
   renderSources(payload.sources || [], cards);
   cardCount.textContent = `${cards.length}개`;
-  cardsGrid.replaceChildren(...cards.map(renderCard));
+  cardsGrid.replaceChildren(...cards.map((card) => renderCard(card, lastSubmittedMessage)));
   if (cards.length > 0) {
     showToast(`${cards.length}개의 추천 카드를 찾았습니다.`, "ok");
   }
-  scrollChatToBottom();
+  scrollToResponseStart();
 }
 
 function renderDemoPreview() {
@@ -289,7 +310,7 @@ function renderDemoPreview() {
       createSourceEmpty("실제 응답 후 카드별 원문 링크가 표시됩니다."),
     );
     cardCount.textContent = `${demoPreview.cards.length}개`;
-    cardsGrid.replaceChildren(...demoPreview.cards.map(renderCard));
+    cardsGrid.replaceChildren(...demoPreview.cards.map((card) => renderCard(card, "")));
   } else {
     setAnswerText("가고 싶은 지역과 동행 조건을 알려주세요. 추천 가능한 장소를 카드로 정리해 드립니다.", { empty: true });
     sourceList.replaceChildren(createSourceEmpty());
@@ -427,10 +448,13 @@ function renderSuggestions(messages, suggestionType = null) {
       form.requestSubmit();
     }
     : null;
+  const seenLabels = new Set();
   messages.forEach((message) => {
     const button = document.createElement("button");
     button.type = "button";
     const label = suggestionButtonLabel(message, suggestionType);
+    if (seenLabels.has(label)) return;
+    seenLabels.add(label);
     button.textContent = label;
     if (label !== message) {
       button.title = message;
@@ -557,14 +581,22 @@ function inferConditionText(message) {
   return "무장애";
 }
 
-function renderCard(card) {
+function closePromptDrawer() {
+  if (promptDrawer) promptDrawer.open = false;
+}
+
+function syncPromptDrawerSummary() {
+  const state = promptDrawer?.querySelector("summary strong");
+  if (state) state.textContent = promptDrawer.open ? "접기" : "열기";
+}
+
+function renderCard(card, queryText = "") {
   const node = cardTemplate.content.firstElementChild.cloneNode(true);
   const media = node.querySelector(".card-media");
   const title = node.querySelector("h3");
   const address = node.querySelector(".address");
   const reason = node.querySelector(".reason");
   const evidenceHighlights = node.querySelector(".evidence-highlights");
-  const tags = node.querySelector(".accessibility-tags");
   const details = node.querySelector(".details");
   const sourceChip = node.querySelector(".source-chip");
 
@@ -577,27 +609,9 @@ function renderCard(card) {
     media.style.backgroundImage = `url("${card.image_url}")`;
   }
 
-  const tagValues = [...(card.accessibility_tags || []), ...(card.family_tags || [])];
-  const evidenceItems = cardEvidenceHighlights(card);
+  const evidenceItems = cardEvidenceHighlights(card, queryText);
   evidenceHighlights.replaceChildren(...evidenceItems.map(([label, value]) => createEvidenceChip(label, value)));
   evidenceHighlights.hidden = evidenceItems.length === 0;
-
-  if (tagValues.length === 0) {
-    tags.append(createTag("접근성 확인 필요", true));
-  } else {
-    tagValues.forEach((tag) => tags.append(createTag(tag, tag.includes("확인"))));
-  }
-
-  Object.entries(card.accessibility || {}).forEach(([key, value]) => {
-    if (!value) return;
-    const row = document.createElement("div");
-    const dt = document.createElement("dt");
-    const dd = document.createElement("dd");
-    dt.textContent = accessibilityLabels[key] || key;
-    dd.textContent = value;
-    row.append(dt, dd);
-    details.append(row);
-  });
 
   if (card.tel) {
     details.append(createDetail("전화", card.tel));
@@ -628,7 +642,7 @@ function renderCard(card) {
       const dt = document.createElement("dt");
       const dd = document.createElement("dd");
       dt.textContent = label;
-      dd.textContent = value;
+      dd.textContent = normalizeDisplayText(value);
       row.append(dt, dd);
       rawList.append(row);
     });
@@ -664,24 +678,193 @@ function renderCard(card) {
   return node;
 }
 
-function cardEvidenceHighlights(card) {
+function cardEvidenceHighlights(card, queryText = "") {
   const raw = normalizeObject(card.raw_fields);
   const accessibility = normalizeObject(card.accessibility);
   const candidates = [
-    ["휠체어", firstValue(accessibility.wheelchair, raw["휠체어"], raw["출입통로"])],
-    ["동선", firstValue(accessibility.route, raw["접근로"], raw["출입통로"], raw["대중교통"])],
+    ["휠체어", wheelchairEvidence(accessibility, raw)],
+    ["동선", routeEvidence(accessibility, raw)],
     ["화장실", firstValue(accessibility.restroom, raw["화장실"])],
-    ["주차", firstValue(accessibility.parking, raw["주차"])],
+    ["주차", parkingEvidence(accessibility, raw)],
     ["승강", firstValue(accessibility.elevator, raw["엘리베이터"])],
     ["수어/자막", firstValue(raw["수어안내"], raw["자막/영상안내"], raw["청각장애"], raw["안내시설"])],
     ["점자/촉지", firstValue(raw["점자블록"], raw["점자홍보물"], raw["안내시스템"], raw["시각장애 기타"])],
     ["유아", firstValue(accessibility.stroller, accessibility.nursing_room, raw["유모차"], raw["수유실"], raw["유아용 의자"])],
+    ["대중교통", raw["대중교통"]],
+    ["보조견", raw["보조견"]],
   ];
+  const primaryFacts = dedupeEvidenceCandidates(candidates);
+  const summarizedEvidenceTexts = primaryFacts.map(([, value]) => normalizeForEvidenceCompare(value));
+  const accessibilityFacts = Object.entries(accessibility)
+    .filter(([key, value]) => shouldShowEvidenceForFocus(key, queryText) && value)
+    .map(([key, value]) => [accessibilityLabels[key] || key, value])
+    .filter(([, value]) => {
+      const normalized = normalizeForEvidenceCompare(value);
+      return normalized && !summarizedEvidenceTexts.some((text) => evidenceTextsOverlap(text, normalized));
+    });
+  const conditionFacts = conditionTagEvidence(card, [...primaryFacts, ...accessibilityFacts]);
 
-  return candidates
+  return dedupeEvidenceCandidates([...primaryFacts, ...accessibilityFacts, ...conditionFacts])
     .filter(([, value]) => Boolean(value))
-    .slice(0, 4)
-    .map(([label, value]) => [label, shortenInline(value, 34)]);
+    .sort(([labelA], [labelB]) => evidencePriority(labelA, queryText) - evidencePriority(labelB, queryText))
+    .slice(0, 6)
+    .map(([label, value]) => [label, normalizeDisplayText(value)]);
+}
+
+function shouldShowEvidenceForFocus(key, queryText) {
+  const focus = inferQueryConditionFocus(queryText);
+  if (!focus) return true;
+  if (focus === "visual" || focus === "hearing") return false;
+  if (focus === "family") return ["stroller", "nursing_room", "route", "elevator"].includes(key);
+  if (focus === "wheelchair") return ["wheelchair", "route", "elevator", "restroom", "parking"].includes(key);
+  return true;
+}
+
+function wheelchairEvidence(accessibility, raw) {
+  const rental = firstValue(accessibility.wheelchair, raw["휠체어"]);
+  if (rental && /대여/.test(rental)) return rental;
+  return firstValue(rental, raw["출입통로"]);
+}
+
+function routeEvidence(accessibility, raw) {
+  const routeLikeValue = [raw["접근로"], raw["출입통로"], accessibility.route, raw["대중교통"]].find(
+    (value) => value && routeLike(value) && !parkingDominant(value),
+  );
+  return routeLikeValue || (accessibility.route && !parkingDominant(accessibility.route) ? accessibility.route : null);
+}
+
+function parkingEvidence(accessibility, raw) {
+  return [raw["주차"], accessibility.parking].find((value) => value && parkingLike(value));
+}
+
+function routeLike(value) {
+  return /(출입|접근|경사|턱|문턱|평지|통로|동선|정류장|버스|지하철|대중교통)/.test(String(value || ""));
+}
+
+function parkingLike(value) {
+  return /(주차|주차장|주차구역|주차 대수|전용 주차)/.test(String(value || ""));
+}
+
+function parkingDominant(value) {
+  const text = String(value || "");
+  return parkingLike(text) && !/(출입구까지|통로|동선|경사|턱|문턱|평지|대중교통|버스|정류장)/.test(text);
+}
+
+function dedupeEvidenceCandidates(candidates) {
+  const result = [];
+  const seen = [];
+  candidates.forEach(([label, value]) => {
+    const normalized = normalizeForEvidenceCompare(value);
+    if (!normalized) return;
+    if (seen.some((previous) => evidenceTextsOverlap(previous, normalized))) return;
+    result.push([label, value]);
+    seen.push(normalized);
+  });
+  return result;
+}
+
+function normalizeForEvidenceCompare(value) {
+  return normalizeDisplayText(value)
+    .replace(/[_·,./()]/g, " ")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function evidenceTextsOverlap(left, right) {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length > right.length ? left : right;
+  if (shorter.length >= 12 && longer.includes(shorter)) return true;
+  if (sharedEvidenceSignals(left, right) >= 2) return true;
+  const leftTokens = evidenceTokens(left);
+  const rightTokens = evidenceTokens(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) return false;
+  const shared = leftTokens.filter((token) => rightTokens.includes(token));
+  return shared.length >= 3 && shared.length / Math.min(leftTokens.length, rightTokens.length) >= 0.6;
+}
+
+function sharedEvidenceSignals(left, right) {
+  const signals = [
+    "턱이없어",
+    "문턱없이",
+    "휠체어접근",
+    "휠체어통과",
+    "경사로",
+    "장애인전용주차",
+    "주차구역",
+    "장애인화장실",
+    "엘리베이터",
+    "점자",
+    "수어",
+    "자막",
+    "유모차",
+    "수유실",
+  ];
+  return signals.filter((signal) => left.includes(signal) && right.includes(signal)).length;
+}
+
+function evidenceTokens(text) {
+  return text
+    .split(/(?=주출입구|출입구|휠체어|경사로|문턱|턱|장애인|주차|화장실|엘리베이터|점자|수유|유모차|대중교통|버스|정류장)/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function evidencePriority(label, queryText) {
+  const focus = inferQueryConditionFocus(queryText);
+  if (focus === "visual") {
+    if (label === "점자/촉지") return 0;
+    if (label === "수어/자막") return 5;
+  }
+  if (focus === "hearing") {
+    if (label === "수어/자막") return 0;
+    if (label === "점자/촉지") return 5;
+  }
+  if (focus === "family" && label === "유아") return 0;
+  if (focus === "wheelchair" && ["휠체어", "동선", "승강", "화장실", "주차"].includes(label)) return 0;
+  const defaultOrder = ["휠체어", "동선", "화장실", "주차", "승강", "대중교통", "점자/촉지", "수어/자막", "보조견", "유아"];
+  const index = defaultOrder.indexOf(label);
+  return index >= 0 ? index + 10 : 40;
+}
+
+function conditionTagEvidence(card, existingFacts) {
+  const existingLabels = new Set(existingFacts.map(([label]) => label));
+  return [...(card.accessibility_tags || []), ...(card.family_tags || [])]
+    .filter(Boolean)
+    .map((tag) => [conditionLabelFromTag(tag), normalizeDisplayText(tag)])
+    .filter(([label]) => label && !existingLabels.has(label))
+    .map(([label, tag]) => [label, fallbackEvidenceText(label, tag)]);
+}
+
+function conditionLabelFromTag(tag) {
+  const text = String(tag || "");
+  if (/(휠체어|접근|무장애)/.test(text)) return "휠체어";
+  if (/(동선|경사|통로|턱|접근로)/.test(text)) return "동선";
+  if (/(화장실)/.test(text)) return "화장실";
+  if (/(주차)/.test(text)) return "주차";
+  if (/(엘리베이터|승강)/.test(text)) return "승강";
+  if (/(대중교통|버스|지하철)/.test(text)) return "대중교통";
+  if (/(점자|촉지|시각|오디오|음성)/.test(text)) return "점자/촉지";
+  if (/(수어|수화|자막|청각|문자)/.test(text)) return "수어/자막";
+  if (/(보조견|안내견)/.test(text)) return "보조견";
+  if (/(유아|영유아|가족|수유|유모차|유아차|기저귀)/.test(text)) return "유아";
+  return text.length <= 8 ? text : "";
+}
+
+function fallbackEvidenceText(label, tag) {
+  const suffix = "상세 위치와 이용 가능 여부는 방문 전 확인해 주세요.";
+  if (label === tag) return suffix;
+  return `${tag} 기준에 맞는 후보입니다. ${suffix}`;
+}
+
+function inferQueryConditionFocus(queryText) {
+  const text = String(queryText || "").replace(/\s+/g, "");
+  if (/(점자|점자블록|촉지|오디오가이드|음성안내|시각장애)/.test(text)) return "visual";
+  if (/(수어|수화|자막|문자안내|청각장애)/.test(text)) return "hearing";
+  if (/(유모차|유아차|수유실|기저귀|아이|가족)/.test(text)) return "family";
+  if (/(휠체어|휄체어|휠채어|접근성좋|접근좋)/.test(text)) return "wheelchair";
+  return "";
 }
 
 function normalizeObject(value) {
@@ -690,12 +873,6 @@ function normalizeObject(value) {
 
 function firstValue(...values) {
   return values.find((value) => typeof value === "string" && value.trim());
-}
-
-function shortenInline(value, limit) {
-  const normalized = String(value || "").replace(/<br\s*\/?>/gi, " ").replace(/\s+/g, " ").trim();
-  if (normalized.length <= limit) return normalized;
-  return `${normalized.slice(0, limit).trim()}...`;
 }
 
 function rawDetailEntries(card) {
@@ -735,14 +912,14 @@ function rawDetailEntries(card) {
   Object.entries(card.raw_fields || {}).forEach(([key, value]) => {
     if (!value) return;
     const label = labels[key] || key;
-    rows.push([label, value]);
+    rows.push([label, normalizeDisplayText(value)]);
     seen.add(label);
   });
 
   Object.entries(card.accessibility || {}).forEach(([key, value]) => {
     const label = accessibilityLabels[key] || key;
     if (!value || seen.has(label)) return;
-    rows.push([label, value]);
+    rows.push([label, normalizeDisplayText(value)]);
   });
 
   return rows;
@@ -771,16 +948,17 @@ function publicSourceName(sourceName) {
   return String(sourceName || "").replace(" OpenAPI", "");
 }
 
-function createTag(text, needsCheck = false) {
-  const tag = document.createElement("span");
-  tag.className = needsCheck ? "tag needs-check" : "tag";
-  tag.textContent = text;
-  return tag;
+function normalizeDisplayText(value) {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function createEvidenceChip(label, value) {
-  const chip = document.createElement("span");
-  chip.className = "evidence-chip";
+  const chip = document.createElement("div");
+  chip.className = "evidence-item";
 
   const name = document.createElement("strong");
   name.textContent = label;
@@ -800,7 +978,7 @@ function createDetail(label, value) {
   if (value instanceof Node) {
     dd.append(value);
   } else {
-    dd.textContent = value;
+    dd.textContent = normalizeDisplayText(value);
   }
   row.append(dt, dd);
   return row;
@@ -829,7 +1007,6 @@ function toggleDebugPanel() {
 function renderUserMessage(message) {
   userEcho.textContent = message;
   userEcho.hidden = false;
-  scrollChatToBottom();
 }
 
 function showToast(message, tone = "") {
@@ -847,9 +1024,11 @@ function hideToast() {
   toast.className = "toast";
 }
 
-function scrollChatToBottom() {
+function scrollToResponseStart() {
   window.requestAnimationFrame(() => {
-    chatScroll.scrollTop = chatScroll.scrollHeight;
+    const target = userEcho.hidden ? document.querySelector(".answer-panel") : userEcho;
+    const offset = target.offsetTop - chatScroll.offsetTop - 12;
+    chatScroll.scrollTop = Math.max(0, offset);
   });
 }
 

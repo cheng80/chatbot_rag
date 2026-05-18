@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 
 from app.core.config import Settings
-from app.schemas.tourism import TourismPlaceCard
+from app.schemas.tourism import AccessibilityInfo, TourismPlaceCard
 from app.services.tour_api_service import TourAPIError
 from app.services.tourism_chat_service import TourismChatService
 from app.services.tourism_normalizer import TourismNormalizer
@@ -572,6 +572,92 @@ def test_tourism_chat_expansion_copy_requires_actual_outside_sigungu_cards():
     assert TourismChatService._cards_include_outside_query_region(mixed_cards, query) is True
 
 
+def test_tourism_chat_conditional_expansion_keeps_local_cards_first():
+    service = TourismChatService(Settings(), EmptyRetriever(), TourismQueryService())
+    query = {
+        "is_sigungu": True,
+        "area_name": "서울",
+        "sigungu_name": "강남구",
+        "region": "서울 강남구",
+        "conditions": ["휠체어"],
+        "allow_region_expansion": True,
+        "conditional_region_expansion": True,
+    }
+    cards = [
+        _wheelchair_card(f"g{i}", f"강남 {i}", "서울특별시 강남구 테헤란로")
+        for i in range(1, 6)
+    ] + [
+        _wheelchair_card("o1", "서울 다른 구", "서울특별시 광진구 능동")
+    ]
+
+    selected, expanded, has_more = service._select_cards(
+        cards,
+        "서울 강남구에서 휠체어 관광지 추천해줘. 부족하면 서울 전체로 넓혀줘",
+        query,
+    )
+
+    assert len(selected) == 5
+    assert all("강남구" in (card.address or "") for card in selected)
+    assert expanded is False
+    assert has_more is False
+
+
+def test_tourism_chat_conditional_expansion_expands_only_when_local_cards_are_few():
+    service = TourismChatService(Settings(), EmptyRetriever(), TourismQueryService())
+    query = {
+        "is_sigungu": True,
+        "area_name": "서울",
+        "sigungu_name": "강남구",
+        "region": "서울 강남구",
+        "conditions": ["휠체어"],
+        "allow_region_expansion": True,
+        "conditional_region_expansion": True,
+    }
+    cards = [
+        _wheelchair_card("g1", "강남 1", "서울특별시 강남구 테헤란로"),
+        _wheelchair_card("g2", "강남 2", "서울특별시 강남구 삼성동"),
+        _wheelchair_card("o1", "서울 다른 구", "서울특별시 광진구 능동"),
+    ]
+
+    selected, expanded, _ = service._select_cards(
+        cards,
+        "서울 강남구에서 휠체어 관광지 추천해줘. 부족하면 서울 전체로 넓혀줘",
+        query,
+    )
+
+    assert [card.title for card in selected] == ["강남 1", "강남 2", "서울 다른 구"]
+    assert expanded is True
+
+
+def test_tourism_chat_no_card_suggestions_include_distinct_recovery_actions():
+    query = {
+        "is_sigungu": True,
+        "area_name": "제주",
+        "sigungu_name": "제주시",
+        "region": "제주시",
+        "conditions": ["청각장애", "시각장애"],
+    }
+
+    suggestions = TourismChatService._build_no_card_suggestions(query)
+
+    assert suggestions == [
+        "제주시에서 청각장애 시각장애 관광지 추천해줘",
+        "제주 전체로 넓혀서 청각장애 시각장애 관광지 추천해줘",
+        "제주시에서 무장애 관광지 추천해줘",
+    ]
+
+
+def _wheelchair_card(content_id: str, title: str, address: str) -> TourismPlaceCard:
+    return TourismPlaceCard(
+        content_id=content_id,
+        title=title,
+        address=address,
+        recommendation_reason="휠체어 접근 정보가 확인되어 조건에 맞는 후보입니다.",
+        accessibility=AccessibilityInfo(wheelchair="주출입구는 턱이 없어 휠체어 접근 가능함"),
+        accessibility_tags=["휠체어 접근"],
+    )
+
+
 def test_tourism_chat_rejects_general_place_type_only_query(tmp_path):
     sample_dir = tmp_path / "samples"
     sample_dir.mkdir()
@@ -848,6 +934,28 @@ def test_tourism_chat_asks_to_clarify_ambiguous_condition_boundary(tmp_path):
     assert response.suggested_messages == [
         "서울에서 어르신 이동 부담 적은 곳 관광지 추천해줘",
         "서울에서 입구/동선 접근로 관광지 추천해줘",
+    ]
+
+
+def test_tourism_chat_clarifies_broad_accessibility_good_phrase(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        FakeRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("강남구에서 접근성 좋은 실내 관광지")
+
+    assert response.cards == []
+    assert response.lookup_mode == "clarification"
+    assert "접근성 의미가 조금 애매합니다" in response.answer
+    assert "휠체어 접근" in response.answer
+    assert "입구/동선 접근로" in response.answer
+    assert "어르신 이동 부담 적은 곳" in response.answer
+    assert response.suggested_messages == [
+        "강남구에서 휠체어 접근 관광지 추천해줘",
+        "강남구에서 입구/동선 접근로 관광지 추천해줘",
+        "강남구에서 어르신 이동 부담 적은 곳 관광지 추천해줘",
     ]
 
 
@@ -1498,6 +1606,37 @@ def test_tourism_chat_requires_explicit_detail_terms_on_same_card(tmp_path):
     response = service.answer("대구에서 점자블록과 안내견 가능한 관광지 추천")
 
     assert [card.title for card in response.cards] == ["점자 안내 박물관"]
+
+
+def test_tourism_chat_contextualizes_visual_accessibility_card_reason(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    card = TourismPlaceCard(
+        content_id="jeju-braille",
+        title="제주 점자 안내관",
+        address="제주특별자치도 제주시",
+        recommendation_reason="제주 점자 안내관은(는) 휠체어 접근, 장애인 주차, 장애인 화장실 정보가 확인되어 조건에 맞는 후보입니다.",
+        accessibility_tags=["휠체어 접근", "장애인 주차", "장애인 화장실", "점자블록"],
+        raw_fields={
+            "휠체어": "대여 가능",
+            "주차": "장애인 주차장 있음",
+            "점자블록": "점자블록 있음(출입구 앞)",
+        },
+    )
+    (sample_dir / "jeju_braille.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("제주에서 점자 안내 있는 곳 찾아줘")
+
+    assert response.cards
+    assert response.cards[0].recommendation_reason.startswith("제주 점자 안내관은(는) 점자블록")
+    assert response.cards[0].accessibility_tags == ["점자블록"]
+    assert "1. 제주 점자 안내관: 점자블록 / 점자블록: 점자블록 있음" in response.answer
+    assert "1. 제주 점자 안내관: 휠체어 접근" not in response.answer
 
 
 def test_tourism_chat_relaxes_multi_condition_unless_all_conditions_are_explicit(tmp_path):

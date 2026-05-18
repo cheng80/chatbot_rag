@@ -69,6 +69,15 @@ def test_tourism_query_uses_area_code_cache(tmp_path: Path):
     assert "휠체어" in query["conditions"]
 
 
+def test_tourism_query_marks_broad_accessibility_phrase_as_ambiguous():
+    service = TourismQueryService()
+
+    query = service.extract("강남구에서 접근성 좋은 실내 관광지")
+
+    assert "휠체어" in query["conditions"]
+    assert query["ambiguous_conditions"] == ["휠체어", "접근로", "고령자"]
+
+
 def test_tourism_query_does_not_treat_parent_terms_as_elderly(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -1154,6 +1163,24 @@ def test_tourism_query_rejects_external_correction_when_protected_term_is_damage
     assert query["external_correction_region_damaged"] is True
     assert query["external_correction_query"] == "서울 근처에서 휠체어 관광지 추천해줘"
     assert query["external_correction_damaged_terms"] == ["서울 강남구"]
+
+
+def test_tourism_query_marks_unconditional_region_expansion():
+    service = TourismQueryService()
+
+    query = service.extract("서울 전체로 넓혀서 휠체어 관광지 추천해줘")
+
+    assert query["allow_region_expansion"] is True
+    assert query["conditional_region_expansion"] is False
+
+
+def test_tourism_query_marks_conditional_region_expansion():
+    service = TourismQueryService()
+
+    query = service.extract("서울 강남구에서 휠체어 관광지 추천해줘. 부족하면 서울 전체로 넓혀줘")
+
+    assert query["allow_region_expansion"] is True
+    assert query["conditional_region_expansion"] is True
 
 
 def test_tourism_query_default_external_correction_skips_clean_input(tmp_path: Path):

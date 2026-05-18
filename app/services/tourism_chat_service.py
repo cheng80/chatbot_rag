@@ -564,7 +564,14 @@ class TourismChatService:
             for group in dict.fromkeys(alternative_groups)
             if not self._required_group_matches_excluded_preference(group, excluded_preferences)
         ]
-        merged["allow_region_expansion"] = bool(merged.get("allow_region_expansion") or previous.get("allow_region_expansion"))
+        current_allows_expansion = bool(merged.get("allow_region_expansion"))
+        previous_allows_unconditional_expansion = bool(previous.get("allow_region_expansion")) and not bool(
+            previous.get("conditional_region_expansion")
+        )
+        merged["allow_region_expansion"] = current_allows_expansion or previous_allows_unconditional_expansion
+        merged["conditional_region_expansion"] = bool(
+            merged.get("conditional_region_expansion") and current_allows_expansion
+        )
         merged["conversation_context_used"] = True
         return self._remove_negated_conditions(merged, message)
 
@@ -743,6 +750,7 @@ class TourismChatService:
                 "sigungu_name",
                 "is_sigungu",
                 "allow_region_expansion",
+                "conditional_region_expansion",
                 "require_all_conditions",
                 "conditions",
                 "excluded_conditions",
@@ -1082,6 +1090,8 @@ class TourismChatService:
                 query,
                 filter_region=False,
             )
+            if query.get("conditional_region_expansion") and len(region_cards) >= DEFAULT_CARD_LIMIT:
+                return self._limit_cards(region_cards, more_requested), False, self._has_more_cards(region_cards, more_requested)
             if not query.get("allow_region_expansion"):
                 return self._limit_cards(region_cards, more_requested), False, self._has_more_cards(region_cards, more_requested)
 
@@ -1252,18 +1262,59 @@ class TourismChatService:
 
     @classmethod
     def _annotate_cards_for_query_evidence(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
-        if "고령자" not in (query.get("conditions") or []):
+        conditions = query.get("conditions") or []
+        if not conditions:
             return cards
         annotated: list[TourismPlaceCard] = []
         for card in cards:
-            if cls._condition_evidence_score(card, "고령자") <= 0:
-                annotated.append(card)
-                continue
             reason = card.recommendation_reason
-            if "고령자 요청" not in reason:
+            if "고령자" in conditions and cls._condition_evidence_score(card, "고령자") > 0 and "고령자 요청" not in reason:
                 reason = f"{reason} 고령자 요청은 휠체어 접근, 경사로, 화장실, 대중교통 같은 이동 편의 근거를 함께 확인합니다."
-            annotated.append(card.model_copy(update={"recommendation_reason": reason}))
+            focused_reason = cls._build_focused_card_reason(card, query)
+            if focused_reason:
+                reason = focused_reason
+            update = {"recommendation_reason": reason}
+            focused_tags = cls._select_condition_tags([*card.accessibility_tags, *card.family_tags], query)
+            if focused_tags and cls._should_show_only_focused_tags(query):
+                update["accessibility_tags"] = [tag for tag in focused_tags if tag in card.accessibility_tags]
+                update["family_tags"] = [tag for tag in focused_tags if tag in card.family_tags]
+            elif focused_tags:
+                update["accessibility_tags"] = cls._prioritize_tags(card.accessibility_tags, focused_tags)
+                update["family_tags"] = cls._prioritize_tags(card.family_tags, focused_tags)
+            annotated.append(card.model_copy(update=update))
         return annotated
+
+    @staticmethod
+    def _should_show_only_focused_tags(query: dict) -> bool:
+        focused_conditions = {"시각장애", "청각장애", "보조견"}
+        return any(condition in focused_conditions for condition in query.get("conditions") or [])
+
+    @staticmethod
+    def _prioritize_tags(tags: list[str], focused_tags: list[str]) -> list[str]:
+        focused_set = set(focused_tags)
+        return [*dict.fromkeys([tag for tag in tags if tag in focused_set]), *[tag for tag in tags if tag not in focused_set]]
+
+    @classmethod
+    def _build_focused_card_reason(cls, card: TourismPlaceCard, query: dict) -> str | None:
+        conditions = query.get("conditions") or []
+        if not conditions:
+            return None
+        focused_conditions = [
+            condition
+            for condition in conditions
+            if condition in {"시각장애", "청각장애", "보조견", "주차", "화장실", "엘리베이터", "접근로", "유모차"}
+        ]
+        if not focused_conditions:
+            return None
+        tags = cls._select_condition_tags([*card.accessibility_tags, *card.family_tags], query)
+        evidence = cls._select_raw_evidence(card, query)
+        if not tags and not evidence:
+            return None
+        parts = []
+        if tags:
+            parts.append(", ".join(tags[:2]))
+        parts.extend(evidence[:1])
+        return f"{card.title}은(는) {' / '.join(parts[:2])} 정보가 확인되어 요청 조건에 맞는 후보입니다."
 
     @classmethod
     def _filter_cards_by_preferences(cls, cards: list[TourismPlaceCard], query: dict) -> list[TourismPlaceCard]:
@@ -1502,15 +1553,18 @@ class TourismChatService:
         focus_label = self._query_focus_label(query)
         area_name = query.get("area_name") or "상위 지역"
         if expanded:
+            if query.get("conditional_region_expansion"):
+                expansion_reason = f"{region} 안의 후보가 부족해"
+            else:
+                expansion_reason = "요청대로"
             lines = [
-                f"{region} 안의 후보가 부족해 {area_name} 범위까지 넓혀 "
-                f"{focus_label}에 맞는 후보 {len(cards)}곳을 추천합니다."
+                f"{expansion_reason} {area_name} 범위까지 넓혀 {focus_label}에 맞는 후보 {len(cards)}곳을 추천합니다."
             ]
         else:
             lines = [f"{region} 기준으로 {focus_label}에 맞는 후보 {len(cards)}곳을 추천합니다."]
         if query.get("legacy_region_notice"):
             lines.append(str(query["legacy_region_notice"]))
-        if query.get("is_sigungu") and len(cards) < 3 and not expanded:
+        if query.get("is_sigungu") and len(cards) < DEFAULT_CARD_LIMIT and not expanded:
             lines.append(
                 f"{region} 안에서 확인된 후보가 {len(cards)}곳이라 요청 지역 안의 결과만 먼저 제공합니다. "
                 "더 많은 후보가 필요하면 '서울 전체로 넓혀줘'처럼 상위 지역 확장을 명확히 말해 주세요."
@@ -1555,12 +1609,27 @@ class TourismChatService:
         tags = [*card.accessibility_tags, *card.family_tags]
         evidence = TourismChatService._select_raw_evidence(card, query)
         basis_parts = []
-        if tags:
+        matching_tags = TourismChatService._select_condition_tags(tags, query)
+        if matching_tags:
+            basis_parts.append(", ".join(matching_tags[:3]))
+        elif not evidence and tags:
             basis_parts.append(", ".join(tags[:3]))
         basis_parts.extend(evidence)
         if not basis_parts:
             return "세부 편의정보 확인 필요"
         return " / ".join(basis_parts[:3])
+
+    @staticmethod
+    def _select_condition_tags(tags: list[str], query: dict) -> list[str]:
+        conditions = query.get("conditions") or []
+        if not conditions:
+            return []
+        preferred_keywords: list[str] = []
+        for condition in conditions:
+            preferred_keywords.extend(CONDITION_EVIDENCE_KEYWORDS.get(condition, [condition]))
+        if not preferred_keywords:
+            return []
+        return [tag for tag in tags if any(keyword in tag for keyword in preferred_keywords)]
 
     @staticmethod
     def _select_raw_evidence(card: TourismPlaceCard, query: dict) -> list[str]:
@@ -1779,14 +1848,11 @@ class TourismChatService:
         region = query.get("region") or "서울"
         suggestions = []
         if query.get("is_sigungu") and query.get("area_name"):
-            suggestions.append(f"{query['area_name']}에서 {condition_text} 관광지 추천해줘")
+            suggestions.append(f"{region}에서 {condition_text} 관광지 추천해줘")
             suggestions.append(f"{query['area_name']} 전체로 넓혀서 {condition_text} 관광지 추천해줘")
         elif region:
             suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
-        relaxed_conditions = conditions[:1]
-        if relaxed_conditions and relaxed_conditions != conditions:
-            suggestions.append(f"{region}에서 {' '.join(relaxed_conditions)} 관광지 추천해줘")
-        elif conditions:
+        if conditions:
             suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
         return list(dict.fromkeys(suggestions))[:3]
 
@@ -1814,7 +1880,7 @@ class TourismChatService:
             and len(cards) < DEFAULT_CARD_LIMIT
             and query.get("is_sigungu")
             and query.get("area_name")
-            and not query.get("allow_region_expansion")
+            and (not query.get("allow_region_expansion") or query.get("conditional_region_expansion"))
         ):
             condition_text = " ".join(str(condition) for condition in (query.get("conditions") or [])[:2]) or "무장애"
             suggestions.append(f"{query['area_name']} 전체로 넓혀서 {condition_text} 관광지 추천해줘")

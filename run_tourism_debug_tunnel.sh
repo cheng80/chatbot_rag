@@ -11,6 +11,7 @@ LOG_DIR="${LOG_DIR:-data/generated/tour_api/tunnel_logs}"
 UVICORN_LOG="${LOG_DIR}/debug_uvicorn.log"
 TUNNEL_LOG="${LOG_DIR}/debug_cloudflared.log"
 PUBLIC_URL_FILE="${LOG_DIR}/debug_public_url.txt"
+TUNNEL_ATTEMPTS="${TUNNEL_ATTEMPTS:-3}"
 
 mkdir -p "$LOG_DIR"
 
@@ -98,24 +99,47 @@ if [[ -n "$PUBLIC_URL" ]]; then
 else
   : > "$TUNNEL_LOG"
   rm -f "$PUBLIC_URL_FILE"
-  echo "[start] Cloudflare Quick Tunnel -> ${BASE_URL}"
-  cloudflared tunnel --url "$BASE_URL" >"$TUNNEL_LOG" 2>&1 &
-  TUNNEL_PID="$!"
-  TUNNEL_STARTED=true
-
-  echo "[wait] public trycloudflare URL 검출 중..."
   PUBLIC_URL=""
-  for _ in {1..90}; do
-    PUBLIC_URL="$(grep -Eo 'https://[-a-zA-Z0-9.]+\.trycloudflare\.com' "$TUNNEL_LOG" | tail -n 1 || true)"
+  for attempt in $(seq 1 "$TUNNEL_ATTEMPTS"); do
+    if [[ "$attempt" -gt 1 ]]; then
+      echo "[retry] Cloudflare Quick Tunnel 재시도 ${attempt}/${TUNNEL_ATTEMPTS}"
+      sleep "$attempt"
+    fi
+
+    echo "[start] Cloudflare Quick Tunnel -> ${BASE_URL}"
+    {
+      echo "===== attempt ${attempt}/${TUNNEL_ATTEMPTS} $(date -u '+%Y-%m-%dT%H:%M:%SZ') ====="
+    } >>"$TUNNEL_LOG"
+    cloudflared tunnel --url "$BASE_URL" >>"$TUNNEL_LOG" 2>&1 &
+    TUNNEL_PID="$!"
+    TUNNEL_STARTED=true
+
+    echo "[wait] public trycloudflare URL 검출 중..."
+    for _ in {1..90}; do
+      PUBLIC_URL="$(grep -Eo 'https://[-a-zA-Z0-9.]+\.trycloudflare\.com' "$TUNNEL_LOG" | tail -n 1 || true)"
+      if [[ -n "$PUBLIC_URL" ]]; then
+        break
+      fi
+      if ! kill -0 "$TUNNEL_PID" >/dev/null 2>&1; then
+        echo "[warn] cloudflared가 종료되었습니다. 로그: ${TUNNEL_LOG}" >&2
+        tail -n 80 "$TUNNEL_LOG" >&2 || true
+        TUNNEL_STARTED=false
+        TUNNEL_PID=""
+        break
+      fi
+      sleep 1
+    done
+
     if [[ -n "$PUBLIC_URL" ]]; then
       break
     fi
-    if ! kill -0 "$TUNNEL_PID" >/dev/null 2>&1; then
-      echo "[error] cloudflared가 종료되었습니다. 로그: ${TUNNEL_LOG}" >&2
-      cat "$TUNNEL_LOG" >&2 || true
-      exit 1
+    if [[ "$TUNNEL_STARTED" == "true" && -n "${TUNNEL_PID:-}" ]] && kill -0 "$TUNNEL_PID" >/dev/null 2>&1; then
+      echo "[warn] public URL을 찾지 못해 현재 cloudflared 시도를 종료합니다." >&2
+      kill "$TUNNEL_PID" >/dev/null 2>&1 || true
+      wait "$TUNNEL_PID" >/dev/null 2>&1 || true
+      TUNNEL_STARTED=false
+      TUNNEL_PID=""
     fi
-    sleep 1
   done
 
   if [[ -z "$PUBLIC_URL" ]]; then

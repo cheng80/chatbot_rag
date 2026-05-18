@@ -131,6 +131,41 @@ def expand_equivalent_terms(terms: list[str]) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
+def classify_eval_failure_details(item: dict[str, Any], response_body: dict[str, Any]) -> dict[str, Any]:
+    cards = response_body.get("cards", [])
+    if not isinstance(cards, list):
+        cards = []
+
+    min_cards = item.get("min_cards")
+    expected_min_cards = min_cards if isinstance(min_cards, int) else None
+    required_groups = normalize_term_groups(item.get("must_include_any_card_terms"))
+    missing_required_groups = [group for group in required_groups if not any_card_contains(cards, group)]
+
+    classes: list[str] = []
+    if expected_min_cards is not None:
+        if not cards and expected_min_cards > 0:
+            classes.append("no_card_output")
+        elif len(cards) < expected_min_cards:
+            classes.append("low_card_count")
+    if missing_required_groups:
+        if cards:
+            classes.append("strict_evidence_mismatch")
+        else:
+            classes.append("strict_evidence_unverifiable_no_card")
+
+    if not classes:
+        classes.append("criteria_satisfied_or_non_card_failure")
+
+    return {
+        "classes": classes,
+        "card_output_state": "no_cards" if not cards else "has_cards",
+        "card_count": len(cards),
+        "expected_min_cards": expected_min_cards,
+        "required_group_count": len(required_groups),
+        "missing_required_groups": missing_required_groups,
+    }
+
+
 def classify_eval_failures(item: dict[str, Any], status_code: int, response_body: dict[str, Any], error_message: str | None) -> list[str]:
     failures: list[str] = []
     if error_message:
@@ -302,6 +337,7 @@ def run_eval(
                             timeout=timeout,
                         )
                     turn_failures = classify_eval_failures(turn, status_code, response_body, None)
+                    turn_failure_diagnostics = classify_eval_failure_details(turn, response_body)
                     turn_results.append(
                         {
                             "turn": turn_index,
@@ -313,6 +349,8 @@ def run_eval(
                             "answer": response_body.get("answer"),
                             "response": response_body,
                             "failure_reasons": turn_failures,
+                            "failure_classes": turn_failure_diagnostics["classes"],
+                            "failure_diagnostics": turn_failure_diagnostics,
                             "passed": not turn_failures,
                         }
                     )
@@ -340,8 +378,21 @@ def run_eval(
                 failure_reasons.append("request_error")
             if status_code >= 400:
                 failure_reasons.append("http_error")
+            failure_diagnostics = {
+                "classes": list(
+                    dict.fromkeys(
+                        class_name
+                        for turn in turn_results
+                        for class_name in turn.get("failure_classes", [])
+                        if class_name != "criteria_satisfied_or_non_card_failure"
+                    )
+                )
+                or ["criteria_satisfied_or_non_card_failure"],
+                "turns": [turn.get("failure_diagnostics", {}) for turn in turn_results],
+            }
         else:
             failure_reasons = classify_eval_failures(item, status_code, response_body, error_message)
+            failure_diagnostics = classify_eval_failure_details(item, response_body)
         results.append(
             {
                 "id": item["id"],
@@ -363,6 +414,8 @@ def run_eval(
                 "turn_results": turn_results,
                 "error": error_message,
                 "failure_reasons": failure_reasons,
+                "failure_classes": failure_diagnostics["classes"],
+                "failure_diagnostics": failure_diagnostics,
                 "passed": not failure_reasons,
             }
         )

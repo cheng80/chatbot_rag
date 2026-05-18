@@ -361,8 +361,10 @@ class TourismChatService:
         has_more_cards = False
         live_api_called = False
         live_top_up_requested = self._requests_live_top_up(message)
+        diagnostic_candidates: list[TourismPlaceCard] = []
 
         candidates = self._cards_from_live_markdown_cache(query)
+        diagnostic_candidates.extend(candidates)
         cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
         if cards:
             lookup_mode = "cache"
@@ -374,6 +376,7 @@ class TourismChatService:
             contexts, retrieve_degraded = self._retrieve(effective_message)
             degraded = degraded or retrieve_degraded
             candidates = self._cards_from_contexts(contexts)
+            diagnostic_candidates.extend(candidates)
             cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
             if cards:
                 lookup_mode = "indexed"
@@ -385,6 +388,7 @@ class TourismChatService:
 
         if not cards:
             candidates = self._cards_from_markdown_samples()
+            diagnostic_candidates.extend(candidates)
             cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
             if cards:
                 lookup_mode = "sample"
@@ -415,6 +419,7 @@ class TourismChatService:
             candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
             live_api_called = live_api_called or api_called
             degraded = degraded or live_degraded
+            diagnostic_candidates.extend(candidates)
             cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
             if cards:
                 lookup_mode = "live"
@@ -444,7 +449,7 @@ class TourismChatService:
 
         if not cards:
             region_text = self._display_region(query)
-            answer = f"{region_text} 기준으로 조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요."
+            answer = self._build_no_card_answer(query, region_text, diagnostic_candidates)
             if query.get("legacy_region_notice"):
                 answer = f"{query['legacy_region_notice']}\n{answer}"
             response = TourismChatResponse(
@@ -1608,6 +1613,73 @@ class TourismChatService:
         for condition in TourismChatService._condition_clarification_options(query):
             suggestions.append(f"{region}에서 {condition} 관광지 추천해줘")
         return suggestions
+
+    @classmethod
+    def _build_no_card_answer(cls, query: dict, region_text: str, candidates: list[TourismPlaceCard]) -> str:
+        alternative_note = cls._build_alternative_evidence_note(query, candidates)
+        if alternative_note:
+            return (
+                f"{region_text} 기준으로 정확히 요청한 접근성 근거가 확인된 카드는 찾지 못했습니다. "
+                f"{alternative_note} 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요."
+            )
+        return f"{region_text} 기준으로 조건에 맞는 관광지를 확인하지 못했습니다. 지역이나 접근성 조건을 조금 넓혀 다시 질문해 주세요."
+
+    @classmethod
+    def _build_alternative_evidence_note(cls, query: dict, candidates: list[TourismPlaceCard]) -> str | None:
+        if not candidates:
+            return None
+        required_groups = query.get("required_evidence_terms") or []
+        if not required_groups:
+            return None
+
+        scoped = cls._filter_cards_by_query_region(cls._deduplicate(candidates), query) if query.get("region") else cls._deduplicate(candidates)
+        if not scoped:
+            return None
+        condition_candidates = cls._filter_cards_by_conditions(scoped, query)
+        if not condition_candidates:
+            return None
+        exact_candidates = cls._filter_cards_by_required_evidence_terms(condition_candidates, query)
+        if exact_candidates:
+            return None
+
+        requested = cls._display_required_evidence_groups(required_groups)
+        alternatives = cls._summarize_alternative_evidence(condition_candidates)
+        if alternatives:
+            return f"다만 같은 범주의 대체 근거({alternatives})가 있는 후보는 확인됩니다. 요청하신 기준은 {requested}로 더 엄격하게 보았습니다."
+        return f"다만 관련 접근성 후보는 있으나 요청하신 기준({requested})과 직접 일치하는 근거는 부족합니다."
+
+    @staticmethod
+    def _display_required_evidence_groups(required_groups: list[list[str]]) -> str:
+        displays = []
+        for group in required_groups:
+            if any(term in group for term in ["수어", "수화"]):
+                displays.append("수어/수화")
+            elif any(term in group for term in ["자막", "문자안내", "영상안내"]):
+                displays.append("자막/문자안내")
+            elif any(term in group for term in ["점자", "점자블록"]):
+                displays.append("점자/점자블록")
+            elif any(term in group for term in ["촉지도"]):
+                displays.append("촉지도")
+            elif any(term in group for term in ["보조견", "안내견"]):
+                displays.append("보조견/안내견")
+            else:
+                displays.append("/".join(str(term) for term in group[:3]))
+        return ", ".join(dict.fromkeys(displays))
+
+    @classmethod
+    def _summarize_alternative_evidence(cls, cards: list[TourismPlaceCard]) -> str:
+        labels = []
+        haystack = " ".join(cls._card_haystack(card) for card in cards)
+        for label, terms in [
+            ("자막/영상안내", ["자막", "문자안내", "영상안내"]),
+            ("오디오가이드/음성안내", ["오디오가이드", "음성안내", "음성 안내"]),
+            ("점자블록", ["점자블록"]),
+            ("촉지도", ["촉지도"]),
+            ("보조견", ["보조견", "안내견"]),
+        ]:
+            if any(term in haystack for term in terms):
+                labels.append(label)
+        return ", ".join(list(dict.fromkeys(labels))[:3])
 
     @staticmethod
     def _condition_clarification_options(query: dict) -> list[str]:

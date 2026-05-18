@@ -905,6 +905,24 @@ def test_tourism_query_excludes_restroom_with_connective_and_keeps_elevator_typo
     assert query["excluded_conditions"] == ["화장실"]
 
 
+def test_tourism_query_removes_excluded_condition_from_required_evidence_terms(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        enable_external_correction=False,
+        condition_transformer=FakeConditionTransformer([]),
+    )
+
+    query = service.extract("부산중구에서승강기말고애기랑기준")
+
+    assert "엘리베이터" not in query["conditions"]
+    assert "엘리베이터" in query["excluded_conditions"]
+    assert not any("엘리베이터" in group or "승강기" in group for group in query["required_evidence_terms"])
+    assert any("유모차" in group for group in query["required_evidence_terms"])
+
+
 def test_tourism_query_marks_ambiguous_condition_boundary(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")

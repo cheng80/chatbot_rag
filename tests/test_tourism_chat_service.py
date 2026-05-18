@@ -658,7 +658,39 @@ def test_tourism_chat_does_not_expand_place_type_when_accessibility_condition_is
     response = service.answer("성남시 수어 자막 있는 실내식당")
 
     assert response.cards == []
-    assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
+    assert "정확히 요청한 접근성 근거" in response.answer
+
+
+def test_tourism_chat_distinguishes_exact_evidence_missing_from_no_card_output(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    normalizer = TourismNormalizer()
+    gallery = TourismPlaceCard(
+        content_id="seongnam-gallery",
+        title="나폴레옹갤러리",
+        address="경기도 성남시",
+        recommendation_reason="자막 안내가 있는 실내 전시관입니다.",
+        accessibility_tags=["청각장애", "자막/영상안내"],
+        raw_fields={"자막/영상안내": "음성안내기 자막 제공"},
+    )
+    (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
+    service = TourismChatService(
+        Settings(
+            tourism_sample_path=sample_dir,
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tour_api_service_key=None,
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("성남시 수어 안내 관광지 추천")
+
+    assert response.cards == []
+    assert "정확히 요청한 접근성 근거" in response.answer
+    assert "대체 근거" in response.answer
+    assert "자막/영상안내" in response.answer
+    assert "수어/수화" in response.answer
 
 
 def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):

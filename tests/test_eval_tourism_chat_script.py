@@ -3,7 +3,14 @@ import json
 import pytest
 
 from scripts import eval_tourism_chat
-from scripts.eval_tourism_chat import classify_eval_failures, load_eval_items, normalize_term_groups, run_eval, write_jsonl
+from scripts.eval_tourism_chat import (
+    classify_eval_failure_details,
+    classify_eval_failures,
+    load_eval_items,
+    normalize_term_groups,
+    run_eval,
+    write_jsonl,
+)
 
 
 def test_load_eval_items_requires_id_and_message(tmp_path):
@@ -118,6 +125,17 @@ def test_classify_eval_failures_checks_forbidden_answer_and_suggestions():
     assert "suggestion_contains_forbidden_term" in failures
 
 
+def test_classify_eval_failure_details_separates_no_card_and_evidence_mismatch():
+    item = {"min_cards": 1, "must_include_any_card_terms": [["수어", "수화"]]}
+
+    no_card = classify_eval_failure_details(item, {"cards": []})
+    mismatch = classify_eval_failure_details(item, {"cards": [{"title": "나폴레옹갤러리", "raw_fields": {"자막/영상안내": "자막 제공"}}]})
+
+    assert no_card["classes"] == ["no_card_output", "strict_evidence_unverifiable_no_card"]
+    assert mismatch["classes"] == ["strict_evidence_mismatch"]
+    assert mismatch["card_output_state"] == "has_cards"
+
+
 def test_run_eval_records_failure_reasons(monkeypatch, tmp_path):
     eval_file = tmp_path / "eval.jsonl"
     output = tmp_path / "result.jsonl"
@@ -142,6 +160,7 @@ def test_run_eval_records_failure_reasons(monkeypatch, tmp_path):
 
     assert rows[0]["passed"] is False
     assert rows[0]["failure_reasons"] == ["card_count_low"]
+    assert rows[0]["failure_classes"] == ["low_card_count"]
 
 
 def test_run_eval_supports_conversation_turns(monkeypatch, tmp_path):

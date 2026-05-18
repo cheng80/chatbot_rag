@@ -350,9 +350,13 @@ class TourismQueryService:
                         ],
                     ]
                 )
-            )
+        )
         ambiguous_conditions = self._find_ambiguous_condition_request(condition_messages, conditions)
         preferences, excluded_preferences = self._merge_preference_filters(condition_messages)
+        required_evidence_terms = self._filter_required_evidence_terms(
+            self._merge_required_evidence_terms(condition_messages),
+            excluded_conditions,
+        )
         cached_region = self.region_index.get(region or "", {})
         sigungu_code = cached_region.get("sigungu_code") or SIGUNGU_CODES.get(region or "")
         area_name = cached_region.get("area_name")
@@ -384,7 +388,7 @@ class TourismQueryService:
                 for label, keywords in FEATURE_KEYWORDS.items()
                 if any(keyword in candidate for keyword in keywords for candidate in condition_messages)
             ],
-            "required_evidence_terms": self._merge_required_evidence_terms(condition_messages),
+            "required_evidence_terms": required_evidence_terms,
             "unsupported_intent": unsupported_intent,
             "ml_intent": intent_prediction.intent,
             "ml_intent_confidence": intent_prediction.confidence,
@@ -744,6 +748,37 @@ class TourismQueryService:
                 seen.add(key)
                 merged.append(group)
         return merged
+
+    @classmethod
+    def _filter_required_evidence_terms(cls, required_groups: list[list[str]], excluded_conditions: list[str]) -> list[list[str]]:
+        if not required_groups or not excluded_conditions:
+            return required_groups
+        return [
+            group
+            for group in required_groups
+            if cls._condition_label_for_evidence_terms(group) not in excluded_conditions
+        ]
+
+    @staticmethod
+    def _condition_label_for_evidence_terms(terms: list[str]) -> str | None:
+        term_set = set(terms)
+        if term_set & {"유모차", "유아차", "수유실", "영유아", "기저귀", "유아용 의자"}:
+            return "유모차"
+        if term_set & {"주차", "주차장"}:
+            return "주차"
+        if term_set & {"화장실"}:
+            return "화장실"
+        if term_set & {"엘리베이터", "승강기"}:
+            return "엘리베이터"
+        if term_set & {"경사로"}:
+            return "접근로"
+        if term_set & {"보조견", "안내견"}:
+            return "보조견"
+        if term_set & {"점자", "점자블록", "촉지도", "음성안내", "오디오가이드", "점자홍보물"}:
+            return "시각장애"
+        if term_set & {"수어", "수화", "자막", "문자안내", "영상안내"}:
+            return "청각장애"
+        return None
 
     @staticmethod
     def _extract_required_evidence_terms(message: str) -> list[list[str]]:

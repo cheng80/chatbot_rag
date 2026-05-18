@@ -25,6 +25,20 @@ class FakeExternalCorrector:
         )
 
 
+class FakeConditionTransformer:
+    def __init__(self, labels: list[str] | None = None):
+        self.labels = labels or []
+        self.calls = 0
+
+    def predict(self, text: str):
+        self.calls += 1
+        return {
+            "labels": self.labels,
+            "confidence_by_label": {label: 0.9 for label in self.labels},
+            "reason": "fake",
+        }
+
+
 def test_tourism_query_uses_area_code_cache(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -833,6 +847,28 @@ def test_tourism_query_does_not_mark_explicit_wheelchair_as_ambiguous(tmp_path: 
     assert query["ambiguous_conditions"] == []
 
 
+def test_tourism_query_treats_parent_noisy_mobility_as_senior_anchor(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("서울 중구에서 엄마랑 오래안걷는 되는곳좀")
+
+    assert "고령자" in query["conditions"]
+    assert query["ambiguous_conditions"] == []
+
+
+def test_tourism_query_normalizes_colloquial_restroom_short_form(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("화장실잇는말고휄체어기준")
+
+    assert "화장실" in query["excluded_conditions"]
+    assert "휠체어" in query["conditions"]
+
+
 def test_tourism_query_ignores_negated_legacy_region(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -1022,3 +1058,61 @@ def test_tourism_query_default_external_correction_runs_on_noisy_input(tmp_path:
     assert query["region"] == "서울 강남구"
     assert "휠체어" in query["conditions"]
     assert query["external_correction_accepted"] is True
+
+
+def test_tourism_query_skips_transformer_for_clean_confident_rule_input(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    transformer = FakeConditionTransformer(["엘리베이터"])
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        condition_transformer=transformer,
+        enable_external_correction=False,
+    )
+
+    query = service.extract("서울에서 휠체어 관광지 추천")
+
+    assert query["conditions"] == ["휠체어"]
+    assert query["condition_transformer_invoked"] is False
+    assert query["condition_transformer_gate_reason"] == "clean_rule_confident"
+    assert transformer.calls == 0
+
+
+def test_tourism_query_invokes_transformer_when_rule_misses_condition(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    transformer = FakeConditionTransformer(["수어"])
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        condition_transformer=transformer,
+        enable_external_correction=False,
+    )
+
+    query = service.extract("서울에서 소리 없이 안내를 볼 수 있는 곳")
+
+    assert "수어" in query["conditions"]
+    assert query["condition_transformer_invoked"] is True
+    assert query["condition_transformer_gate_reason"] == "no_rule_condition"
+    assert transformer.calls > 0
+
+
+def test_tourism_query_invokes_transformer_for_noisy_input_even_with_rule_condition(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    transformer = FakeConditionTransformer(["엘리베이터"])
+    service = TourismQueryService(
+        area_code_cache_path=cache_path,
+        admin_region_alias_path=tmp_path / "missing_admin_aliases.json",
+        condition_transformer=transformer,
+        enable_external_correction=False,
+    )
+
+    query = service.extract("서울휄체어엘베관광지")
+
+    assert "휠체어" in query["conditions"]
+    assert "엘리베이터" in query["conditions"]
+    assert query["condition_transformer_invoked"] is True
+    assert query["condition_transformer_gate_reason"] == "noisy_input"
+    assert transformer.calls > 0

@@ -66,13 +66,16 @@ CONDITION_KEYWORDS = {
         "무릎 불편",
         "무릎불편",
         "많이 걷기 어려",
+        "많이안걷",
+        "오래 안 걷",
+        "오래안걷",
         "걷기 어려",
         "오래 걷기 힘든 분",
         "무리 없는",
         "쉬어 갈 곳",
     ],
     "주차": ["주차", "주챠", "주차ㅏ", "주자창", "차대기", "차 댈", "차 세우", "장애인 주차"],
-    "화장실": ["화장실", "장애인 화장실"],
+    "화장실": ["화장실", "장애인 화장실", "장실", "장애인 장실"],
     "접근로": [
         "접근로",
         "출입통로",
@@ -248,6 +251,7 @@ class TourismQueryService:
         context_classifier: TourismContextClassifier | None = None,
         external_corrector: ExternalKoreanCorrector | None = None,
         enable_external_correction: bool | None = None,
+        condition_transformer: TourismConditionTransformer | None = None,
     ):
         self.area_code_cache_path = area_code_cache_path or DEFAULT_AREA_CODE_CACHE_PATH
         self.admin_region_alias_path = admin_region_alias_path or DEFAULT_ADMIN_REGION_ALIAS_PATH
@@ -262,7 +266,7 @@ class TourismQueryService:
         self.external_corrector = external_corrector or (
             ExternalKoreanCorrector(settings) if self.external_correction_enabled else None
         )
-        self.condition_transformer = (
+        self.condition_transformer = condition_transformer or (
             TourismConditionTransformer(settings, labels=list(CONDITION_KEYWORDS))
             if settings.tourism_condition_transformer_enabled
             else None
@@ -324,7 +328,14 @@ class TourismQueryService:
             else self.ambiguous_region_aliases.get(ambiguous_region or "", [])
         )
         conditions, excluded_conditions = self._merge_condition_filters(condition_messages)
-        transformer_prediction = self._condition_transformer_prediction(condition_messages)
+        transformer_gate = self._condition_transformer_gate(
+            message=message,
+            normalization=normalization,
+            external_correction=external_correction,
+            rule_conditions=conditions,
+            condition_messages=condition_messages,
+        )
+        transformer_prediction = self._condition_transformer_prediction(condition_messages, gate=transformer_gate)
         if transformer_prediction["labels"]:
             conditions = list(
                 dict.fromkeys(
@@ -399,6 +410,8 @@ class TourismQueryService:
             "external_correction_damaged_terms": external_correction.damaged_terms if external_correction else [],
             "external_correction_region_damaged": external_region_damaged,
             "condition_transformer_enabled": bool(self.condition_transformer),
+            "condition_transformer_invoked": transformer_prediction["invoked"],
+            "condition_transformer_gate_reason": transformer_gate["reason"],
             "condition_transformer_labels": transformer_prediction["labels"],
             "condition_transformer_reason": transformer_prediction["reason"],
             "condition_transformer_confidence_by_label": transformer_prediction["confidence_by_label"],
@@ -453,12 +466,41 @@ class TourismQueryService:
         region_term_set = set(region_names)
         return bool(damaged_terms and damaged_terms <= region_term_set)
 
-    def _condition_transformer_prediction(self, messages: list[str]) -> dict[str, object]:
+    def _condition_transformer_gate(
+        self,
+        message: str,
+        normalization: NormalizedQuery,
+        external_correction: ExternalCorrectionResult | None,
+        rule_conditions: list[str],
+        condition_messages: list[str],
+    ) -> dict[str, object]:
         if not self.condition_transformer:
-            return {"labels": [], "confidence_by_label": {}, "reason": "disabled"}
+            return {"invoke": False, "reason": "disabled"}
+        if not rule_conditions:
+            return {"invoke": True, "reason": "no_rule_condition"}
+        if rule_conditions == ["대중교통"]:
+            return {"invoke": True, "reason": "weak_public_transport_only"}
+        if external_correction and external_correction.accepted and external_correction.changed:
+            return {"invoke": True, "reason": "external_correction_candidate"}
+        if self._is_noisy_condition_input(message, normalization):
+            return {"invoke": True, "reason": "noisy_input"}
+        if any(self._has_hard_semantic_condition_marker(candidate) for candidate in condition_messages):
+            return {"invoke": True, "reason": "hard_semantic_marker"}
+        return {"invoke": False, "reason": "clean_rule_confident"}
+
+    def _condition_transformer_prediction(self, messages: list[str], gate: dict[str, object] | None = None) -> dict[str, object]:
+        if not self.condition_transformer:
+            return {"labels": [], "confidence_by_label": {}, "reason": "disabled", "invoked": False}
+        if gate is not None and not gate.get("invoke"):
+            return {
+                "labels": [],
+                "confidence_by_label": {},
+                "reason": f"skipped:{gate.get('reason') or 'gate'}",
+                "invoked": False,
+            }
         predictions = [self.condition_transformer.predict(candidate) for candidate in messages if candidate]
         if not predictions:
-            return {"labels": [], "confidence_by_label": {}, "reason": "empty"}
+            return {"labels": [], "confidence_by_label": {}, "reason": "empty", "invoked": True}
         labels: list[str] = []
         confidence_by_label: dict[str, float] = {}
         reasons: list[str] = []
@@ -474,7 +516,55 @@ class TourismQueryService:
             "labels": list(dict.fromkeys(labels)),
             "confidence_by_label": confidence_by_label,
             "reason": ",".join(dict.fromkeys(reasons)) or "ok",
+            "invoked": True,
         }
+
+    def _is_noisy_condition_input(self, message: str, normalization: NormalizedQuery) -> bool:
+        if any(tag in {"no-spacing-input", "spacing-noise-input"} for tag in normalization.risk_tags):
+            return True
+        if normalization.corrections:
+            return True
+        compact = re.sub(r"\s+", "", str(message or ""))
+        if re.search(r"[가-힣]{10,}", compact) and " " not in str(message or ""):
+            return True
+        noisy_fragments = [
+            "휄",
+            "휠쳐",
+            "휠체여",
+            "휠채",
+            "유모챠",
+            "주챠",
+            "주차ㅏ",
+            "주자창",
+            "장실",
+            "엘베",
+            "앨베",
+            "엘레베터",
+            "보조갼",
+            "점자블럭",
+            "수어자막",
+        ]
+        return any(fragment in str(message or "") for fragment in noisy_fragments)
+
+    @staticmethod
+    def _has_hard_semantic_condition_marker(message: str) -> bool:
+        compact = re.sub(r"\s+", "", str(message or ""))
+        markers = [
+            "오래안걷",
+            "많이안걷",
+            "계단적",
+            "무릎",
+            "허리불편",
+            "쉬엄쉬엄",
+            "쉬어가",
+            "영상에글자",
+            "소리없이",
+            "손으로만져",
+            "바퀴의자",
+            "차댈",
+            "차대기",
+        ]
+        return any(marker in compact for marker in markers)
 
     def _first_legacy_region(self, messages: list[str]) -> dict[str, str] | None:
         for candidate in messages:
@@ -554,8 +644,8 @@ class TourismQueryService:
             return False
         escaped = re.escape(compact_keyword)
         exclusion_patterns = [
-            rf"{escaped}(은|는|이|가|을|를|도|만)?(말고|빼고|제외|아니고|아닌)",
-            rf"{escaped}(조건|기준|정보)?(은|는|이|가|을|를|도|만)?(취소|빼줘|빼고)",
+            rf"{escaped}(은|는|이|가|을|를|도|만)?(있는|잇는|되는|가능한|가능)?(말고|빼고|제외|아니고|아닌)",
+            rf"{escaped}(조건|기준|정보)?(은|는|이|가|을|를|도|만)?(있는|잇는|되는|가능한|가능)?(취소|빼줘|빼고)",
         ]
         return any(re.search(pattern, compact) for pattern in exclusion_patterns)
 
@@ -620,6 +710,8 @@ class TourismQueryService:
             "부모님",
             "무릎",
             "허리 불편",
+            "오래 안 걷",
+            "오래안걷",
             "쉬어",
             "앉",
         ]

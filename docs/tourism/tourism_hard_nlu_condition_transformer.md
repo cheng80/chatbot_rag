@@ -79,6 +79,8 @@ hard 증강 뒤에도 남은 실패는 세 가지로 분리했다.
 - `계단 적게`, `걷기 편한`, `편한 관광지`처럼 고령자/접근로/휠체어 중 무엇을 뜻하는지 불명확한 문장은 바로 카드 검색으로 단정하지 않고 `clarification`으로 보낸다.
 - 명시 표현이 있으면 추가질문하지 않는다. 예를 들어 `휠체어`, `경사로`, `접근로`, `출입통로`, `어르신`, `부모님`, `무릎`, `쉬어`, `앉` 같은 기준어가 있으면 해당 조건으로 처리한다.
 - 고령자 조건은 원천 데이터에 고령자 전용 필드가 부족하므로, 응답 카드에서 휠체어 접근, 경사로, 화장실, 대중교통 같은 이동 편의 근거를 함께 확인한다고 명시한다.
+- 부모 호칭만으로 고령자라고 단정하지 않는다. `어머니`, `아버지`, `엄마`, `아빠`는 단독 고령자 조건이 아니며, `오래안걷`, `무릎`, `쉬어` 같은 이동 부담 표현이 함께 있을 때 고령자 조건으로 본다.
+- `화장실잇는말고`, `장애인 장실말고`처럼 조건과 제외 표지 사이에 `있는/되는/가능`이 낀 축약 표현도 제외 조건으로 처리한다.
 - 남은 구조 개선은 접근로/휠체어 경계의 rule extra를 더 정밀하게 줄이는 정책이다.
 
 ## Chat 카드 품질 확인
@@ -108,10 +110,35 @@ focused hard 의미 chat 평가 40건:
 | 잔여 증강 RoBERTa + 조건 부정/모호 조건 추가질문 | 62/80 | 18 |
 | 현재 정책 적용 후 | 80/80 | 0 |
 
+실사용형 noisy chat 200건:
+
+| 설정 | 통과 | 실패 | 통과율 | 평균 응답 |
+|---|---:|---:|---:|---:|
+| rule/parser | 152/200 | 48 | 0.7600 | 242.9ms |
+| ET5 로컬 교정 | 158/200 | 42 | 0.7900 | 442.5ms |
+| quickspacer 후보 | 152/200 | 48 | 0.7600 | 376.5ms |
+| 잔여 증강 RoBERTa 보조 | 170/200 | 30 | 0.8500 | 273.6ms |
+| ET5 + RoBERTa 병행 | 168/200 | 32 | 0.8400 | 478.8ms |
+
+평가 파일과 결과:
+
+- 평가셋: `data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl`
+- 생성기: `scripts/generate_tourism_noisy_realistic_chat_eval.py`
+- 비교 스크립트: `scripts/compare_tourism_noisy_realistic_chat_models.py`
+- 결과: `data/generated/tour_api/noisy_realistic_chat_model_compare_20260518/summary.json`
+
+해석:
+
+- noisy 200건에서는 RoBERTa 조건 보조가 실제 카드 통과율을 가장 크게 올렸다.
+- ET5 로컬 교정은 일부 오타 입력에는 도움이 됐지만, RoBERTa 보조와 병행해도 RoBERTa 단독보다 느리고 점수도 약간 낮았다.
+- quickspacer는 이 셋에서 rule/parser와 같은 통과율이라 런타임 승격하지 않는다.
+- 남은 실패는 수어/점자/보조견 같은 희소 조건 데이터 부족, 일부 멀티턴 조건 교체, negation 축약 표현 경계다.
+
 결론:
 
 - 기존 중간 길이 회귀셋에서는 품질 하락이 없었다.
 - hard 의미 표현에서는 카드 반환 품질이 크게 개선됐다.
+- noisy 실제형 입력에서는 RoBERTa 조건 보조가 rule/parser보다 18%p 높은 통과율을 보였다.
 - 따라서 로컬 시연 환경에서는 잔여 증강 RoBERTa 조건 보조를 켜서 운영한다.
 
 ## 적용 방식
@@ -122,12 +149,25 @@ focused hard 의미 chat 평가 40건:
 
 - 기존 rule/parser가 먼저 조건을 찾는다.
 - 로컬 ET5 교정은 위험 입력에서만 후보 문장을 추가한다.
-- 잔여 증강 RoBERTa는 조건 라벨 보조 후보를 추가한다.
+- 잔여 증강 RoBERTa는 상황별 게이트를 통과할 때만 조건 라벨 보조 후보를 추가한다.
+- 깨끗하고 조건이 명확한 입력은 RoBERTa를 호출하지 않고 rule/parser만 사용한다.
+- rule/parser가 조건을 못 찾거나, `대중교통` 단독처럼 약한 조건만 잡히거나, 오타/무띄어쓰기/의미 우회 표현이 있으면 RoBERTa를 호출한다.
+- rule/parser와 RoBERTa 결과가 경계 애매성을 만들면 바로 단정하지 않고 추가질문 정책으로 넘긴다.
 - 최종 카드 반환은 기존 지역/조건/근거 필터와 `/tourism/chat` 품질 기준을 계속 통과해야 한다.
 
 로컬 `.env` 적용값:
 
-```bash
+```env
+TOURISM_KOREAN_CORRECTION_ENABLED=true
+TOURISM_KOREAN_CORRECTION_PROVIDER=hf_seq2seq
+TOURISM_KOREAN_CORRECTION_MODEL=./data/models/tourism_korean_corrector
+TOURISM_KOREAN_CORRECTION_DEVICE=auto
+TOURISM_KOREAN_CORRECTION_RISKY_ONLY=true
+TOURISM_KOREAN_CORRECTION_ALLOW_DOWNLOAD=false
+TOURISM_KOREAN_CORRECTION_MAX_CHARS=80
+TOURISM_KOREAN_CORRECTION_MAX_LENGTH=128
+TOURISM_KOREAN_CORRECTION_NUM_BEAMS=1
+
 TOURISM_CONDITION_TRANSFORMER_ENABLED=true
 TOURISM_CONDITION_TRANSFORMER_MODEL=./data/generated/tour_api/condition_transformer_residual_aug_e2_fast/model
 TOURISM_CONDITION_TRANSFORMER_METRICS_PATH=./data/generated/tour_api/condition_transformer_residual_aug_e2_fast/metrics.json

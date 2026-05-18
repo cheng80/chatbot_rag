@@ -538,6 +538,7 @@ def test_tourism_chat_keeps_nearby_sigungu_inside_requested_region(tmp_path):
     assert all("광진구" in (card.address or "") for card in response.cards)
     assert "요청 지역 안의 결과만 먼저 제공합니다" in response.answer
     assert "서울 전체로 넓혀줘" in response.answer
+    assert response.suggested_messages == ["서울 전체로 넓혀서 휠체어 관광지 추천해줘"]
 
 
 def test_tourism_chat_explicit_expand_followup_keeps_previous_condition(tmp_path):
@@ -1200,6 +1201,20 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
     assert response.cards == []
     assert "조건에 맞는 관광지를 확인하지 못했습니다" in response.answer
     assert response.suggested_messages
+
+
+def test_tourism_chat_no_card_suggestions_include_region_expansion_and_relaxation(tmp_path):
+    service = TourismChatService(
+        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울 강남구에서 수어 자막 관광지 추천")
+
+    assert response.cards == []
+    assert any("서울" in suggestion and "전체로 넓혀" in suggestion for suggestion in response.suggested_messages)
+    assert any("청각장애" in suggestion for suggestion in response.suggested_messages)
 
 
 def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature():

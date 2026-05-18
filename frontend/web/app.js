@@ -7,6 +7,8 @@ const diagnostics = document.querySelector("#diagnostics");
 const answerText = document.querySelector("#answerText");
 const answerToggleButton = document.querySelector("#answerToggleButton");
 const clarificationBanner = document.querySelector("#clarificationBanner");
+const clarificationTitle = document.querySelector("#clarificationTitle");
+const clarificationDescription = document.querySelector("#clarificationDescription");
 const suggestions = document.querySelector("#suggestions");
 const sourceList = document.querySelector("#sourceList");
 const cardsGrid = document.querySelector("#cards");
@@ -123,9 +125,9 @@ clearButton.addEventListener("click", () => {
   });
   setState("대기 중");
   diagnostics.replaceChildren();
-  clarificationBanner.hidden = true;
+  renderClarificationBanner(null);
   suggestions.replaceChildren();
-  suggestions.classList.remove("clarification-options");
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options");
   sessionId = createSessionId();
   userEcho.hidden = true;
   userEcho.textContent = "";
@@ -155,8 +157,8 @@ form.addEventListener("submit", async (event) => {
   setLoading(true);
   renderUserMessage(message);
   suggestions.replaceChildren();
-  clarificationBanner.hidden = true;
-  suggestions.classList.remove("clarification-options");
+  renderClarificationBanner(null);
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options");
 
   try {
     const response = await fetch(`${normalizedApiBase()}/tourism/chat`, {
@@ -178,8 +180,8 @@ form.addEventListener("submit", async (event) => {
     showToast("서버에 연결하지 못했습니다.", "error");
     setAnswerText(`서버에 연결하지 못했습니다.\n${error.message}`);
     suggestions.replaceChildren();
-    clarificationBanner.hidden = true;
-    suggestions.classList.remove("clarification-options");
+    renderClarificationBanner(null);
+    suggestions.classList.remove("clarification-options", "condition-options", "region-options");
     sourceList.replaceChildren(createSourceEmpty("서버 연결 후 출처가 표시됩니다."));
     cardsGrid.replaceChildren();
     cardCount.textContent = "0개";
@@ -264,8 +266,10 @@ function renderResponse(payload) {
   }
 
   setAnswerText(payload.answer || "답변 문장이 비어 있습니다.", { empty: !payload.answer });
-  clarificationBanner.hidden = mode !== "clarification";
-  renderSuggestions(payload.suggested_messages || []);
+  const clarificationType = mode === "clarification" ? inferClarificationType(payload) : null;
+  const suggestionType = clarificationType || inferSuggestionType(payload, cards);
+  renderClarificationBanner(clarificationType);
+  renderSuggestions(payload.suggested_messages || [], suggestionType);
   renderSources(payload.sources || [], cards);
   cardCount.textContent = `${cards.length}개`;
   cardsGrid.replaceChildren(...cards.map(renderCard));
@@ -302,7 +306,7 @@ function modeLabel(mode, degraded) {
   if (mode === "cache") return "Live 캐시 응답";
   if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
   if (mode === "sample") return "샘플 fallback";
-  if (mode === "clarification") return "지역 선택 필요";
+  if (mode === "clarification") return "추가 확인 필요";
   if (mode === "unsupported") return "지원 범위 밖";
   return degraded ? "Fallback 응답" : "정상 응답";
 }
@@ -321,7 +325,7 @@ function modeDescription(mode) {
   if (mode === "cache") return "이전에 live 조회해 저장한 Markdown 캐시에서 같은 지역 관광 카드를 찾았습니다.";
   if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
   if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
-  if (mode === "clarification") return "동명이 지역이라 추천 전에 광역 지역 선택이 필요합니다.";
+  if (mode === "clarification") return "추천 전에 지역 또는 접근성 기준 확인이 필요합니다.";
   if (mode === "unsupported") return "현재 MVP 범위를 벗어난 질문이라 관광지 카드를 만들지 않았습니다.";
   return "응답 생성 경로를 확인하지 못했습니다.";
 }
@@ -337,9 +341,9 @@ function renderError(status, payload) {
 
   setAnswerText(`${message}${code}`);
   showToast("요청 처리 중 문제가 발생했습니다.", "error");
-  clarificationBanner.hidden = true;
+  renderClarificationBanner(null);
   suggestions.replaceChildren();
-  suggestions.classList.remove("clarification-options");
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options");
   sourceList.replaceChildren(createSourceEmpty("오류가 해결되면 출처가 표시됩니다."));
   cardsGrid.replaceChildren();
   cardCount.textContent = "0개";
@@ -347,10 +351,72 @@ function renderError(status, payload) {
   demoMoreButton.hidden = true;
 }
 
-function renderSuggestions(messages) {
+function renderClarificationBanner(type) {
+  if (!type) {
+    clarificationBanner.hidden = true;
+    clarificationBanner.classList.remove("condition-clarification", "region-clarification");
+    clarificationTitle.textContent = "추가 질문 필요";
+    clarificationDescription.textContent = "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.";
+    return;
+  }
+
+  const copy = {
+    condition: {
+      title: "조건 확인 필요",
+      description: "의미가 겹치는 접근성 표현입니다. 원하는 기준을 선택하면 그 조건으로 다시 조회합니다.",
+    },
+    region: {
+      title: "지역 선택 필요",
+      description: "같은 이름의 지역이 여러 곳에 있습니다. 지역 후보를 선택하면 원래 질문 맥락을 유지해 다시 조회합니다.",
+    },
+    general: {
+      title: "추가 질문 필요",
+      description: "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.",
+    },
+  }[type] || {
+    title: "추가 질문 필요",
+    description: "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.",
+  };
+
+  clarificationBanner.hidden = false;
+  clarificationBanner.classList.toggle("condition-clarification", type === "condition");
+  clarificationBanner.classList.toggle("region-clarification", type === "region");
+  clarificationTitle.textContent = copy.title;
+  clarificationDescription.textContent = copy.description;
+}
+
+function inferClarificationType(payload) {
+  const answer = String(payload?.answer || "");
+  const messages = Array.isArray(payload?.suggested_messages) ? payload.suggested_messages : [];
+  const joined = `${answer} ${messages.join(" ")}`;
+  if (/접근성 의미|어르신 이동 부담|입구\/동선 접근로|휠체어 접근|대중교통 접근|장애인 화장실/.test(joined)) {
+    return "condition";
+  }
+  if (/어느 지역|여러 시도|지역이 여러|서울 중구|부산 중구|인천 중구/.test(joined)) {
+    return "region";
+  }
+  return "general";
+}
+
+function inferSuggestionType(payload, cards) {
+  const messages = Array.isArray(payload?.suggested_messages) ? payload.suggested_messages : [];
+  if ((payload?.lookup_mode === "unknown" || payload?.lookup_mode === "sample") && cards.length === 0 && messages.length > 0) {
+    return "shortage";
+  }
+  if (messages.some((message) => /전체로 넓혀|범위.*넓혀/.test(message))) {
+    return "expansion";
+  }
+  return null;
+}
+
+function renderSuggestions(messages, suggestionType = null) {
   suggestions.replaceChildren();
-  suggestions.classList.toggle("clarification-options", !clarificationBanner.hidden && messages.length > 0);
-  const moreMessage = messages.find((message) => /더 보기|전체|전부|20곳/.test(message));
+  suggestions.classList.toggle("clarification-options", Boolean(suggestionType) && suggestionType !== "shortage" && messages.length > 0);
+  suggestions.classList.toggle("condition-options", suggestionType === "condition" && messages.length > 0);
+  suggestions.classList.toggle("region-options", suggestionType === "region" && messages.length > 0);
+  suggestions.classList.toggle("recovery-options", suggestionType === "shortage" && messages.length > 0);
+  suggestions.classList.toggle("expansion-options", suggestionType === "expansion" && messages.length > 0);
+  const moreMessage = messages.find((message) => /더 보기|전부|20곳/.test(message));
   demoMoreButton.disabled = !moreMessage;
   demoMoreButton.hidden = !moreMessage;
   demoMoreButton.textContent = moreMessage || "더 보기";
@@ -364,14 +430,40 @@ function renderSuggestions(messages) {
   messages.forEach((message) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = message;
+    const label = suggestionButtonLabel(message, suggestionType);
+    button.textContent = label;
+    if (label !== message) {
+      button.title = message;
+      button.setAttribute("aria-label", message);
+    }
     button.addEventListener("click", () => {
       messageInput.value = message;
-      showToast("후속 질문을 보냅니다.", "ok");
+      showToast(suggestionType === "condition" ? "선택한 조건으로 다시 조회합니다." : "후속 질문을 보냅니다.", "ok");
       form.requestSubmit();
     });
     suggestions.append(button);
   });
+}
+
+function suggestionButtonLabel(message, suggestionType) {
+  if (suggestionType === "shortage") {
+    if (/전체로 넓혀|범위|전체/.test(message)) return "같은 시·도까지 넓히기";
+    if (/무장애 관광지/.test(message)) return "조건 완화하기";
+    return "이 조건으로 다시 찾기";
+  }
+  if (suggestionType === "expansion" && /전체로 넓혀|범위.*넓혀/.test(message)) {
+    return "같은 시·도까지 넓혀 보기";
+  }
+  if (suggestionType !== "condition") return message;
+  const patterns = [
+    ["휠체어 접근", "휠체어 접근"],
+    ["입구/동선 접근로", "입구/동선 접근로"],
+    ["어르신 이동 부담 적은 곳", "어르신 이동 부담 적은 곳"],
+    ["장애인 화장실", "장애인 화장실"],
+    ["대중교통 접근", "대중교통 접근"],
+  ];
+  const matched = patterns.find(([needle]) => message.includes(needle));
+  return matched ? matched[1] : message;
 }
 
 function setAnswerText(text, options = {}) {
@@ -471,6 +563,7 @@ function renderCard(card) {
   const title = node.querySelector("h3");
   const address = node.querySelector(".address");
   const reason = node.querySelector(".reason");
+  const evidenceHighlights = node.querySelector(".evidence-highlights");
   const tags = node.querySelector(".accessibility-tags");
   const details = node.querySelector(".details");
   const sourceChip = node.querySelector(".source-chip");
@@ -485,6 +578,10 @@ function renderCard(card) {
   }
 
   const tagValues = [...(card.accessibility_tags || []), ...(card.family_tags || [])];
+  const evidenceItems = cardEvidenceHighlights(card);
+  evidenceHighlights.replaceChildren(...evidenceItems.map(([label, value]) => createEvidenceChip(label, value)));
+  evidenceHighlights.hidden = evidenceItems.length === 0;
+
   if (tagValues.length === 0) {
     tags.append(createTag("접근성 확인 필요", true));
   } else {
@@ -567,6 +664,40 @@ function renderCard(card) {
   return node;
 }
 
+function cardEvidenceHighlights(card) {
+  const raw = normalizeObject(card.raw_fields);
+  const accessibility = normalizeObject(card.accessibility);
+  const candidates = [
+    ["휠체어", firstValue(accessibility.wheelchair, raw["휠체어"], raw["출입통로"])],
+    ["동선", firstValue(accessibility.route, raw["접근로"], raw["출입통로"], raw["대중교통"])],
+    ["화장실", firstValue(accessibility.restroom, raw["화장실"])],
+    ["주차", firstValue(accessibility.parking, raw["주차"])],
+    ["승강", firstValue(accessibility.elevator, raw["엘리베이터"])],
+    ["수어/자막", firstValue(raw["수어안내"], raw["자막/영상안내"], raw["청각장애"], raw["안내시설"])],
+    ["점자/촉지", firstValue(raw["점자블록"], raw["점자홍보물"], raw["안내시스템"], raw["시각장애 기타"])],
+    ["유아", firstValue(accessibility.stroller, accessibility.nursing_room, raw["유모차"], raw["수유실"], raw["유아용 의자"])],
+  ];
+
+  return candidates
+    .filter(([, value]) => Boolean(value))
+    .slice(0, 4)
+    .map(([label, value]) => [label, shortenInline(value, 34)]);
+}
+
+function normalizeObject(value) {
+  return value && typeof value === "object" ? value : {};
+}
+
+function firstValue(...values) {
+  return values.find((value) => typeof value === "string" && value.trim());
+}
+
+function shortenInline(value, limit) {
+  const normalized = String(value || "").replace(/<br\s*\/?>/gi, " ").replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit).trim()}...`;
+}
+
 function rawDetailEntries(card) {
   const rows = [];
   const seen = new Set();
@@ -645,6 +776,20 @@ function createTag(text, needsCheck = false) {
   tag.className = needsCheck ? "tag needs-check" : "tag";
   tag.textContent = text;
   return tag;
+}
+
+function createEvidenceChip(label, value) {
+  const chip = document.createElement("span");
+  chip.className = "evidence-chip";
+
+  const name = document.createElement("strong");
+  name.textContent = label;
+
+  const text = document.createElement("span");
+  text.textContent = value;
+
+  chip.append(name, text);
+  return chip;
 }
 
 function createDetail(label, value) {

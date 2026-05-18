@@ -1783,7 +1783,12 @@ class TourismChatService:
             suggestions.append(f"{query['area_name']} 전체로 넓혀서 {condition_text} 관광지 추천해줘")
         elif region:
             suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
-        return suggestions[:2]
+        relaxed_conditions = conditions[:1]
+        if relaxed_conditions and relaxed_conditions != conditions:
+            suggestions.append(f"{region}에서 {' '.join(relaxed_conditions)} 관광지 추천해줘")
+        elif conditions:
+            suggestions.append(f"{region}에서 무장애 관광지 추천해줘")
+        return list(dict.fromkeys(suggestions))[:3]
 
     @staticmethod
     def _build_more_card_suggestions(message: str, has_more_cards: bool) -> list[str]:
@@ -1800,8 +1805,19 @@ class TourismChatService:
         lookup_mode: str,
     ) -> list[str]:
         suggestions = self._build_more_card_suggestions(message, has_more_cards)
-        if self._should_suggest_live_top_up(message, cards, query, lookup_mode):
+        live_top_up_suggested = self._should_suggest_live_top_up(message, cards, query, lookup_mode)
+        if live_top_up_suggested:
             suggestions.append(f"{self._strip_followup_intent(message)} 최신 정보 더 찾기")
+        if (
+            not live_top_up_suggested
+            and cards
+            and len(cards) < DEFAULT_CARD_LIMIT
+            and query.get("is_sigungu")
+            and query.get("area_name")
+            and not query.get("allow_region_expansion")
+        ):
+            condition_text = " ".join(str(condition) for condition in (query.get("conditions") or [])[:2]) or "무장애"
+            suggestions.append(f"{query['area_name']} 전체로 넓혀서 {condition_text} 관광지 추천해줘")
         return list(dict.fromkeys(suggestions))
 
     @staticmethod

@@ -260,7 +260,8 @@ textarea {
 .quick-prompts,
 .selector-row,
 .source-list,
-.tag-group {
+.tag-group,
+.evidence-highlights {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
@@ -481,6 +482,12 @@ textarea {
   font-weight: 750;
 }
 
+.clarification-banner.condition-clarification {
+  border-color: rgba(23, 107, 135, 0.24);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .suggestions {
   margin-top: 12px;
 }
@@ -506,6 +513,32 @@ textarea {
 .suggestions.clarification-options button {
   border-color: var(--header-press);
   background: var(--header);
+}
+
+.suggestions.condition-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.suggestions.condition-options button {
+  justify-content: center;
+  min-height: 42px;
+  border-color: rgba(23, 107, 135, 0.24);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(23, 107, 135, 0.08);
+}
+
+.suggestions.condition-options button:hover {
+  background: var(--accent-soft);
+}
+
+.suggestions.recovery-options button,
+.suggestions.expansion-options button {
+  border-color: rgba(124, 83, 0, 0.22);
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 .source-panel {
@@ -615,6 +648,37 @@ a.source-item {
 
 .reason {
   color: var(--ink);
+}
+
+.evidence-highlights {
+  margin: 1px 0;
+}
+
+.evidence-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 6px;
+  border: 1px solid rgba(23, 107, 135, 0.16);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 6px 9px;
+  color: #315d68;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.evidence-chip strong {
+  color: var(--accent);
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.evidence-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag {

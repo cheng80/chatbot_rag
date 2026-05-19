@@ -52,6 +52,8 @@ def test_card_markdown_round_trips_required_fields():
             "addr1": "서울 중구",
             "tel": "02-000-0000",
             "firstimage": "https://example.com/image.jpg",
+            "mapx": "126.1",
+            "mapy": "37.5",
         },
         {
             "wheelchair": "휠체어 대여 가능",
@@ -68,6 +70,8 @@ def test_card_markdown_round_trips_required_fields():
     assert parsed.address == "서울 중구"
     assert parsed.tel == "02-000-0000"
     assert parsed.image_url == "https://example.com/image.jpg"
+    assert parsed.map_x == 126.1
+    assert parsed.map_y == 37.5
     assert "휠체어 접근" in parsed.accessibility_tags
     assert "수유실" in parsed.family_tags
     assert parsed.accessibility.wheelchair == "휠체어 대여 가능"

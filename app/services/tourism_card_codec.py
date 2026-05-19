@@ -52,6 +52,8 @@ class TourismCardMarkdownCodec:
                 f"콘텐츠ID: {card.content_id}",
                 f"주소: {card.address or '확인 필요'}",
                 f"전화번호: {card.tel or '확인 필요'}",
+                f"지도X: {card.map_x if card.map_x is not None else '확인 필요'}",
+                f"지도Y: {card.map_y if card.map_y is not None else '확인 필요'}",
                 f"대표이미지: {card.image_url or '확인 필요'}",
                 f"추천근거: {card.recommendation_reason}",
                 f"접근성태그: {', '.join(card.accessibility_tags) if card.accessibility_tags else '확인 필요'}",
@@ -94,6 +96,8 @@ class TourismCardMarkdownCodec:
             address=self._none_if_unknown(fields.get("주소")),
             image_url=self._none_if_unknown(fields.get("대표이미지")),
             tel=self._none_if_unknown(fields.get("전화번호")),
+            map_x=self._optional_float(fields.get("지도X") or fields.get("map_x") or fields.get("mapx")),
+            map_y=self._optional_float(fields.get("지도Y") or fields.get("map_y") or fields.get("mapy")),
             recommendation_reason=fields.get("추천근거") or f"{title}은(는) 무장애 여행 정보에 포함된 관광지입니다.",
             accessibility=AccessibilityInfo(
                 wheelchair=self._find_raw(raw_fields, ["휠체어", "출입통로"]),
@@ -122,6 +126,15 @@ class TourismCardMarkdownCodec:
         if not value or value == "확인 필요":
             return None
         return value
+
+    @staticmethod
+    def _optional_float(value: str | None) -> float | None:
+        if not value or value == "확인 필요":
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
 
     @staticmethod
     def _find_raw(raw_fields: dict[str, str], labels: list[str]) -> str | None:

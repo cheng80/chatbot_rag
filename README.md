@@ -437,7 +437,15 @@ python scripts/rebuild_index.py
 python -m pytest
 ```
 
-## 14. 모델 비교 실험 순서
+## 14. Cloudflare 테스트/배포 문서
+
+현재 외부 접속 테스트는 Cloudflare Tunnel 또는 ngrok을 기준으로 한다. Cloudflare Quick Tunnel에서 Named Tunnel, 접근 제어, Cloudflare-native 이전 검토로 이어지는 작업 순서는 다음 문서를 참고한다.
+
+- [Cloudflare RAG Deployment Guide](docs/cloudflare_rag_deployment_guide.md)
+- [Cloudflare RAG Reference Docs](docs/cloudflare_rag_reference_docs.md)
+- [Cloudflare RAG Deployment Implementation Plan](docs/superpowers/plans/2026-05-20-cloudflare-rag-deployment.md)
+
+## 15. 모델 비교 실험 순서
 
 비교 대상은 현재 기본 LLM, 빠른 기준선, 별도 사고 과정 후보를 함께 본다. 임베딩은 `bge-m3`로 고정해 LLM 답변 품질과 추론 보조 지연만 비교한다.
 
@@ -504,7 +512,7 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 
 자세한 모델별 벤치마크 기준과 결과 기록은 `docs/tourism/tourism_model_reasoning_benchmark.md`를 본다.
 
-## 15. 관광 이벤트 기록 분석
+## 16. 관광 이벤트 기록 분석
 
 `/tourism/chat` 응답 이벤트는 기본적으로 아래 파일에 쌓인다.
 
@@ -520,7 +528,7 @@ notebooks/tourism_event_log_analysis.ipynb
 
 이 노트북은 차트를 포함하고, macOS `AppleGothic` 등 설치된 한글 폰트를 자동 선택해 한글 깨짐을 줄인다. 확인 항목은 응답 경로 비율, 실시간 조회 여부, 지역/조건별 질문 수, 카드 노출 순위, 주의 문구 이벤트다.
 
-## 16. 참고 문서
+## 17. 참고 문서
 
 - FastAPI Bigger Applications: https://fastapi.tiangolo.com/tutorial/bigger-applications/
 - Chroma Persistent Client: https://docs.trychroma.com/docs/run-chroma/clients

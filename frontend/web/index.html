@@ -91,7 +91,7 @@
             <details id="promptDrawer" class="prompt-drawer chat-only-drawer">
               <summary>
                 <span>지역·예시 선택</span>
-                <strong>열기</strong>
+                <strong class="drawer-chevron" aria-hidden="true"></strong>
               </summary>
 
               <div class="drawer-content">
@@ -131,7 +131,7 @@
               <details id="optionDrawer" class="option-drawer" hidden open>
                 <summary>
                   <span>선택 조건</span>
-                  <strong>접기</strong>
+                  <strong class="drawer-chevron" aria-hidden="true"></strong>
                 </summary>
 
                 <section id="optionBuilder" class="option-builder" aria-label="선택형 조건 입력">
@@ -256,6 +256,32 @@
         </div>
       </article>
     </template>
+
+    <div id="photoModal" class="modal-backdrop photo-backdrop" hidden>
+      <section
+        class="photo-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="photoModalTitle"
+        tabindex="-1"
+      >
+        <div class="photo-stage">
+          <img id="photoModalImage" alt="" />
+        </div>
+        <aside class="photo-meta">
+          <div>
+            <p class="eyebrow">Photo</p>
+            <h2 id="photoModalTitle">사진 보기</h2>
+            <p id="photoModalAddress"></p>
+          </div>
+          <div class="photo-actions">
+            <a id="photoModalMap" href="#" target="_blank" rel="noreferrer" hidden>지도 검색</a>
+            <a id="photoModalSource" href="#" target="_blank" rel="noreferrer" hidden>원문 보기</a>
+            <button id="closePhotoButton" type="button" title="사진 닫기">닫기</button>
+          </div>
+        </aside>
+      </section>
+    </div>
 
     <div id="helpModal" class="modal-backdrop" hidden>
       <section

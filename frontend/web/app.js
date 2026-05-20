@@ -22,6 +22,13 @@ const openapiLink = document.querySelector("#openapiLink");
 const helpButton = document.querySelector("#helpButton");
 const helpModal = document.querySelector("#helpModal");
 const closeHelpButton = document.querySelector("#closeHelpButton");
+const photoModal = document.querySelector("#photoModal");
+const photoModalImage = document.querySelector("#photoModalImage");
+const photoModalTitle = document.querySelector("#photoModalTitle");
+const photoModalAddress = document.querySelector("#photoModalAddress");
+const photoModalMap = document.querySelector("#photoModalMap");
+const photoModalSource = document.querySelector("#photoModalSource");
+const closePhotoButton = document.querySelector("#closePhotoButton");
 const modeBadge = document.querySelector("#modeBadge");
 const debugToggleButton = document.querySelector("#debugToggleButton");
 const debugPanel = document.querySelector("#debugPanel");
@@ -60,6 +67,7 @@ let chatDraftMessage = "";
 let regionOptions = fallbackRegionOptions();
 let optionGeneratedMessage = "";
 let optionManualEdit = false;
+let lastPhotoTrigger = null;
 
 const demoPreview = {
   answer:
@@ -104,6 +112,7 @@ apiBaseInput.addEventListener("input", syncApiDocLinks);
 debugToggleButton.addEventListener("click", toggleDebugPanel);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
+closePhotoButton.addEventListener("click", closePhotoModal);
 promptDrawer?.addEventListener("toggle", syncPromptDrawerSummary);
 optionDrawer?.addEventListener("toggle", syncOptionDrawerSummary);
 answerToggleButton.addEventListener("click", () => {
@@ -112,12 +121,20 @@ answerToggleButton.addEventListener("click", () => {
 helpModal.addEventListener("click", (event) => {
   if (event.target === helpModal) closeHelp();
 });
+photoModal.addEventListener("click", (event) => {
+  if (event.target === photoModal) closePhotoModal();
+});
 renderDemoPreview();
 initializeRegionOptions();
 syncInputMode();
 syncOptionFlowMessage({ silent: true });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !helpModal.hidden) closeHelp();
+  if (event.key !== "Escape") return;
+  if (!photoModal.hidden) {
+    closePhotoModal();
+    return;
+  }
+  if (!helpModal.hidden) closeHelp();
 });
 
 chatModeButton?.addEventListener("click", () => setInputMode("chat"));
@@ -800,13 +817,21 @@ function closePromptDrawer() {
 }
 
 function syncPromptDrawerSummary() {
-  const state = promptDrawer?.querySelector("summary strong");
-  if (state) state.textContent = promptDrawer.open ? "접기" : "열기";
+  const summary = promptDrawer?.querySelector("summary");
+  if (summary) {
+    summary.setAttribute("aria-label", `지역·예시 선택 ${promptDrawer.open ? "접기" : "열기"}`);
+    const chevron = summary.querySelector(".drawer-chevron");
+    if (chevron) chevron.textContent = "";
+  }
 }
 
 function syncOptionDrawerSummary() {
-  const state = optionDrawer?.querySelector("summary strong");
-  if (state) state.textContent = optionDrawer.open ? "접기" : "열기";
+  const summary = optionDrawer?.querySelector("summary");
+  if (summary) {
+    summary.setAttribute("aria-label", `선택 조건 ${optionDrawer.open ? "접기" : "열기"}`);
+    const chevron = summary.querySelector(".drawer-chevron");
+    if (chevron) chevron.textContent = "";
+  }
 }
 
 function renderCard(card, queryText = "") {
@@ -825,7 +850,26 @@ function renderCard(card, queryText = "") {
   sourceChip.textContent = card.source_name ? "출처 있음" : "출처 확인";
 
   if (card.image_url) {
-    media.style.backgroundImage = `url("${card.image_url}")`;
+    const mediaButton = document.createElement("button");
+    mediaButton.type = "button";
+    mediaButton.className = "card-media-button";
+    mediaButton.setAttribute("aria-label", `${card.title || "장소"} 사진 크게 보기`);
+
+    const image = document.createElement("img");
+    image.src = card.image_url;
+    image.alt = `${card.title || "장소"} 사진`;
+    image.loading = "lazy";
+    image.decoding = "async";
+
+    const zoomLabel = document.createElement("span");
+    zoomLabel.className = "media-zoom-label";
+    zoomLabel.textContent = "사진 크게 보기";
+
+    mediaButton.append(image, zoomLabel);
+    mediaButton.addEventListener("click", () => openPhotoModal(card, mediaButton));
+    media.replaceChildren(mediaButton);
+  } else {
+    media.setAttribute("aria-hidden", "true");
   }
 
   const evidenceItems = cardEvidenceHighlights(card, queryText);
@@ -895,6 +939,39 @@ function renderCard(card, queryText = "") {
   }
 
   return node;
+}
+
+function openPhotoModal(card, trigger) {
+  const title = card.title || "이름 없는 장소";
+  lastPhotoTrigger = trigger;
+  photoModalTitle.textContent = title;
+  photoModalAddress.textContent = card.address || "주소 확인 필요";
+  photoModalImage.src = card.image_url;
+  photoModalImage.alt = `${title} 사진`;
+
+  const mapUrl = mapSearchUrl(card);
+  photoModalMap.hidden = !mapUrl;
+  if (mapUrl) {
+    photoModalMap.href = mapUrl;
+  }
+
+  const sourceUrl = usableSourceUrl(card.source_url);
+  photoModalSource.hidden = !sourceUrl;
+  if (sourceUrl) {
+    photoModalSource.href = sourceUrl;
+  }
+
+  photoModal.hidden = false;
+  document.body.classList.add("modal-open");
+  closePhotoButton.focus();
+}
+
+function closePhotoModal() {
+  photoModal.hidden = true;
+  photoModalImage.removeAttribute("src");
+  document.body.classList.remove("modal-open");
+  lastPhotoTrigger?.focus();
+  lastPhotoTrigger = null;
 }
 
 function cardEvidenceHighlights(card, queryText = "") {

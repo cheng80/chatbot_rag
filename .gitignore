@@ -181,6 +181,7 @@ analysis/leveling/data/raw/
 **/*.dump
 **/*.sql~
 data/vector_store/chroma/
+data/processed/autorag_tourism/
 data/external/
 data/models/
 data/source/admin_regions/

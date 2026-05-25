@@ -63,6 +63,8 @@ ChromaDB/RAG로 미리 수집한 관광 자료 검색
 답변 + 관광지 카드 + 출처 + 주의 문구 반환
 ```
 
+검색 후보 단계는 AutoRAG 오프라인 비교 결과를 참고해 운영 로직은 그대로 두고 후보 검색 폭만 조정합니다. 현재 비교에서는 Ollama `bge-m3` 기반 vector-only `top_k=40`이 BM25와 BM25+Vector RRF보다 안정적이었습니다.
+
 ## 2. 폴더 구조
 
 ```text
@@ -115,7 +117,7 @@ Mac:
 
 ```bash
 # 최초 1회: 이 프로젝트에서 사용할 pyenv Python 지정
-pyenv local 3.13.7
+pyenv local 3.12.10
 
 # 최초 1회 또는 .venv를 다시 만들 때
 python -m venv .venv
@@ -126,7 +128,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-pyenv `3.13.7`이 없으면 Homebrew 또는 시스템 Python으로 만들 수 있다.
+pyenv `3.12.10`이 없으면 Homebrew 또는 시스템 Python으로 만들 수 있다.
 
 ```bash
 python3 -m venv .venv
@@ -176,7 +178,7 @@ CHROMA_PATH=./data/vector_store/chroma
 CHROMA_COLLECTION=manual_documents
 DATABASE_URL=sqlite:///./data/app.sqlite3
 RAW_DATA_PATH=./data/raw
-TOP_K=5
+TOP_K=40
 TOUR_API_SERVICE_KEY=
 TOUR_API_ACCESSIBLE_SERVICE_KEY=
 TOURISM_LIVE_LOOKUP_ENABLED=true

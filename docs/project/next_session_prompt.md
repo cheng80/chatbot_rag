@@ -244,7 +244,7 @@ curl -X POST http://localhost:8000/chat \
 ## 현재 로컬 환경 메모
 
 - conda/Anaconda는 이 프로젝트에서 사용하지 않는다.
-- `.venv`가 이미 존재하며, 확인 시점의 Python은 `3.13.7`이다.
+- `.venv`가 이미 존재하며, 확인 시점의 Python은 `3.12.10`이다.
 - 관광 API는 `.env`의 `TOUR_API_BASE_URL=https://apis.data.go.kr/B551011/KorService2`를 기본 목록/검색/공통 상세 조회에 사용한다.
 - `KorService2`를 코드에서 `KorWithService2`로 강제 치환하지 않는다.
 - 무장애 상세 조회는 별도 `TOUR_API_ACCESSIBLE_BASE_URL=https://apis.data.go.kr/B551011/KorWithService2`를 사용한다.

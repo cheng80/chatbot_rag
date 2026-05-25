@@ -70,7 +70,7 @@ sudo rmdir /opt/anaconda3
 
 ```bash
 pyenv versions
-pyenv global 3.13.7
+pyenv global 3.12.10
 python --version
 ```
 
@@ -78,7 +78,7 @@ python --version
 
 ```bash
 # 프로젝트 루트에서 실행
-echo "3.13.7" > .python-version
+echo "3.12.10" > .python-version
 python --version
 ```
 
@@ -100,14 +100,14 @@ python -m pytest
 ```text
 현재 Mac은 이전 Mac을 마이그레이션해서 Anaconda/conda 설정이 남아 있습니다.
 전역 conda base 자동 진입을 제거하고, Anaconda 설치물을 정리한 뒤,
-이 프로젝트는 pyenv Python 3.13.7 + 프로젝트별 .venv 방식으로 다시 구성해 주세요.
+이 프로젝트는 pyenv Python 3.12.10 + 프로젝트별 .venv 방식으로 다시 구성해 주세요.
 
 요구사항:
 - 삭제 전에 ~/.zshrc, ~/.zprofile, ~/.bash_profile, ~/.bashrc를 백업
 - conda initialize 블록 제거
 - conda info --base로 실제 Anaconda 설치 경로 확인
 - /opt/anaconda3, ~/anaconda3, ~/miniconda3 중 실제 설치된 경로만 제거
-- 프로젝트 루트에 .python-version이 없으면 3.13.7로 생성
+- 프로젝트 루트에 .python-version이 없으면 3.12.10으로 생성
 - .venv를 재생성하고 requirements.txt 설치
 - pytest로 정상 동작 확인
 - .venv, .env, 캐시, Chroma 로컬 DB는 커밋하지 않기

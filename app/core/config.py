@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=150, alias="CHUNK_OVERLAP")
     embedding_batch_size: int = Field(default=16, alias="EMBEDDING_BATCH_SIZE")
 
-    top_k: int = Field(default=5, alias="TOP_K")
+    top_k: int = Field(default=40, alias="TOP_K")
 
     tour_api_service_key: str | None = Field(default=None, alias="TOUR_API_SERVICE_KEY")
     tour_api_accessible_service_key: str | None = Field(default=None, alias="TOUR_API_ACCESSIBLE_SERVICE_KEY")

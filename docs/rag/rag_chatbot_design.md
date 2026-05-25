@@ -197,7 +197,7 @@ Ollama /api/generate 호출
 cp .env.example .env
 
 # 최초 1회 또는 .venv를 다시 만들 때
-pyenv local 3.13.7
+pyenv local 3.12.10
 python -m venv .venv
 
 # 매번 프로젝트 작업을 시작할 때

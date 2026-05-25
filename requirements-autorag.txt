@@ -1,0 +1,7 @@
+# AutoRAG currently resolves more reliably on Python 3.11/3.12.
+# This project uses Python 3.12.10 for the main .venv.
+# Python 3.13 can hit numpy/voyageai resolver conflicts with AutoRAG 0.3.x.
+AutoRAG>=0.3.17
+pandas>=2.2.0
+pyarrow>=15.0.0
+kiwipiepy>=0.20.0

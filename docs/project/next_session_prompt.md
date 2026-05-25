@@ -66,6 +66,22 @@ git status --short
 
 ## 최근 미커밋 작업 메모
 
+2026-05-25 AutoRAG 관광 검색 후보 실험:
+
+- Excalidraw/이미지 다이어그램 작업은 중단하고 관련 파일/README 참조를 롤백했다. 다시 시도하려면 별도 작업으로 시작한다.
+- AutoRAG는 운영 엔진이 아니라 `/tourism/chat` 후보 검색 방식 비교용 오프라인 실험 도구로만 쓴다. 설정/절차는 `docs/tourism/autorag_retrieval_experiment.md`에 있다.
+- OpenAI API 토큰은 쓰지 않는다. AutoRAG 기본 OpenAI embedding 경로는 `OPENAI_API_KEY`가 필요하고 ChatGPT/Auth 세션으로 대체할 수 없다. 이 프로젝트의 full config는 Ollama `bge-m3` Chroma vector DB를 사용한다. 새 환경에서 모델이 없으면 `ollama pull bge-m3`를 먼저 실행한다.
+- `scripts/build_autorag_tourism_dataset.py`로 `data/raw/tourism_accessible/*.md`와 로컬 live markdown cache를 `corpus.parquet`, eval 질문 일부를 `qa.parquet`로 변환한다. 산출물은 `data/processed/autorag_tourism/` 아래에 만들며 git ignore 대상이다.
+- 1차 QA 80건, corpus 904건 기준 full validate/evaluate 완료. `VectorDB + bge-m3 + top_k=40`이 `retrieval_recall=0.9250`, `retrieval_ndcg=0.441883`, `retrieval_mrr=0.436346`으로 BM25와 BM25+Vector RRF보다 높았다. BM25/RRF는 운영에 이식하지 않았다.
+- 운영 반영은 기존 vector-only 구조를 유지하고 후보 검색 기본 `TOP_K`를 40으로 넓히는 방식이다. 사용자에게 기본으로 보여주는 추천 카드 수는 여전히 최대 5장이고, `더 보기`/지역확장/unsupported 정책은 그대로 유지한다.
+- 다음 작업은 TOP_K=40 적용 후 hard/noisy chat eval 회귀 확인이다. 특히 카드 품질 저하, 지역 외 후보 누수, unsupported 요청 카드 반환, 조건 근거 과잉/누락을 본다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl --output data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_residual_hard_chat_20260518.jsonl --output data/generated/tour_api/eval_runs/residual_hard_chat_topk40.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_challenge_questions.jsonl --output data/generated/tour_api/eval_runs/tourism_challenge_questions_topk40.jsonl
+```
+
 2026-05-18 한국어 로컬 교정 모델 작업:
 
 - `scripts/prepare_tourism_korean_correction_finetune_data.py`로 correction fine-tuning split을 만들었다. 산출물은 `data/processed/korean_correction_finetune/train.jsonl`, `validation.jsonl`, `summary.json`이다. train 5,453 rows, validation 605 rows다.

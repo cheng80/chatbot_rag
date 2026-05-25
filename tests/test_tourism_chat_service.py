@@ -189,7 +189,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
     assert [card.content_id for card in response.cards] == ["live-1", "live-2"]
     assert response.lookup_mode == "live"
     assert response.degraded is False
-    assert response.sources[0].source == "한국관광공사 무장애 여행 정보 OpenAPI"
+    assert response.sources[0].source == "한국관광공사 무장애 여행 정보"
     assert tour_api.list_calls == 1
     assert tour_api.detail_common_calls == 2
     assert tour_api.detail_with_tour_calls == 2
@@ -606,7 +606,7 @@ def test_tourism_chat_suggests_live_top_up_when_fallback_has_less_than_five_card
 
     assert len(response.cards) == 3
     assert tour_api.list_calls == 0
-    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 최신 정보 더 찾기"]
+    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 최신 추천 더 확인하기"]
 
 
 def test_tourism_chat_live_top_up_runs_only_when_user_requests_it(tmp_path):
@@ -1550,7 +1550,7 @@ def test_tourism_chat_answers_supported_part_when_scope_request_is_mixed(tmp_pat
 
     assert response.cards
     assert response.lookup_mode == "indexed"
-    assert "현재 MVP의 확인 데이터 범위 밖" in response.answer
+    assert "현재 서비스에서 확인할 수 있는 데이터 범위 밖" in response.answer
     assert response.warnings
 
 

@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.post("/reindex", response_model=DocumentIndexResponse)
 def reindex_documents(
-    clear_existing: bool = Query(default=False, description="기존 collection을 비우고 다시 색인할지 여부"),
+    clear_existing: bool = Query(default=False, description="기존 문서 모음을 비우고 다시 처리할지 여부"),
     ingestion_service: IngestionService = Depends(get_ingestion_service),
 ) -> DocumentIndexResponse:
     try:

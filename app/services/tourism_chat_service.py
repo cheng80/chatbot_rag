@@ -40,7 +40,7 @@ REASONING_ASSIST_KEYWORDS = [
 ]
 DEFAULT_CARD_LIMIT = 5
 MORE_CARD_KEYWORDS = ["더 보기", "더보기", "더 많이", "더 보여", "전체", "전부", "20곳", "20개"]
-LIVE_TOP_UP_KEYWORDS = ["최신 정보 더 찾기", "최신 정보", "live 확인", "라이브 확인", "TourAPI 확인"]
+LIVE_TOP_UP_KEYWORDS = ["최신 추천 더 확인하기", "최신 정보 더 찾기", "최신 정보", "live 확인", "라이브 확인", "TourAPI 확인"]
 LIVE_UPDATE_ACCEPT_KEYWORDS = [
     "업데이트 보기",
     "업데이트 반영",
@@ -136,6 +136,12 @@ class LiveUpdateJob:
     cards: list[TourismPlaceCard] = field(default_factory=list)
     degraded: bool = False
     api_called: bool = False
+
+
+@dataclass
+class LiveUpdateConsumeResult:
+    status: str
+    job: LiveUpdateJob
 CONDITION_RAW_FIELD_KEYS = {
     "휠체어": ["휠체어"],
     "유모차": ["유모차", "수유실", "영유아 가족 편의", "유아용 의자", "휠체어", "출입통로", "접근로", "엘리베이터", "대중교통"],
@@ -354,7 +360,7 @@ class TourismChatService:
         if query.get("unsupported_intent") and not self._has_supported_tourism_part(query):
             response = TourismChatResponse(
                 answer=(
-                    "현재 MVP는 관광지의 무장애 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
+                    "현재 서비스는 관광지의 무장애 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
                     "가격 비교, 실시간 혼잡도, 의료기관, 예약, 이동시간 계산은 확인된 데이터가 없어 추천하지 않겠습니다. "
                     "대신 방문하려는 지역과 접근성 조건을 알려주면 갈 수 있는 관광지를 찾아드릴 수 있습니다."
                 ),
@@ -1015,41 +1021,35 @@ class TourismChatService:
         session_id: str,
         message: str,
     ) -> tuple[dict[str, Any], TourismChatResponse] | None:
-        with self._live_update_lock:
-            job = self._live_update_jobs.get(session_id)
-            if job is None:
-                return None
-            if time.monotonic() - job.started_at > job.background_timeout_seconds:
-                self._live_update_jobs.pop(session_id, None)
-                self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
-                job.status = "timeout"
-                job.future.cancel()
-                query = dict(job.query)
-                response = TourismChatResponse(
-                    answer="최신 추천 결과 확인 시간이 초과되어 먼저 안내한 결과를 유지합니다.",
-                    cards=[],
-                    sources=[],
-                    lookup_mode="live_update_timeout",
-                    degraded=True,
-                    warnings=self._build_warnings(query, degraded=True),
-                )
-                return query, response
-            if job.status != "ready":
-                query = dict(job.query)
-                response = TourismChatResponse(
-                    answer="최신 추천 결과를 아직 확인 중입니다. 잠시 후 '최신 결과 업데이트 보기'를 다시 선택해 주세요.",
-                    cards=[],
-                    sources=[],
-                    lookup_mode="live_update_pending",
-                    degraded=False,
-                    warnings=self._build_warnings(query, degraded=False),
-                    suggested_messages=["최신 결과 업데이트 보기"],
-                    live_update_pending=True,
-                    live_update_id=job.update_id,
-                )
-                return query, response
-            self._live_update_jobs.pop(session_id, None)
-            self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+        consume_result = self._wait_for_live_update_acceptance(session_id)
+        if consume_result is None:
+            return None
+        job = consume_result.job
+        if consume_result.status == "timeout":
+            query = dict(job.query)
+            response = TourismChatResponse(
+                answer="최신 추천 결과 확인 시간이 초과되어 먼저 안내한 결과를 유지합니다.",
+                cards=[],
+                sources=[],
+                lookup_mode="live_update_timeout",
+                degraded=True,
+                warnings=self._build_warnings(query, degraded=True),
+            )
+            return query, response
+        if consume_result.status == "pending":
+            query = dict(job.query)
+            response = TourismChatResponse(
+                answer="최신 추천 결과를 아직 확인 중입니다. 준비되면 다시 알려드릴게요.",
+                cards=[],
+                sources=[],
+                lookup_mode="live_update_pending",
+                degraded=False,
+                warnings=self._build_warnings(query, degraded=False),
+                live_update_pending=True,
+                live_update_id=job.update_id,
+            )
+            return query, response
+
         query = dict(job.query)
         cards = self._annotate_cards_for_query_evidence(list(job.cards), query)
         cards, reasoning_used, reasoning_notes = self._apply_reasoning_assist(cards, job.message, query)
@@ -1070,6 +1070,54 @@ class TourismChatService:
             reasoning_assist_notes=reasoning_notes,
         )
         return query, response
+
+    def _wait_for_live_update_acceptance(self, session_id: str) -> LiveUpdateConsumeResult | None:
+        with self._live_update_lock:
+            job = self._live_update_jobs.get(session_id)
+            if job is None:
+                return None
+            elapsed = time.monotonic() - job.started_at
+            if elapsed > job.background_timeout_seconds:
+                self._live_update_jobs.pop(session_id, None)
+                self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+                job.status = "timeout"
+                job.future.cancel()
+                return LiveUpdateConsumeResult(status="timeout", job=job)
+            if job.status != "ready":
+                remaining_seconds = max(job.background_timeout_seconds - elapsed, 0.0)
+            else:
+                remaining_seconds = 0.0
+
+        if job.status != "ready" and remaining_seconds > 0:
+            try:
+                job.future.result(timeout=remaining_seconds)
+                self._store_live_update_result(session_id, job.generation, job.future)
+            except FutureTimeoutError:
+                with self._live_update_lock:
+                    if self._live_update_jobs.get(session_id) is job:
+                        self._live_update_jobs.pop(session_id, None)
+                        self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+                job.status = "timeout"
+                job.future.cancel()
+                return LiveUpdateConsumeResult(status="timeout", job=job)
+            except Exception as exc:  # noqa: BLE001 - late update should degrade quietly.
+                logger.warning("관광 live update 승인 대기 실패: %s", exc.__class__.__name__)
+                with self._live_update_lock:
+                    if self._live_update_jobs.get(session_id) is job:
+                        self._live_update_jobs.pop(session_id, None)
+                        self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+                job.status = "failed"
+                return LiveUpdateConsumeResult(status="timeout", job=job)
+
+        with self._live_update_lock:
+            current = self._live_update_jobs.get(session_id)
+            if current is not job:
+                return None
+            if job.status != "ready":
+                return LiveUpdateConsumeResult(status="pending", job=job)
+            self._live_update_jobs.pop(session_id, None)
+            self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+        return LiveUpdateConsumeResult(status="ready", job=job)
 
     def _cards_from_live_tour_api(
         self,
@@ -1871,7 +1919,7 @@ class TourismChatService:
             basis = self._build_card_basis(card, query)
             lines.append(f"{index}. {card.title}: {basis}. 출처는 {self._public_source_name(card.source_name)}입니다.")
         if live_top_up_available:
-            lines.append("지금 확인된 후보만 먼저 보여드렸습니다. 더 찾아보려면 '최신 정보 더 찾기'를 눌러 주세요.")
+            lines.append("지금 확인된 후보를 먼저 보여드렸습니다. 더 찾아보려면 '최신 추천 더 확인하기'를 눌러 주세요.")
         lines.append("방문 전 운영시간과 편의시설 위치는 현장 상황에 따라 달라질 수 있어 공식 안내나 전화로 한 번 더 확인해 주세요.")
         return "\n".join(lines)
 
@@ -2169,7 +2217,7 @@ class TourismChatService:
             suggestions.append("최신 결과 업데이트 보기")
         live_top_up_suggested = self._should_suggest_live_top_up(message, cards, query, lookup_mode)
         if live_top_up_suggested:
-            suggestions.append(f"{self._strip_followup_intent(message)} 최신 정보 더 찾기")
+            suggestions.append(f"{self._strip_followup_intent(message)} 최신 추천 더 확인하기")
         if (
             not live_top_up_suggested
             and cards
@@ -2271,7 +2319,7 @@ class TourismChatService:
         if cache_warning:
             warnings.append(str(cache_warning))
         if query.get("unsupported_intent"):
-            warnings.append("질문에 현재 MVP 범위 밖 요청이 포함되어 관광지 접근성 카드 근거 안에서만 답변했습니다.")
+            warnings.append("현재 서비스에서 바로 확인하기 어려운 요청은 제외하고, 관광지 접근성 카드 근거 안에서만 답변했습니다.")
         return warnings
 
     @staticmethod
@@ -2307,7 +2355,7 @@ class TourismChatService:
             return None
         return (
             "다만 질문에 포함된 가격 비교, 실시간 혼잡도, 의료기관, 예약, 이동시간 계산 같은 요청은 "
-            "현재 MVP의 확인 데이터 범위 밖이라 단정하지 않습니다. 아래 추천은 관광지 접근성 카드 근거에 한정합니다."
+            "현재 서비스에서 확인할 수 있는 데이터 범위 밖이라 단정하지 않습니다. 아래 추천은 관광지 접근성 카드 근거에 한정합니다."
         )
 
     @staticmethod

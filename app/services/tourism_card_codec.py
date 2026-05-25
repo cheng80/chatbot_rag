@@ -42,7 +42,7 @@ class TourismCardMarkdownCodec:
             for key, value in card.raw_fields.items()
         ]
         if not accessibility_lines:
-            accessibility_lines = ["- 확인 필요: OpenAPI 응답에 세부 편의정보가 없습니다."]
+            accessibility_lines = ["- 확인 필요: 세부 편의정보가 없습니다."]
 
         return "\n".join(
             [
@@ -110,7 +110,7 @@ class TourismCardMarkdownCodec:
             ),
             accessibility_tags=self._split_tags(fields.get("접근성태그")),
             family_tags=self._split_tags(fields.get("가족태그")),
-            source_name=fields.get("출처") or "한국관광공사 무장애 여행 정보 OpenAPI",
+            source_name=fields.get("출처") or "한국관광공사 무장애 여행 정보",
             source_url=self._none_if_unknown(fields.get("출처URL")),
             raw_fields=raw_fields,
         )

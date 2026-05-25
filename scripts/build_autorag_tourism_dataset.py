@@ -449,6 +449,8 @@ def main() -> int:
     corpus_inputs = args.corpus_inputs or DEFAULT_CORPUS_INPUTS
     eval_inputs = args.eval_inputs or DEFAULT_EVAL_INPUTS
     output_dir = args.output_dir
+    if not output_dir.is_absolute():
+        output_dir = PROJECT_ROOT / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     corpus_rows = build_corpus(corpus_inputs)

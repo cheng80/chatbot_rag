@@ -761,6 +761,8 @@ class TourismQueryService:
             "부모님",
             "무릎",
             "허리 불편",
+            "많이 안 걷",
+            "많이안걷",
             "오래 안 걷",
             "오래안걷",
             "쉬어",
@@ -952,7 +954,7 @@ class TourismQueryService:
             term_groups.append(["유모차", "수유실", "영유아", "기저귀", "어린이", "아이", "가족", "유아용 의자"])
         if (
             "시장" in message
-            and not any(term in message for term in ["먹거리", "음식", "식당", "맛집"])
+            and not any(term in message or re.sub(r"\s+", "", term) in compact for term in ["먹거리", "음식", "식당", "맛집"])
             and not TourismQueryService._is_preference_excluded(message, "시장")
         ):
             term_groups.append(["시장", "먹자골목", "전통시장"])
@@ -1119,7 +1121,8 @@ class TourismQueryService:
             candidates = self.ambiguous_region_aliases[alias]
             if alias not in message:
                 continue
-            if alias == "광주" and "광주광역시" in message:
+            compact = re.sub(r"\s+", "", message)
+            if alias == "광주" and "광주광역시" in compact:
                 return None
             if region:
                 if region == alias:

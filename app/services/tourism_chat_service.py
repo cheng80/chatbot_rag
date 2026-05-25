@@ -157,6 +157,12 @@ PREFERENCE_EVIDENCE_KEYWORDS = {
         "음식점",
         "맛집",
         "레스토랑",
+        "음식",
+        "한식",
+        "중식",
+        "양식",
+        "분식",
+        "의자식 테이블",
         "국수",
         "칼국수",
         "해장",
@@ -1223,7 +1229,7 @@ class TourismChatService:
         conditions = query.get("conditions") or []
         if not conditions:
             return cards
-        if conditions == ["유모차"]:
+        if conditions == ["유모차"] and not cls._place_type_preferences(query):
             direct_stroller_matches = [card for card in cards if cls._stroller_family_evidence_score(card) > 0]
             if direct_stroller_matches:
                 return direct_stroller_matches

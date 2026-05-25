@@ -6,6 +6,8 @@
 
 현재 `/tourism/chat`의 지역, 조건, 후속질문, 제외 조건, 범위 밖 질문 처리 로직은 유지한다. AutoRAG는 운영 엔진으로 붙이지 않고, 관광 Markdown 후보 검색 방식만 비교하는 오프라인 실험 도구로 사용한다.
 
+AutoRAG 공식 흐름은 parsing, chunking, QA creation, retrieval, reranker, prompt maker, generator까지 포함해 전체 RAG 파이프라인을 최적화할 수 있다. 이 프로젝트에서는 그 전체 절차를 운영 파이프라인으로 채택하지 않는다. 이미 `/tourism/chat` 안에 정책 기반 응답 로직과 live TourAPI fallback이 있으므로, AutoRAG는 `retrieval-only` 후보 검색 실험에 한정한다.
+
 비교하려는 질문은 하나다.
 
 ```text
@@ -70,11 +72,22 @@ pyenv local 3.12.10
 
 `configs/autorag/tourism_bm25_smoke.yaml`은 키 없이 데이터셋과 AutoRAG 실행 가능 여부를 확인하는 스모크 테스트용이다. 최종 비교와 채택 판단에는 `configs/autorag/tourism_retrieval.yaml`을 사용한다.
 
-2026-05-25 1차 실행에서는 Ollama `bge-m3` 모델을 내려받은 뒤 full validate/evaluate를 완료했다. 전체 QA 80건 기준 `VectorDB + top_k=40`이 `retrieval_recall=0.9250`, `retrieval_ndcg=0.441883`, `retrieval_mrr=0.436346`으로 BM25와 Hybrid RRF보다 높았다. 따라서 현재 운영 이식은 BM25/RRF 추가가 아니라 기존 vector-only 후보 검색의 기본 `TOP_K`를 40으로 넓히는 방식으로 한다.
+2026-05-25 1차 실행에서는 Ollama `bge-m3` 모델을 내려받은 뒤 retrieval-only validate/evaluate를 완료했다. QA 80건 기준 `VectorDB + top_k=40`이 `retrieval_recall=0.9250`, `retrieval_ndcg=0.441883`, `retrieval_mrr=0.436346`으로 BM25와 Hybrid RRF보다 높았다.
+
+이후 기본 `--max-eval-rows 80` 샘플 한계를 확인하고, raw 904건과 live markdown 96건을 합친 corpus 1,000건, QA 683건으로 재산출했다. 전체 BM25/RRF 포함 evaluate는 summary 생성 전 장시간 소요되어 중단했고, `configs/autorag/tourism_semantic_topk.yaml`로 semantic vector-only top-k 비교를 분리해 완료했다. 전체 683 QA 기준 결과는 다음과 같다.
+
+| top_k | retrieval_recall | retrieval_ndcg | retrieval_mrr | retrieval_f1 | retrieval_precision | execution_time |
+|---:|---:|---:|---:|---:|---:|---:|
+| 5 | 0.631040 | 0.307923 | 0.436408 | 0.385635 | 0.303953 | 0.025287 |
+| 10 | 0.714495 | 0.307728 | 0.447743 | 0.349462 | 0.247877 | 0.025850 |
+| 20 | 0.836018 | 0.395639 | 0.456461 | 0.302117 | 0.192753 | 0.026287 |
+| 40 | 0.915081 | 0.464107 | 0.459182 | 0.222108 | 0.129209 | 0.028321 |
+
+AutoRAG는 `top_k=40`을 best로 선택했다. 다만 이 결과는 휴리스틱 `retrieval_gt` 기반 retrieval screening이므로 운영 이식은 BM25/RRF 추가가 아니라 기존 vector-only 후보 검색의 기본 `TOP_K`를 40으로 넓히고, `/tourism/chat` hard/noisy eval로 최종 카드 품질을 별도 검증하는 방식으로 한다.
 
 ## 비교 설정
 
-`configs/autorag/tourism_retrieval.yaml`은 retrieval-only 실험으로 시작한다.
+`configs/autorag/tourism_retrieval.yaml`은 retrieval-only 실험으로 시작한다. `configs/autorag/tourism_semantic_topk.yaml`은 전체 QA 기준으로 vector-only `top_k`만 빠르게 재검증할 때 사용한다.
 
 | 후보 | 설정 |
 |---|---|

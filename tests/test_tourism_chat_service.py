@@ -1671,3 +1671,68 @@ def test_tourism_chat_relaxes_multi_condition_unless_all_conditions_are_explicit
 
     assert loose.cards
     assert strict.cards == []
+
+
+def test_tourism_chat_excludes_food_cards_with_table_evidence(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    museum = TourismPlaceCard(
+        content_id="museum",
+        title="서울 전시관",
+        address="서울특별시 중구",
+        recommendation_reason="휠체어 접근 가능한 전시관입니다.",
+        accessibility_tags=["휠체어 접근"],
+        raw_fields={"휠체어": "휠체어 접근 가능"},
+    )
+    restaurant = TourismPlaceCard(
+        content_id="restaurant",
+        title="서울 맛집",
+        address="서울특별시 중구",
+        recommendation_reason="휠체어 접근 가능한 음식점입니다.",
+        accessibility_tags=["휠체어 접근"],
+        raw_fields={"유아용 의자": "의자식 테이블 있음"},
+    )
+    for card in [museum, restaurant]:
+        (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천해줘. 식당이나 카페 말고 관광지 위주로")
+
+    assert [card.title for card in response.cards] == ["서울 전시관"]
+
+
+def test_tourism_chat_uses_mobility_evidence_for_stroller_place_type_preference(tmp_path):
+    sample_dir = tmp_path / "samples"
+    sample_dir.mkdir()
+    family_museum = TourismPlaceCard(
+        content_id="family-museum",
+        title="부산 어린이 전시관",
+        address="부산광역시 중구",
+        recommendation_reason="유모차 대여가 가능한 전시관입니다.",
+        family_tags=["유모차 대여"],
+        raw_fields={"유모차": "유모차 대여 가능"},
+    )
+    accessible_market = TourismPlaceCard(
+        content_id="accessible-market",
+        title="부산 먹거리 시장",
+        address="부산광역시 중구",
+        recommendation_reason="시장 안 출입구까지 턱이 없어 휠체어 접근이 가능합니다.",
+        accessibility_tags=["휠체어 접근"],
+        raw_fields={"출입통로": "출입구까지 턱이 없어 휠체어 접근 가능"},
+    )
+    for card in [family_museum, accessible_market]:
+        (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
+    service = TourismChatService(
+        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        EmptyRetriever(),
+        TourismQueryService(),
+    )
+
+    response = service.answer("부산 중구에서 먹거리나 시장 위주로 유모차 가능한 곳 보여줘")
+
+    assert response.cards
+    assert response.cards[0].title == "부산 먹거리 시장"

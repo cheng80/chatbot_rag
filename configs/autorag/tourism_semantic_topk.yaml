@@ -1,0 +1,22 @@
+vectordb:
+  - name: tourism_ollama_chroma
+    db_type: chroma
+    client_type: persistent
+    embedding_model:
+      type: ollama
+      model_name: bge-m3
+      base_url: http://localhost:11434
+    collection_name: tourism_ollama_semantic_topk
+    path: data/processed/autorag_tourism_full_20260525/chroma_ollama_semantic_topk
+
+node_lines:
+  - node_line_name: retrieve_node_line
+    nodes:
+      - node_type: semantic_retrieval
+        strategy:
+          metrics: [retrieval_f1, retrieval_recall, retrieval_precision, retrieval_ndcg, retrieval_mrr]
+          speed_threshold: 10
+        top_k: [5, 10, 20, 40]
+        modules:
+          - module_type: vectordb
+            vectordb: tourism_ollama_chroma

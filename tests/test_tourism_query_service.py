@@ -1016,6 +1016,54 @@ def test_tourism_query_treats_parent_noisy_mobility_as_senior_anchor(tmp_path: P
     assert query["ambiguous_conditions"] == []
 
 
+def test_tourism_query_treats_much_less_walking_as_senior_anchor(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("전주에서 주차장서 많이 안 걷는 곳")
+
+    assert "고령자" in query["conditions"]
+    assert "주차" in query["conditions"]
+    assert query["ambiguous_conditions"] == []
+
+
+def test_tourism_query_keeps_spaced_metropolitan_city_unambiguous(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {
+                    "광주": [
+                        {"area_code": "5", "sigungu_code": None, "area_name": "광주", "sigungu_name": None},
+                        {"area_code": "31", "sigungu_code": "5", "area_name": "경기도", "sigungu_name": "광주시"},
+                    ]
+                },
+                "region_index": {"광주": {"area_code": "5", "sigungu_code": None, "area_name": "광주", "sigungu_name": None}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("광주 광역시에서 어르신이랑 조용히 산책하기 좋은 공원 위주로 추천해줘")
+
+    assert query["ambiguous_region"] is None
+    assert query["region"] == "광주"
+
+
+def test_tourism_query_keeps_spaced_food_market_as_preference_not_required_evidence(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("부산 중구에서 먹 거리 나 시장 위주로 유모차 가능한 곳 보여줘")
+
+    assert query["preferences"] == ["시장_먹거리"]
+    assert ["시장", "먹자골목", "전통시장"] not in query["required_evidence_terms"]
+
+
 def test_tourism_query_normalizes_colloquial_restroom_short_form(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(json.dumps({"ambiguous_region_aliases": {}, "region_index": {}}, ensure_ascii=False), encoding="utf-8")

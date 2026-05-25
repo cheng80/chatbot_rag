@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from dataclasses import dataclass, field
 import json
 import logging
 import re
+import threading
+import time
 from typing import Any
 
 from app.core.config import Settings
@@ -37,6 +41,15 @@ REASONING_ASSIST_KEYWORDS = [
 DEFAULT_CARD_LIMIT = 5
 MORE_CARD_KEYWORDS = ["더 보기", "더보기", "더 많이", "더 보여", "전체", "전부", "20곳", "20개"]
 LIVE_TOP_UP_KEYWORDS = ["최신 정보 더 찾기", "최신 정보", "live 확인", "라이브 확인", "TourAPI 확인"]
+LIVE_UPDATE_ACCEPT_KEYWORDS = [
+    "업데이트 보기",
+    "업데이트 반영",
+    "최신 결과 보기",
+    "최신 결과 보여",
+    "최신 정보 보기",
+    "최신 정보 반영",
+    "반영해",
+]
 STROLLER_MOBILITY_EVIDENCE = [
     "휠체어",
     "무장애",
@@ -107,6 +120,22 @@ CONDITION_EVIDENCE_KEYWORDS = {
     ],
     "청각장애": ["청각장애", "수어", "수화", "자막", "문자안내"],
 }
+
+
+@dataclass
+class LiveUpdateJob:
+    update_id: str
+    session_id: str
+    message: str
+    query: dict[str, Any]
+    future: Future
+    started_at: float
+    background_timeout_seconds: float
+    generation: int
+    status: str = "running"
+    cards: list[TourismPlaceCard] = field(default_factory=list)
+    degraded: bool = False
+    api_called: bool = False
 CONDITION_RAW_FIELD_KEYS = {
     "휠체어": ["휠체어"],
     "유모차": ["유모차", "수유실", "영유아 가족 편의", "유아용 의자", "휠체어", "출입통로", "접근로", "엘리베이터", "대중교통"],
@@ -282,10 +311,33 @@ class TourismChatService:
         self._live_cards_cache: dict[str, list[TourismPlaceCard]] = {}
         self._live_markdown_cards_cache: list[TourismPlaceCard] | None = None
         self._session_queries: dict[str, dict[str, Any]] = {}
+        self._live_update_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tourism-live-update")
+        self._live_update_lock = threading.Lock()
+        self._live_update_jobs: dict[str, LiveUpdateJob] = {}
+        self._live_update_generations: dict[str, int] = {}
 
     def answer(self, message: str, session_id: str | None = None) -> TourismChatResponse:
         query = self._resolve_conversation_query(message, session_id)
         effective_message = self._build_effective_message(message, query)
+        if self._is_live_update_strategy() and session_id and self._requests_live_update_accept(message):
+            pending_response = self._consume_live_update_response(session_id, message)
+            if pending_response is not None:
+                self._log_event(message, session_id, pending_response[0], pending_response[1], live_api_called=False)
+                self._remember_session_query(session_id, pending_response[0], pending_response[1])
+                return pending_response[1]
+            empty_update_response = TourismChatResponse(
+                answer="반영할 새 추천 결과가 없습니다. 새 지역과 조건을 입력하면 다시 확인하겠습니다.",
+                cards=[],
+                sources=[],
+                lookup_mode="live_update_empty",
+                degraded=False,
+                warnings=[],
+            )
+            self._log_event(message, session_id, query, empty_update_response, live_api_called=False)
+            self._remember_session_query(session_id, query, empty_update_response)
+            return empty_update_response
+        if self._is_live_update_strategy() and session_id:
+            self._cancel_session_live_update(session_id)
         if self._should_clarify_unsupported_core(query):
             response = TourismChatResponse(
                 answer=self._build_unsupported_core_clarification_answer(query),
@@ -381,15 +433,37 @@ class TourismChatService:
         live_api_called = False
         live_top_up_requested = self._requests_live_top_up(message)
         diagnostic_candidates: list[TourismPlaceCard] = []
+        live_update_pending = False
+        live_update_id: str | None = None
 
-        candidates = self._cards_from_live_markdown_cache(query)
-        diagnostic_candidates.extend(candidates)
-        cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
-        if cards:
-            lookup_mode = "cache"
-            if not self._cards_cover_requested_conditions(cards, query):
-                cards = []
-                lookup_mode = "unknown"
+        if self._is_live_update_strategy() and self._can_use_live_tour_api(query):
+            live_job = self._start_live_update_job(message, query, session_id)
+            if live_job is not None:
+                live_update_id = live_job.update_id
+                live_candidates, live_degraded, api_called, live_timed_out = self._wait_for_live_update_job(live_job)
+                live_api_called = live_api_called or api_called
+                degraded = degraded or live_degraded
+                diagnostic_candidates.extend(live_candidates)
+                if live_candidates:
+                    cards, expanded, has_more_cards = self._select_stage_cards(live_candidates, effective_message, query)
+                    if cards and self._cards_cover_requested_conditions(cards, query):
+                        candidates = live_candidates
+                        lookup_mode = "live"
+                    else:
+                        cards = []
+                        lookup_mode = "unknown"
+                if live_timed_out:
+                    live_update_pending = bool(session_id)
+
+        if not cards:
+            candidates = self._cards_from_live_markdown_cache(query)
+            diagnostic_candidates.extend(candidates)
+            cards, expanded, has_more_cards = self._select_stage_cards(candidates, effective_message, query)
+            if cards:
+                lookup_mode = "cache"
+                if not self._cards_cover_requested_conditions(cards, query):
+                    cards = []
+                    lookup_mode = "unknown"
 
         if not cards:
             contexts, retrieve_degraded = self._retrieve(effective_message)
@@ -479,6 +553,8 @@ class TourismChatService:
                 degraded=degraded,
                 warnings=warnings,
                 suggested_messages=self._build_no_card_suggestions(query),
+                live_update_pending=live_update_pending,
+                live_update_id=live_update_id if live_update_pending else None,
             )
             self._log_event(message, session_id, query, response, live_api_called)
             self._remember_session_query(session_id, query, response)
@@ -500,7 +576,16 @@ class TourismChatService:
             lookup_mode=lookup_mode,
             degraded=degraded,
             warnings=warnings,
-            suggested_messages=self._build_suggestions(effective_message, has_more_cards, cards, query, lookup_mode),
+            suggested_messages=self._build_suggestions(
+                effective_message,
+                has_more_cards,
+                cards,
+                query,
+                lookup_mode,
+                live_update_pending=live_update_pending,
+            ),
+            live_update_pending=live_update_pending,
+            live_update_id=live_update_id if live_update_pending else None,
             reasoning_assist_used=reasoning_used,
             reasoning_assist_notes=reasoning_notes,
         )
@@ -791,12 +876,212 @@ class TourismChatService:
             logger.warning("관광 RAG 검색 실패, 로컬 샘플 fallback 사용: %s", exc.__class__.__name__)
             return [], True
 
-    def _cards_from_live_tour_api(self, query: dict) -> tuple[list[TourismPlaceCard], bool, bool]:
+    def _is_live_update_strategy(self) -> bool:
+        return str(self.settings.tourism_lookup_strategy).strip().lower() == "live_update"
+
+    def _next_live_update_generation(self, session_id: str) -> int:
+        with self._live_update_lock:
+            generation = self._live_update_generations.get(session_id, 0) + 1
+            self._live_update_generations[session_id] = generation
+            return generation
+
+    def _cancel_session_live_update(self, session_id: str) -> None:
+        with self._live_update_lock:
+            job = self._live_update_jobs.pop(session_id, None)
+            self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+        if job is not None:
+            job.status = "cancelled"
+            job.future.cancel()
+
+    def _start_live_update_job(
+        self,
+        message: str,
+        query: dict[str, Any],
+        session_id: str | None,
+    ) -> LiveUpdateJob | None:
+        if session_id is None:
+            future = self._live_update_executor.submit(
+                self._cards_from_live_tour_api,
+                dict(query),
+                False,
+                False,
+            )
+            return LiveUpdateJob(
+                update_id="request",
+                session_id="",
+                message=message,
+                query=dict(query),
+                future=future,
+                started_at=time.monotonic(),
+                background_timeout_seconds=max(float(self.settings.tourism_live_first_wait_seconds), 0.0),
+                generation=0,
+            )
+
+        generation = self._next_live_update_generation(session_id)
+        update_id = f"{session_id}:{generation}"
+        job = LiveUpdateJob(
+            update_id=update_id,
+            session_id=session_id,
+            message=message,
+            query=dict(query),
+            future=self._live_update_executor.submit(
+                self._cards_from_live_tour_api,
+                dict(query),
+                False,
+                False,
+            ),
+            started_at=time.monotonic(),
+            background_timeout_seconds=max(float(self.settings.tourism_live_background_timeout_seconds), 0.0),
+            generation=generation,
+        )
+        with self._live_update_lock:
+            self._live_update_jobs[session_id] = job
+        job.future.add_done_callback(lambda future: self._store_live_update_result(session_id, generation, future))
+        return job
+
+    def _wait_for_live_update_job(
+        self,
+        job: LiveUpdateJob,
+    ) -> tuple[list[TourismPlaceCard], bool, bool, bool]:
+        wait_seconds = max(float(self.settings.tourism_live_first_wait_seconds), 0.0)
+        try:
+            cards, degraded, api_called = job.future.result(timeout=wait_seconds)
+        except FutureTimeoutError:
+            if not job.session_id:
+                job.status = "timeout"
+                job.future.cancel()
+            return [], False, True, True
+        except Exception as exc:  # noqa: BLE001 - live update must degrade to fallback.
+            logger.warning("관광 live update 작업 실패, fallback 응답 사용: %s", exc.__class__.__name__)
+            job.status = "failed"
+            return [], True, True, False
+
+        job.cards = list(cards)
+        job.degraded = degraded
+        job.api_called = api_called
+        job.status = "ready" if cards else "failed"
+        if job.session_id:
+            with self._live_update_lock:
+                current = self._live_update_jobs.get(job.session_id)
+                if current is job:
+                    self._live_update_jobs.pop(job.session_id, None)
+        if cards and not degraded:
+            self._live_cards_cache[self._live_cache_key(job.query)] = self._deduplicate(cards)
+            self._persist_live_cards(job.query, self._live_cards_cache[self._live_cache_key(job.query)])
+        return list(cards), degraded, api_called, False
+
+    def _store_live_update_result(self, session_id: str, generation: int, future: Future) -> None:
+        if not session_id:
+            return
+        with self._live_update_lock:
+            job = self._live_update_jobs.get(session_id)
+            current_generation = self._live_update_generations.get(session_id)
+        if job is None or job.generation != generation or current_generation != generation:
+            return
+        elapsed = time.monotonic() - job.started_at
+        if elapsed > job.background_timeout_seconds:
+            job.status = "timeout"
+            with self._live_update_lock:
+                if self._live_update_jobs.get(session_id) is job:
+                    self._live_update_jobs.pop(session_id, None)
+            return
+        try:
+            cards, degraded, api_called = future.result()
+        except Exception as exc:  # noqa: BLE001 - background failure should not break chat.
+            logger.warning("관광 live update background 작업 실패: %s", exc.__class__.__name__)
+            job.status = "failed"
+            with self._live_update_lock:
+                if self._live_update_jobs.get(session_id) is job:
+                    self._live_update_jobs.pop(session_id, None)
+            return
+        selected_cards, _, _ = self._select_stage_cards(list(cards), job.message, job.query)
+        if not selected_cards or not self._cards_cover_requested_conditions(selected_cards, job.query):
+            job.status = "failed"
+            with self._live_update_lock:
+                if self._live_update_jobs.get(session_id) is job:
+                    self._live_update_jobs.pop(session_id, None)
+            return
+        job.cards = list(selected_cards)
+        job.degraded = degraded
+        job.api_called = api_called
+        job.status = "ready"
+
+    @staticmethod
+    def _requests_live_update_accept(message: str) -> bool:
+        return any(keyword in message for keyword in LIVE_UPDATE_ACCEPT_KEYWORDS)
+
+    def _consume_live_update_response(
+        self,
+        session_id: str,
+        message: str,
+    ) -> tuple[dict[str, Any], TourismChatResponse] | None:
+        with self._live_update_lock:
+            job = self._live_update_jobs.get(session_id)
+            if job is None:
+                return None
+            if time.monotonic() - job.started_at > job.background_timeout_seconds:
+                self._live_update_jobs.pop(session_id, None)
+                self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+                job.status = "timeout"
+                job.future.cancel()
+                query = dict(job.query)
+                response = TourismChatResponse(
+                    answer="최신 추천 결과 확인 시간이 초과되어 먼저 안내한 결과를 유지합니다.",
+                    cards=[],
+                    sources=[],
+                    lookup_mode="live_update_timeout",
+                    degraded=True,
+                    warnings=self._build_warnings(query, degraded=True),
+                )
+                return query, response
+            if job.status != "ready":
+                query = dict(job.query)
+                response = TourismChatResponse(
+                    answer="최신 추천 결과를 아직 확인 중입니다. 잠시 후 '최신 결과 업데이트 보기'를 다시 선택해 주세요.",
+                    cards=[],
+                    sources=[],
+                    lookup_mode="live_update_pending",
+                    degraded=False,
+                    warnings=self._build_warnings(query, degraded=False),
+                    suggested_messages=["최신 결과 업데이트 보기"],
+                    live_update_pending=True,
+                    live_update_id=job.update_id,
+                )
+                return query, response
+            self._live_update_jobs.pop(session_id, None)
+            self._live_update_generations[session_id] = self._live_update_generations.get(session_id, 0) + 1
+        query = dict(job.query)
+        cards = self._annotate_cards_for_query_evidence(list(job.cards), query)
+        cards, reasoning_used, reasoning_notes = self._apply_reasoning_assist(cards, job.message, query)
+        if cards and not job.degraded:
+            self._live_cards_cache[self._live_cache_key(query)] = self._deduplicate(cards)
+            self._persist_live_cards(query, self._live_cards_cache[self._live_cache_key(query)])
+        sources = self._build_sources([], cards)
+        answer = self._build_answer(cards, query, expanded=False, reasoning_notes=reasoning_notes)
+        response = TourismChatResponse(
+            answer=f"새로운 최신 추천 결과가 준비되어 반영했습니다.\n{answer}",
+            cards=cards,
+            sources=sources,
+            lookup_mode="live_update",
+            degraded=job.degraded,
+            warnings=self._build_warnings(query, job.degraded),
+            suggested_messages=self._build_suggestions(message, False, cards, query, "live_update"),
+            reasoning_assist_used=reasoning_used,
+            reasoning_assist_notes=reasoning_notes,
+        )
+        return query, response
+
+    def _cards_from_live_tour_api(
+        self,
+        query: dict,
+        use_cache: bool = True,
+        persist: bool = True,
+    ) -> tuple[list[TourismPlaceCard], bool, bool]:
         if not self._can_use_live_tour_api(query):
             return [], False, False
 
         cache_key = self._live_cache_key(query)
-        if cache_key in self._live_cards_cache:
+        if use_cache and cache_key in self._live_cards_cache:
             return list(self._live_cards_cache[cache_key]), False, False
 
         api = self.tour_api_service
@@ -812,9 +1097,11 @@ class TourismChatService:
             logger.warning("관광 live TourAPI 조회 실패, RAG fallback 사용: %s", exc.__class__.__name__)
             return [], True, True
 
-        self._live_cards_cache[cache_key] = self._deduplicate(cards)
-        self._persist_live_cards(query, self._live_cards_cache[cache_key])
-        return list(self._live_cards_cache[cache_key]), False, True
+        cards = self._deduplicate(cards)
+        if persist:
+            self._live_cards_cache[cache_key] = cards
+            self._persist_live_cards(query, self._live_cards_cache[cache_key])
+        return list(cards), False, True
 
     def _log_event(
         self,
@@ -1875,8 +2162,11 @@ class TourismChatService:
         cards: list[TourismPlaceCard],
         query: dict,
         lookup_mode: str,
+        live_update_pending: bool = False,
     ) -> list[str]:
         suggestions = self._build_more_card_suggestions(message, has_more_cards)
+        if live_update_pending:
+            suggestions.append("최신 결과 업데이트 보기")
         live_top_up_suggested = self._should_suggest_live_top_up(message, cards, query, lookup_mode)
         if live_top_up_suggested:
             suggestions.append(f"{self._strip_followup_intent(message)} 최신 정보 더 찾기")
@@ -1976,7 +2266,7 @@ class TourismChatService:
     def _build_warnings(query: dict, degraded: bool) -> list[str]:
         warnings = []
         if degraded:
-            warnings.append("live TourAPI 또는 검색 인덱스를 사용할 수 없어 캐시/로컬 샘플 기반 fallback 응답을 사용했습니다.")
+            warnings.append("일부 자료 확인이 원활하지 않아 먼저 확인된 자료로 안내했습니다.")
         cache_warning = query.get("region_cache_warning")
         if cache_warning:
             warnings.append(str(cache_warning))

@@ -508,9 +508,10 @@ function renderResponse(payload) {
 
   const notes = [modeDescription(mode)];
   if (payload.degraded) notes.push("일부 자료 확인이 원활하지 않아 준비된 자료로 먼저 안내했습니다.");
-  if (payload.reasoning_assist_used) notes.push("복합 조건을 반영하기 위해 LLM 추론 보조로 후보 순서를 조정했습니다.");
+  if (payload.live_update_pending) notes.push("최신 추천 결과를 확인 중이며, 준비되면 업데이트 보기로 반영할 수 있습니다.");
+  if (payload.reasoning_assist_used) notes.push("복합 조건을 반영해 후보 순서를 조정했습니다.");
   if (Array.isArray(payload.reasoning_assist_notes)) {
-    payload.reasoning_assist_notes.forEach((note) => notes.push(`추론 보조 메모: ${note}`));
+    payload.reasoning_assist_notes.forEach((note) => notes.push(`확인 메모: ${note}`));
   }
   if (Array.isArray(payload.warnings)) notes.push(...payload.warnings);
   if (debugMode) {
@@ -527,6 +528,8 @@ function renderResponse(payload) {
   cardsGrid.replaceChildren(...cards.map((card) => renderCard(card, lastSubmittedMessage)));
   if (cards.length > 0) {
     showToast(`${cards.length}개의 추천 카드를 찾았습니다.`, "ok");
+  } else if (payload.live_update_pending) {
+    showToast("최신 결과를 확인 중입니다.", "ok");
   }
   scrollToResponseStart();
 }
@@ -553,30 +556,38 @@ function renderDemoPreview() {
 }
 
 function modeLabel(mode, degraded) {
-  if (mode === "live") return "Live API 응답";
-  if (mode === "live_top_up") return "Live 보강 응답";
-  if (mode === "cache") return "Live 캐시 응답";
-  if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
-  if (mode === "sample") return "샘플 fallback";
+  if (mode === "live") return "최신 자료 응답";
+  if (mode === "live_update") return "최신 결과 반영";
+  if (mode === "live_update_pending") return "최신 결과 확인 중";
+  if (mode === "live_update_timeout") return "확인 시간 초과";
+  if (mode === "live_update_empty") return "새 결과 없음";
+  if (mode === "live_top_up") return "최신 자료 보강";
+  if (mode === "cache") return "저장 자료 응답";
+  if (mode === "indexed") return degraded ? "준비 자료 응답" : "준비 자료 응답";
+  if (mode === "sample") return "준비 자료 응답";
   if (mode === "clarification") return "추가 확인 필요";
   if (mode === "unsupported") return "지원 범위 밖";
-  return degraded ? "Fallback 응답" : "정상 응답";
+  return degraded ? "확인 자료 응답" : "정상 응답";
 }
 
 function modeTone(mode, degraded) {
   if (mode === "clarification") return "warn";
   if (mode === "unsupported") return "warn";
   if (mode === "sample" || degraded) return "warn";
-  if (mode === "cache" || mode === "live" || mode === "live_top_up" || mode === "indexed") return "ok";
+  if (mode === "cache" || mode === "live" || mode === "live_update" || mode === "live_update_pending" || mode === "live_top_up" || mode === "indexed") return "ok";
   return "";
 }
 
 function modeDescription(mode) {
-  if (mode === "live") return "지역이 확정되어 TourAPI 후보와 접근성 상세를 live로 조회했습니다.";
-  if (mode === "live_top_up") return "저장된 후보에 live TourAPI 조회 후보를 보강했습니다.";
-  if (mode === "cache") return "이전에 live 조회해 저장한 Markdown 캐시에서 같은 지역 관광 카드를 찾았습니다.";
-  if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
-  if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
+  if (mode === "live") return "지역이 확정되어 최신 자료에서 접근성 정보를 확인했습니다.";
+  if (mode === "live_update") return "늦게 도착한 최신 추천 결과를 사용자가 승인해 반영했습니다.";
+  if (mode === "live_update_pending") return "최신 추천 결과를 아직 확인 중입니다.";
+  if (mode === "live_update_timeout") return "최신 추천 결과 확인 시간이 초과되어 먼저 안내한 결과를 유지했습니다.";
+  if (mode === "live_update_empty") return "반영할 새 추천 결과가 없습니다.";
+  if (mode === "live_top_up") return "저장된 후보에 최신 확인 결과를 보강했습니다.";
+  if (mode === "cache") return "이전에 확인해 둔 같은 지역 관광 카드를 찾았습니다.";
+  if (mode === "indexed") return "준비된 관광지 자료에서 조건에 맞는 카드를 찾았습니다.";
+  if (mode === "sample") return "준비된 관광지 자료를 사용했습니다.";
   if (mode === "clarification") return "추천 전에 지역 또는 접근성 기준 확인이 필요합니다.";
   if (mode === "unsupported") return "현재 MVP 범위를 벗어난 질문이라 관광지 카드를 만들지 않았습니다.";
   return "응답 생성 경로를 확인하지 못했습니다.";

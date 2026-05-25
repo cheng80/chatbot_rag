@@ -62,6 +62,9 @@ class Settings(BaseSettings):
         alias="TOUR_API_USAGE_LOG_PATH",
     )
     tourism_live_lookup_enabled: bool = Field(default=True, alias="TOURISM_LIVE_LOOKUP_ENABLED")
+    tourism_lookup_strategy: str = Field(default="cache_first", alias="TOURISM_LOOKUP_STRATEGY")
+    tourism_live_first_wait_seconds: float = Field(default=5.0, alias="TOURISM_LIVE_FIRST_WAIT_SECONDS")
+    tourism_live_background_timeout_seconds: float = Field(default=15.0, alias="TOURISM_LIVE_BACKGROUND_TIMEOUT_SECONDS")
     tourism_live_rows: int = Field(default=10, alias="TOURISM_LIVE_ROWS")
     tourism_live_max_detail_calls: int = Field(default=10, alias="TOURISM_LIVE_MAX_DETAIL_CALLS")
     tourism_live_cache_path: Path = Field(

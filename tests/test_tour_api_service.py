@@ -1,3 +1,6 @@
+import json
+import sqlite3
+
 from app.core.config import Settings
 from app.services.tour_api_service import TourAPIError, TourAPIService
 
@@ -17,6 +20,7 @@ def test_tour_api_records_daily_endpoint_usage_before_request(monkeypatch, tmp_p
     settings = Settings(
         tour_api_service_key="test",
         tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_path=tmp_path / "cache.sqlite3",
     )
     service = TourAPIService(settings)
 
@@ -40,6 +44,7 @@ def test_tour_api_stops_when_daily_endpoint_limit_is_exhausted(monkeypatch, tmp_
         tour_api_service_key="test",
         tour_api_daily_endpoint_limit=1,
         tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_enabled=False,
     )
     service = TourAPIService(settings)
     called = {"count": 0}
@@ -266,3 +271,132 @@ def test_wellness_area_based_list_uses_ldong_codes(monkeypatch):
     assert captured["params"]["lDongSignguCd"] == "135"
     assert captured["params"]["contentTypeId"] == "39"
     assert captured["base_url"] == "https://example.com/wellness"
+
+
+def test_tour_api_response_cache_hit_skips_network_and_usage(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="secret-a",
+        tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_path=tmp_path / "cache.sqlite3",
+    )
+    service = TourAPIService(settings)
+    called = {"count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "response": {
+                    "header": {"resultCode": "0000"},
+                    "body": {"items": {"item": [{"contentid": "1", "title": "첫 호출"}]}},
+                }
+            }
+
+    def fake_get(*args, **kwargs):
+        called["count"] += 1
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", fake_get)
+
+    assert service.area_based_list("1") == [{"contentid": "1", "title": "첫 호출"}]
+    assert service.area_based_list("1") == [{"contentid": "1", "title": "첫 호출"}]
+    assert called["count"] == 1
+
+    usage_payload = json.loads((tmp_path / "usage.json").read_text(encoding="utf-8"))
+    assert usage_payload["dates"][service.usage_tracker.today()]["endpoints"]["areaBasedList2"] == 1
+
+
+def test_tour_api_response_cache_does_not_store_service_key(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="secret-service-key",
+        tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_path=tmp_path / "cache.sqlite3",
+    )
+    service = TourAPIService(settings)
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": {"header": {"resultCode": "0000"}, "body": {"items": ""}}}
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    service.area_based_list("1")
+
+    with sqlite3.connect(tmp_path / "cache.sqlite3") as conn:
+        params_json = conn.execute("SELECT params_json FROM tour_api_response_cache").fetchone()[0]
+    assert "serviceKey" not in params_json
+    assert "secret-service-key" not in params_json
+
+
+def test_tour_api_response_cache_expired_entry_calls_network_again(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="test",
+        tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_path=tmp_path / "cache.sqlite3",
+    )
+    service = TourAPIService(settings)
+    called = {"count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            called["count"] += 1
+            return {
+                "response": {
+                    "header": {"resultCode": "0000"},
+                    "body": {"items": {"item": {"contentid": str(called["count"])}}},
+                }
+            }
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    assert service.area_based_list("1") == [{"contentid": "1"}]
+    with sqlite3.connect(tmp_path / "cache.sqlite3") as conn:
+        conn.execute("UPDATE tour_api_response_cache SET expires_at = '2000-01-01T00:00:00+00:00'")
+
+    assert service.area_based_list("1") == [{"contentid": "2"}]
+    assert called["count"] == 2
+
+
+def test_tour_api_response_cache_replays_cached_error(monkeypatch, tmp_path):
+    settings = Settings(
+        tour_api_service_key="test",
+        tour_api_usage_log_path=tmp_path / "usage.json",
+        tour_api_response_cache_path=tmp_path / "cache.sqlite3",
+    )
+    service = TourAPIService(settings)
+    called = {"count": 0}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            called["count"] += 1
+            return {"response": {"header": {"resultCode": "10", "resultMsg": "INVALID_REQUEST_PARAMETER_ERROR(listYN)"}}}
+
+    monkeypatch.setattr("app.services.tour_api_service.requests.get", lambda *args, **kwargs: FakeResponse())
+
+    for _ in range(2):
+        try:
+            service.area_based_list("1")
+        except TourAPIError as exc:
+            assert "listYN" in str(exc)
+        else:
+            raise AssertionError("TourAPIError was not raised")
+    assert called["count"] == 1

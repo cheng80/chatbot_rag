@@ -2,7 +2,7 @@
 
 한국관광공사 OpenAPI와 로컬 RAG 검색 자료를 함께 사용해, 무장애·가족 친화 관광지를 상담하듯 추천하는 로컬 실행형 챗봇 프로젝트입니다.
 
-현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다.
+현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다. 웹 확인 UI는 이 repo에 있고, Flutter 전환 앱은 별도 repo `../chatbot_rag_app`와 GitHub `cheng80/chatbot_rag_app`에서 관리합니다.
 
 일반 관광 추천도 기반 데이터상 가능하지만, 현재 검증 범위는 **무장애·가족 친화 조건을 중심으로 한 근거 있는 관광 추천**에 둡니다.
 
@@ -64,6 +64,13 @@ ChromaDB/RAG로 미리 수집한 관광 자료 검색
 ```
 
 검색 후보 단계는 AutoRAG 오프라인 비교 결과를 참고해 운영 로직은 그대로 두고 후보 검색 폭만 조정합니다. 현재 비교에서는 Ollama `bge-m3` 기반 vector-only `top_k=40`이 BM25와 BM25+Vector RRF보다 안정적이었습니다.
+
+2026-05-26 기준 자동 회귀 결과:
+
+- TOP_K=40 challenge 30건: 실패 0
+- TOP_K=40 residual hard chat 80건: 실패 0
+- noisy realistic 200건: unsupported 답변 문구 수정 후 실패 28
+- 남은 noisy 실패는 주로 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 카드/근거 부족이다. 코드가 근거를 만들어내는 방식으로 해결하지 않는다.
 
 ## 2. 폴더 구조
 
@@ -181,6 +188,8 @@ RAW_DATA_PATH=./data/raw
 TOP_K=40
 TOUR_API_SERVICE_KEY=
 TOUR_API_ACCESSIBLE_SERVICE_KEY=
+TOUR_API_RESPONSE_CACHE_ENABLED=true
+TOUR_API_RESPONSE_CACHE_PATH=./data/generated/tour_api/live_response_cache.sqlite3
 TOURISM_LIVE_LOOKUP_ENABLED=true
 TOURISM_LIVE_CACHE_PATH=./data/generated/tour_api/live_markdown
 TOURISM_SAMPLE_PATH=./data/raw/tourism_accessible
@@ -313,6 +322,14 @@ curl -X POST http://localhost:8000/chat \
 | POST | `/documents/reindex` | `data/raw/` 문서 재색인 |
 | GET | `/documents/stats` | 검색 DB 상태 |
 
+Flutter 앱은 같은 FastAPI 서버를 사용한다. 앱 repo에서 실행할 때는 백엔드 서버를 먼저 보이는 터미널에서 띄운 뒤 아래처럼 API 주소를 주입한다.
+
+```bash
+cd ../chatbot_rag_app
+flutter test
+flutter run --dart-define=API_BASE=http://127.0.0.1:8000
+```
+
 ## 10. 관광 시제품 데이터와 정책
 
 현재 예비 관광 자료는 모든 광역권에 대해 지역별 약 20장 수준으로 확보했습니다. 전체 관광지를 모두 저장한 데이터베이스가 아니라, 공공데이터 조회 장애나 호출량 제한 상황에서도 기본 응답이 무너지지 않도록 하는 최소 안전망입니다.
@@ -340,7 +357,7 @@ curl -X POST http://localhost:8000/chat \
 - 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
 - `/tourism/chat` 응답은 `data/generated/tour_api/query_card_events.jsonl`에 이벤트로 남긴다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다.
 - 원문 질문까지 저장해야 할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`를 켠다.
-- 개발과 확인 단계의 기본 모드는 캐시/RAG를 먼저 쓰고 부족할 때만 TourAPI를 실시간 조회하는 방식이다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 폴백 자료만으로 운영한다.
+- 개발과 확인 단계의 기본 모드는 캐시/RAG를 먼저 쓰고 부족할 때만 TourAPI를 실시간 조회하는 방식이다. `TourAPIService`는 원본 TourAPI 응답을 `data/generated/tour_api/live_response_cache.sqlite3`에 저장해 서버 재시작 뒤 같은 지역/상세 조회를 재사용한다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 폴백 자료만으로 운영한다.
 - 장기 권장 구조는 캐시/RAG 우선, 주기적 갱신, 부족 지역 실시간 조회의 조합이다. 데이터 최신성은 시제품 이후 갱신 절차로 보완한다.
 - 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
 - `근처`, `주변`, `가까운`, `인근`은 상위 광역 확장 신호로 쓰지 않고, 요청 시군구 후보를 먼저 반환한다.

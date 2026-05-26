@@ -28,7 +28,7 @@
 - 임베딩 모델: `bge-m3`
 - Vector DB: ChromaDB
 - API: FastAPI
-- 클라이언트 후보: 웹 확인 UI 우선, Flutter는 후순위
+- 클라이언트: 웹 확인 UI와 별도 Flutter 앱 repo를 병행 관리한다. Flutter 전환본은 `../chatbot_rag_app`에 있고 GitHub 원격은 `cheng80/chatbot_rag_app`이다.
 - 평가셋: `data/eval/tourism_20_questions.jsonl`은 `/tourism/chat` 20문항 품질 평가 원본이다.
 - 노트북: `notebooks/tourism_event_log_analysis.ipynb`는 `/tourism/chat` 이벤트 로그 분석용, `model_comparison_template.ipynb`는 20문항 eval/model comparison 보조용
 - 모델 벤치마크: `scripts/benchmark_tourism_reasoning_models.py`는 후보 카드 재랭킹과 Ollama native thinking 여부를 비교한다.
@@ -74,10 +74,10 @@ git status --short
 - `scripts/build_autorag_tourism_dataset.py`로 `data/raw/tourism_accessible/*.md`와 로컬 live markdown cache를 `corpus.parquet`, eval 질문 일부를 `qa.parquet`로 변환한다. 산출물은 `data/processed/autorag_tourism/` 아래에 만들며 git ignore 대상이다.
 - 1차 QA 80건, corpus 904건 기준 retrieval-only validate/evaluate에서 `VectorDB + bge-m3 + top_k=40`이 `retrieval_recall=0.9250`, `retrieval_ndcg=0.441883`, `retrieval_mrr=0.436346`으로 BM25와 BM25+Vector RRF보다 높았다. 이후 raw 904건 + live markdown 96건, QA 683건 기준 semantic vector-only top-k 재산출에서도 `top_k=40`이 best였다. 재산출 결과는 `data/processed/autorag_tourism_full_20260525/semantic_topk_trials/0/retrieve_node_line/semantic_retrieval/summary.csv`에 있다. BM25/RRF는 운영에 이식하지 않았다.
 - 운영 반영은 기존 vector-only 구조를 유지하고 후보 검색 기본 `TOP_K`를 40으로 넓히는 방식이다. 사용자에게 기본으로 보여주는 추천 카드 수는 여전히 최대 5장이고, `더 보기`/지역확장/unsupported 정책은 그대로 유지한다.
-- 다음 작업은 TOP_K=40 적용 후 hard/noisy chat eval 회귀 확인이다. 특히 카드 품질 저하, 지역 외 후보 누수, unsupported 요청 카드 반환, 조건 근거 과잉/누락을 본다.
+- TOP_K=40 적용 후 challenge 30건과 residual hard chat 80건은 자동 채점 실패 0건이다. noisy realistic 200건은 unsupported copy 수정 전 42 실패였고, 서비스 범위 답변 문구 수정 후 28 실패로 줄었다. 남은 실패는 주로 카드 수/필수 근거 부족이며 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 데이터 문제로 분류한다.
 
 ```bash
-TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl --output data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl --output data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40_service_scope_copy_fix.jsonl
 TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_residual_hard_chat_20260518.jsonl --output data/generated/tour_api/eval_runs/residual_hard_chat_topk40.jsonl
 TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_challenge_questions.jsonl --output data/generated/tour_api/eval_runs/tourism_challenge_questions_topk40.jsonl
 ```
@@ -167,7 +167,7 @@ UI 작업 완료 판정 전에는 Browser use와 Computer use를 모두 사용�
 - Playwright 결과 요약은 `docs/project/tourism_ui_midcheck_20260517.md`에 기록했다. 원본 JSON/스크린샷은 `data/generated/tour_api/ui_qa/` 아래에 있다. 개발 모드 18/20, 릴리즈 모드 20/20, 전체 38/40 통과. lookup mode는 cache 22, live_top_up 4, sample 5, indexed 7, clarification 1, unknown 1이며 live_top_up 관측으로 fallback-only가 아님을 확인했다.
 - 실패 2건: `수어 안내나 자막 안내 있는 곳으로 다시 찾아줘`가 `unknown` 0장으로 끝났고, `오늘 환율 알려줘`가 unsupported가 아니라 관광 카드로 응답했다.
 - UI는 `session_id`를 보내도록 수정했다. 브라우저 안에서 이어지는 `더 보기`, `그중`, `말고`, 지역 변경 질문이 같은 세션 맥락을 쓸 수 있다. `비우기`를 누르면 새 세션으로 초기화한다.
-- 이후 실패 2건은 코드 보강했다. `수어 안내나 자막 안내 있는 곳으로 다시 찾아줘`는 지역 없는 `다시 찾아줘` 후속 조건에서 이전 조건을 누적하지 않고, 카드가 없으면 지역/조건 확장 후속 제안을 반환한다. `오늘 환율 알려줘`는 `unsupported`로 처리한다. 부정 표현인 `응급실은 말고 관광지만 계속`은 기존 관광 맥락을 유지한다. `.venv/bin/python -m pytest -q`는 275 passed였다. 실제 개발/릴리즈 각 20회 브라우저 재QA는 아직 남아 있다.
+- 이후 실패 2건은 코드 보강했다. `수어 안내나 자막 안내 있는 곳으로 다시 찾아줘`는 지역 없는 `다시 찾아줘` 후속 조건에서 이전 조건을 누적하지 않고, 카드가 없으면 지역/조건 확장 후속 제안을 반환한다. `오늘 환율 알려줘`는 `unsupported`로 처리한다. 부정 표현인 `응급실은 말고 관광지만 계속`은 기존 관광 맥락을 유지한다. 이후 개발 모드 20회, 릴리즈 모드 20회 재QA에서 전체 40/40 통과했다.
 - 외부 Terminal.app의 보이는 `uvicorn` 서버로 실제 FastAPI를 띄운 뒤 Playwright Chromium 재QA를 완료했다. 개발 모드 20/20, 릴리즈 모드 20/20, 전체 40/40 통과다. 결과는 `data/generated/tour_api/ui_qa/regression_20260517_fixed/tourism_ui_regression_20260517_fixed.json`와 `.md`에 있다. 대표 스크린샷은 같은 폴더의 `debug_initial.png`, `debug_final.png`, `release_initial.png`, `release_final.png`, `mobile_cards_viewport.png`다. 이전 `live_visual_20260517` 모바일 full-page 캡처는 타이밍상 카드가 희미하게 보여 검증용으로 쓰지 않고, `live_visual_20260517_fixed` 또는 `regression_20260517_fixed`의 viewport 캡처를 사용한다.
 
 문맥 해석 classifier를 변경했다면 다음 순서로 별도 평가를 갱신한다.
@@ -187,7 +187,7 @@ PyTorch/Transformers 파일럿은 기본 의존성과 분리된 `requirements-ml
 ML/DL 실험은 `docs/tourism/ml_evaluation_governance.md`를 먼저 적용한다. validation 1.0000, focused holdout 1.0000, 단일 accuracy 상승은 채택 근거가 아니다. `.venv/bin/python scripts/audit_tourism_ml_experiment.py --transformer-metrics data/generated/tour_api/context_transformer_independent_validation/metrics.json --context-baseline-metrics data/generated/tour_api/context_classifier_eval_independent_test_latest.json`로 overfit/underfit/leakage/hard holdout gap/latency를 감사한다. 현재 판정은 `do_not_adopt_runtime`이다.
 Codex/LLM으로 hard-style 학습셋을 만들 때는 `docs/tourism/context_llm_dataset_generation.md`를 따른다. 프롬프트 생성은 `.venv/bin/python scripts/build_tourism_context_llm_generation_prompt.py --target-rows 300 --batch-id 001`, LLM 출력 검수는 `.venv/bin/python scripts/validate_tourism_context_llm_dataset.py --input ...`, 병합은 `.venv/bin/python scripts/prepare_tourism_context_finetune_data.py --extra-train-input ...` 순서다.
 핵심어/동의어/오타 후보는 `scripts/build_tourism_keyword_variant_generation_prompt.py`, `scripts/generate_tourism_keyword_variant_seed.py`, `scripts/validate_tourism_keyword_variant_dataset.py`, `scripts/build_tourism_keyword_promotion_candidates.py`로 관리한다. 리포트만 만들고 끝내지 말고, `parser_missing_conditions`와 `parser_extra_conditions`를 나눠 원인을 고친 뒤 다시 검증한다. 단독 `리프트`, 넓은 `편한 곳`류 paraphrase, 미지원 예약/차량 의미와 충돌하는 표현은 바로 런타임 사전에 넣지 않는다. 접근성 설비 맥락이 붙은 리프트 표현은 예외적으로 조건 후보로 다룬다.
-SuperGemma4 문맥 보조는 `.venv/bin/python scripts/eval_supergemma_context_labels.py`로 재평가한다. 2026-05-17 이전 1,320건 holdout의 전체 오답 221건 실험에서는 exact가 0.8326에서 0.8879로 올랐지만 micro-F1이 0.9179에서 0.9105로 내려가 기본 런타임 보조 판단자로 채택하지 않았다. QA/재라벨링 보조로만 둔다. 4,800건 holdout 기준 selective 재평가는 아직 하지 않았다.
+SuperGemma4 문맥 보조는 `.venv/bin/python scripts/eval_supergemma_context_labels.py`로 재평가한다. 2026-05-17 이전 1,320건 holdout의 전체 오답 221건 실험에서는 exact가 0.8326에서 0.8879로 올랐지만 micro-F1이 0.9179에서 0.9105로 내려가 기본 런타임 보조 판단자로 채택하지 않았다. 2026-05-26 bounded selective 재평가도 4,800 rows 중 hybrid mismatch 105건, 선택 50건 기준 full exact 0.9781 -> 0.9792로 소폭 상승했지만 selected exact 0.1000, latency mean 2867.9ms/p95 3861.8ms라 런타임 보조가 아니라 QA/재라벨링 보조로 유지한다.
 
 5. Ollama 모델 준비 확인
 
@@ -277,7 +277,7 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 - `/tourism/chat`은 지역이 확정되면 이전 live 조회 Markdown 캐시를 먼저 확인한다. live 캐시에 없으면 Chroma 색인과 로컬 Markdown fallback을 확인한다. 그래도 같은 지역 카드가 없고 API 키가 있으면 live TourAPI 후보 조회를 사용한다. 저장된 후보가 1-4장만 있을 때는 자동으로 live를 호출하지 않고 `최신 정보 더 찾기` 후속 버튼으로 명시 확인을 받는다. 같은 지역 반복 요청은 프로세스 메모리 캐시와 `data/generated/tour_api/live_markdown/` Markdown 캐시를 사용한다. `data/raw/tourism_accessible/`는 계획 수집한 fallback/색인 후보로 유지한다.
-- TourAPI 호출은 `TourAPIService`에서 엔드포인트별 일일 1,000건 한도를 확인한 뒤 기록한다. 사용량 로그 기본 경로는 `data/generated/tour_api/usage/daily_usage.json`이다. 로그 도입 전 당일 산출물을 반영해야 하면 `.venv/bin/python scripts/bootstrap_tour_api_usage.py`로 오늘 수정된 raw/live 산출물 기준 최소 사용량을 부트스트랩한다.
+- TourAPI 호출은 `TourAPIService`에서 엔드포인트별 일일 1,000건 한도를 확인한 뒤 기록한다. 사용량 로그 기본 경로는 `data/generated/tour_api/usage/daily_usage.json`이다. 원본 TourAPI 응답 캐시는 기본적으로 `data/generated/tour_api/live_response_cache.sqlite3`에 저장하며, 캐시 적중은 일일 사용량에 기록하지 않는다. 로그 도입 전 당일 산출물을 반영해야 하면 `.venv/bin/python scripts/bootstrap_tour_api_usage.py`로 오늘 수정된 raw/live 산출물 기준 최소 사용량을 부트스트랩한다.
 - 질문 조건 인식은 `휠체어/무장애/베리어프리`, `유모차/유아차/수유/기저귀/어린이`, `고령자`, `주차`, `화장실`, `접근로`, `대중교통`, `엘리베이터` 중심이다. 카드 랭킹은 조건별 raw 편의정보 키와 태그/본문 근거를 함께 점수화하고, 답변에는 카드별 핵심 편의정보 근거를 짧게 포함한다.
 - 챗봇 품질 회귀 테스트는 `tests/test_tourism_quality_regression.py`에 있다. 지역 해석 110개, 조건 인식 29개, 카드 랭킹/근거 문장 케이스를 포함한다.
 - `/tourism-ui/`는 정적 HTML/CSS/JS 기반 메신저형 시연 UI다. 디자인 기준은 `docs/design/tourism_chatbot_DESIGN.md`에 있다. 카드 위 긴 답변은 기본 접힘 처리하고, 카드에는 `상세 정보` 펼침과 장소명/주소 기반 `지도 검색`을 제공한다.

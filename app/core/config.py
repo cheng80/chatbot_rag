@@ -61,6 +61,11 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "usage" / "daily_usage.json",
         alias="TOUR_API_USAGE_LOG_PATH",
     )
+    tour_api_response_cache_enabled: bool = Field(default=True, alias="TOUR_API_RESPONSE_CACHE_ENABLED")
+    tour_api_response_cache_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "generated" / "tour_api" / "live_response_cache.sqlite3",
+        alias="TOUR_API_RESPONSE_CACHE_PATH",
+    )
     tourism_live_lookup_enabled: bool = Field(default=True, alias="TOURISM_LIVE_LOOKUP_ENABLED")
     tourism_lookup_strategy: str = Field(default="cache_first", alias="TOURISM_LOOKUP_STRATEGY")
     tourism_live_first_wait_seconds: float = Field(default=5.0, alias="TOURISM_LIVE_FIRST_WAIT_SECONDS")
@@ -141,6 +146,10 @@ class Settings(BaseSettings):
     @property
     def resolved_tour_api_usage_log_path(self) -> Path:
         return self._resolve_project_path(self.tour_api_usage_log_path)
+
+    @property
+    def resolved_tour_api_response_cache_path(self) -> Path:
+        return self._resolve_project_path(self.tour_api_response_cache_path)
 
     @staticmethod
     def _resolve_project_path(path: Path) -> Path:

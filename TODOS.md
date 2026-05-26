@@ -10,9 +10,29 @@ Pros: Reduces daily quota usage, improves repeated demo latency, and keeps live 
 
 Cons: Requires TTL/invalidation rules and care around stale accessibility details.
 
-Context: Start from `TourismChatService._live_cards_cache`, `TourAPIService`, and `data/generated/tour_api/`. Keep Chroma/Markdown fallback behavior intact.
+Status: Implemented in `TourAPIService` with `TourAPIResponseCache`.
 
-Depends on / blocked by: Deciding a TTL and whether the cache should live in SQLite, JSON files, or refreshed Markdown samples.
+Current behavior:
+
+- Store raw TourAPI responses in SQLite, not JSON files. Default path: `data/generated/tour_api/live_response_cache.sqlite3`.
+- Keep `data/generated/tour_api/live_markdown/` as the user-facing card cache. SQLite sits below it as the raw response cache for `TourAPIService`.
+- Table: `tour_api_response_cache(cache_key, operation, params_json, response_json, status_code, error_message, fetched_at, expires_at, source_version)`.
+- Cache key should include operation name, normalized params, base URL, response language/mobile app fields, and service type. Do not include the secret service key.
+- TTL policy: `areaCode2` 30 days, `areaBasedList2` 7 days, `searchKeyword2` 7 days, `detailCommon2` 30 days, `detailWithTour2` 30 days, error responses 1 day.
+- Invalidation: manual clear command first, then optional per-operation refresh. Changing parser/card schema should not delete raw cache; it should rebuild Markdown/card cache from raw responses when possible.
+- Safety: never use stale raw cache to invent accessibility details. If `detailWithTour2` is missing or expired, cards keep `확인 필요` or trigger explicit live refresh.
+
+Verification:
+
+- Cache hit skips network and daily usage recording.
+- Expired entries call the network again.
+- Cached TourAPI error responses are replayed until the 1-day error TTL expires.
+- Stored params exclude `serviceKey`.
+
+Remaining follow-up:
+
+- Scripted inspection/clear is available with `scripts/manage_tour_api_response_cache.py`.
+- Add per-operation refresh only if demos need forced freshness.
 
 ## Move tourism event logs to SQLite when needed
 

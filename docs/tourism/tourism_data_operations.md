@@ -1,6 +1,6 @@
 # 관광 데이터 운영 문서
 
-마지막 갱신: 2026-05-16
+마지막 갱신: 2026-05-26
 
 이 문서는 기존 데이터 수집 계획, 전국 시군구 fallback 규모 산정, 샘플 품질 QA 문서를 통합한 문서다. 관광 fallback 데이터 수집, TourAPI 호출량 관리, 전국 시군구 규모 산정, 샘플 품질 QA를 한 흐름에서 관리한다.
 
@@ -20,6 +20,22 @@
 | 공식 무장애 상세 3장 미만 지역 | 계룡시 1장 |
 
 위 5개는 실제 fallback 부족 지역으로 표시하지 않는다. TourAPI 지역 코드 캐시에 남아 있는 과거 지명 입력을 현재 행정구역 기준으로 안내하기 위한 예외 매핑이다. 사용자 화면에는 내부 코드나 정규화라는 표현을 노출하지 않고, “현재는 ○○ 기준으로 안내드릴게요” 정도로만 말한다.
+
+자동 예외 리포트는 아래 산출물로 갱신한다.
+
+```bash
+.venv/bin/python scripts/audit_tourism_samples.py
+```
+
+현재 로컬 산출물:
+
+```text
+data/generated/tour_api/tourism_sample_audit.md
+data/generated/tour_api/sigungu_fallback_exception_report.md
+data/generated/tour_api/sigungu_fallback_exception_report.json
+```
+
+2026-05-26 기준 예외 리포트 요약은 TourAPI 시군구 234개, 행안부 현행 매칭 228개, 과거 지명 예외 5개, 공식 무장애 상세 저커버리지 1개다.
 
 | 예전 입력 | 현재 안내/조회 기준 |
 |---|---|
@@ -93,6 +109,16 @@ ps -ef | rg 'fetch_accessible_tourism_samples|uvicorn|cloudflared' | rg -v rg
 ## 4. 호출량 기록
 
 TourAPIService는 엔드포인트별 일일 1,000건 한도를 확인한 뒤 호출을 기록한다. 사용량 로그 기본 경로는 `data/generated/tour_api/usage/daily_usage.json`이다.
+
+원본 TourAPI 응답은 기본적으로 `data/generated/tour_api/live_response_cache.sqlite3` SQLite 캐시에 저장한다. 캐시 대상은 `areaCode2`, `areaBasedList2`, `searchKeyword2`, `detailCommon2`, `detailWithTour2`이며, TTL은 지역 코드/상세 30일, 목록/검색 7일, 오류 1일이다. 캐시 적중은 실제 공공데이터 호출이 아니므로 일일 사용량에 기록하지 않는다. 저장 params와 cache key에는 `serviceKey`를 넣지 않는다.
+
+캐시 요약/정리는 아래 스크립트로 한다.
+
+```bash
+.venv/bin/python scripts/manage_tour_api_response_cache.py
+.venv/bin/python scripts/manage_tour_api_response_cache.py --clear --expired-only
+.venv/bin/python scripts/manage_tour_api_response_cache.py --clear --operation areaBasedList2
+```
 
 당일 산출물을 기준으로 최소 사용량을 부트스트랩해야 하면:
 
@@ -207,7 +233,15 @@ data/generated/tour_api/tourism_sample_audit.md
 - 출처 URL 확인 필요 0개
 - 중복 콘텐츠ID 0개
 
-2026-05-16 서귀포시 보강 후에는 Markdown 총량이 904개가 됐고, Chroma는 905개 문서/914개 청크로 재색인했다. 추가 감사는 다음 데이터 QA 작업에서 다시 수행한다.
+2026-05-16 서귀포시 보강 후에는 Markdown 총량이 904개가 됐고, Chroma는 905개 문서/914개 청크로 재색인했다.
+
+2026-05-26 감사 결과:
+
+- Markdown 파일 904개 중 904개 파싱 성공
+- 파싱 실패 0개
+- 중복 콘텐츠ID 0개
+- 필수 필드 누락 0개
+- 출처 URL 확인 필요 96개
 
 중복 재발 방지:
 

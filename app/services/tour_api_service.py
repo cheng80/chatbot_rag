@@ -5,6 +5,7 @@ from typing import Any
 import requests
 
 from app.core.config import Settings
+from app.services.tour_api_response_cache import TourAPIResponseCache
 from app.services.tour_api_usage import TourAPIQuotaExceeded, TourAPIUsageTracker
 
 
@@ -24,6 +25,7 @@ class TourAPIService:
             settings.resolved_tour_api_usage_log_path,
             daily_endpoint_limit=settings.tour_api_daily_endpoint_limit,
         )
+        self.response_cache = TourAPIResponseCache(settings.resolved_tour_api_response_cache_path)
 
     def area_based_list(
         self,
@@ -217,10 +219,6 @@ class TourAPIService:
         effective_service_key = service_key or self.settings.tour_api_service_key
         if not effective_service_key:
             raise TourAPIError("TOUR_API_SERVICE_KEY가 설정되어 있지 않습니다.")
-        try:
-            self.usage_tracker.record(operation)
-        except TourAPIQuotaExceeded as exc:
-            raise TourAPIError(str(exc)) from exc
 
         request_params = {
             "serviceKey": effective_service_key,
@@ -229,20 +227,53 @@ class TourAPIService:
             "_type": "json",
             **params,
         }
+        effective_base_url = base_url or self.base_url
+        if self._should_use_response_cache(operation):
+            cached = self.response_cache.get(operation, effective_base_url, request_params)
+            if cached is not None:
+                if cached.error_message:
+                    raise TourAPIError(cached.error_message)
+                if cached.response_json is not None:
+                    return self._extract_items(cached.response_json)
+
+        try:
+            self.usage_tracker.record(operation)
+        except TourAPIQuotaExceeded as exc:
+            raise TourAPIError(str(exc)) from exc
+
         try:
             response = requests.get(
-                f"{base_url or self.base_url}/{operation}",
+                f"{effective_base_url}/{operation}",
                 params=request_params,
                 timeout=self.settings.tour_api_timeout,
             )
             response.raise_for_status()
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else "unknown"
-            raise TourAPIError(f"TourAPI HTTP 오류: {status_code}") from exc
+            message = f"TourAPI HTTP 오류: {status_code}"
+            if self._should_use_response_cache(operation):
+                self.response_cache.put(operation, effective_base_url, request_params, None, None, message)
+            raise TourAPIError(message) from exc
         except requests.RequestException as exc:
-            raise TourAPIError(f"TourAPI 요청 실패: {exc.__class__.__name__}") from exc
+            message = f"TourAPI 요청 실패: {exc.__class__.__name__}"
+            if self._should_use_response_cache(operation):
+                self.response_cache.put(operation, effective_base_url, request_params, None, None, message)
+            raise TourAPIError(message) from exc
         payload = response.json()
+        status_code = getattr(response, "status_code", None)
+        items: list[dict[str, Any]]
+        if self._should_use_response_cache(operation):
+            try:
+                items = self._extract_items(payload)
+            except TourAPIError as exc:
+                self.response_cache.put(operation, effective_base_url, request_params, payload, status_code, str(exc))
+                raise
+            self.response_cache.put(operation, effective_base_url, request_params, payload, status_code)
+            return items
         return self._extract_items(payload)
+
+    def _should_use_response_cache(self, operation: str) -> bool:
+        return self.settings.tour_api_response_cache_enabled and TourAPIResponseCache.is_cacheable(operation)
 
     def _extract_items(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         if "resultCode" in payload and str(payload.get("resultCode")) not in {"0000", "0"}:

@@ -1,8 +1,8 @@
 # 발표용 캡처와 시연 시나리오
 
-마지막 갱신: 2026-05-16
+마지막 갱신: 2026-05-26
 
-이 문서는 `/tourism-ui/`에서 발표용 화면을 캡처할 때 사용할 대표 질문과 기대 관찰 포인트를 정리한다. 실제 응답 검증은 2026-05-16 이후 새 TourAPI quota window에서 진행한다.
+이 문서는 `/tourism-ui/`와 Flutter 앱에서 발표용 화면을 캡처할 때 사용할 대표 질문과 기대 관찰 포인트를 정리한다. 웹 UI는 2026-05-17 live 사용 가능 모드에서 개발 20회, 릴리즈 20회 재QA를 완료했고 전체 40/40 통과했다. Flutter 앱은 별도 repo `../chatbot_rag_app`에서 최신 백엔드 계약에 맞춰 QA한다.
 
 ## 원칙
 
@@ -14,6 +14,7 @@
 - 한국관광공사 열린관광 상세 URL은 콘텐츠 ID만으로 안정적인 공개 링크를 만들 수 없으므로, 캡처에서는 깨진 `원문 보기` 대신 출처명과 `지도 검색`을 보여준다.
 - live API 호출량이 부담될 때는 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 fallback-only 시연을 먼저 확인한다.
 - 발표용 최종 캡처 전에는 `data/generated/tour_api/query_card_events.jsonl`에서 `lookup_mode`, `card_count`, `clarification_required`를 확인한다.
+- Flutter 캡처는 웹 화면 복제가 아니라 iPhone/Android phone/iPad 레이아웃 기준으로 본다. 입력창, 카드 리스트, 상세 정보, 지도 검색, 지역 선택 질문이 서로 가리지 않아야 한다.
 
 ## 캡처 후보
 
@@ -34,6 +35,8 @@
 | 13 | 현재 행정구역 기준 안내 | `충청북도 청원군에서 휠체어 관광지 추천해줘` | 현재는 청주시 기준으로 안내하고 청주시 기준 추천 |
 | 14 | 카드 상세 펼침 | 카드의 `상세 정보` 클릭 | 원 편의정보가 카드 내부에 펼쳐지고 외부 원문 링크 없이도 세부 확인 가능 |
 | 15 | 명시적 추가 확인 | 5장 미만 응답 후 `최신 정보 더 찾기` 클릭 | 사용자가 요청한 뒤에만 최신 후보를 보강하고 상태가 `최신 정보 보강`으로 표시 |
+| 16 | Flutter 앱 API 연결 | Flutter 앱에서 `서울 강남구에서 휠체어 관광지 추천해줘` 입력 | 같은 `/tourism/chat` 계약으로 카드와 출처를 렌더링 |
+| 17 | Flutter 앱 지역 선택 | Flutter 앱에서 `중구에서 휠체어 관광지 추천해줘` 입력 | 지역 선택 후보가 모바일 화면에서 누락 없이 보임 |
 
 ## 최종 발표용 구성
 
@@ -65,4 +68,12 @@ TourAPI 호출을 쓰지 않는 안정성 시연은 서버를 아래처럼 실�
 
 ```bash
 TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Flutter 앱 확인은 별도 repo에서 실행한다.
+
+```bash
+cd ../chatbot_rag_app
+flutter test
+flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 ```

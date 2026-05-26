@@ -746,6 +746,87 @@ def test_tourism_query_maps_general_gu_to_parent_tourapi_sigungu(tmp_path: Path)
     assert "휠체어" in query["conditions"]
 
 
+def test_tourism_query_maps_city_general_gu_to_parent_sigungu(tmp_path: Path):
+    area_cache_path = tmp_path / "tour_area_codes.json"
+    admin_alias_path = tmp_path / "admin_region_aliases.json"
+    area_cache_path.write_text(json.dumps({"region_index": {}, "ambiguous_region_aliases": {}}, ensure_ascii=False))
+    admin_alias_path.write_text(
+        json.dumps(
+            {
+                "aliases": {
+                    "성남 분당구": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "성남시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "12",
+                        }
+                    ],
+                    "분당구": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "성남시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "12",
+                        }
+                    ],
+                },
+                "dong_aliases": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=area_cache_path, admin_region_alias_path=admin_alias_path)
+
+    query = service.extract("성남 분당구에서 무장애 관광지 추천")
+
+    assert query["region"] == "성남 분당구"
+    assert query["area_code"] == "31"
+    assert query["sigungu_code"] == "12"
+    assert query["area_name"] == "경기"
+    assert query["sigungu_name"] == "성남시"
+    assert "휠체어" in query["conditions"]
+
+
+def test_tourism_query_keeps_bare_general_gu_ambiguous_when_multiple_parents(tmp_path: Path):
+    area_cache_path = tmp_path / "tour_area_codes.json"
+    admin_alias_path = tmp_path / "admin_region_aliases.json"
+    area_cache_path.write_text(json.dumps({"region_index": {}, "ambiguous_region_aliases": {}}, ensure_ascii=False))
+    admin_alias_path.write_text(
+        json.dumps(
+            {
+                "aliases": {
+                    "분당구": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "성남시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "12",
+                        },
+                        {
+                            "area_name": "강원",
+                            "sigungu_name": "원주시",
+                            "tour_area_code": "32",
+                            "tour_sigungu_code": "9",
+                        },
+                    ]
+                },
+                "dong_aliases": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=area_cache_path, admin_region_alias_path=admin_alias_path)
+
+    query = service.extract("분당구에서 무장애 관광지 추천")
+
+    assert query["region"] is None
+    assert query["ambiguous_region"] == "분당구"
+    assert len(query["ambiguous_region_candidates"]) == 2
+
+
 def test_tourism_query_uses_region_after_replacement_marker(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(

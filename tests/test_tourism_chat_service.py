@@ -395,7 +395,7 @@ def test_tourism_chat_live_update_fallback_then_pending_update(tmp_path):
 
     assert first.lookup_mode == "indexed"
     assert first.live_update_pending is True
-    assert "최신 결과 업데이트 보기" in first.suggested_messages
+    assert "최신 결과 업데이트 보기" not in first.suggested_messages
 
     update = service.answer("최신 결과 업데이트 보기", session_id="s-slow")
     for _ in range(50):
@@ -408,6 +408,50 @@ def test_tourism_chat_live_update_fallback_then_pending_update(tmp_path):
     assert update.live_update_pending is False
     assert update.cards[0].title == "늦게 온 최신 관광지"
     assert "새로운 최신 추천 결과" in update.answer
+
+
+def test_tourism_chat_live_update_does_not_start_second_sync_live_call_after_grace(tmp_path):
+    calls = 0
+    lock = threading.Lock()
+
+    class SlowTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.2)
+            return [{"contentid": "live-slow-no-sync"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "동기 재호출 방지 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.02,
+            tourism_live_background_timeout_seconds=1.0,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=SlowTourAPI(),
+    )
+
+    started_at = time.perf_counter()
+    first = service.answer("서울에서 휠체어 관광지 추천", session_id="s-no-sync")
+    elapsed = time.perf_counter() - started_at
+
+    assert first.lookup_mode == "unknown"
+    assert first.live_update_pending is True
+    assert elapsed < 0.3
+    with lock:
+        assert calls == 1
 
 
 def test_tourism_chat_live_update_times_out_after_background_limit(tmp_path):

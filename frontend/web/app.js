@@ -29,7 +29,6 @@ const photoModalAddress = document.querySelector("#photoModalAddress");
 const photoModalMap = document.querySelector("#photoModalMap");
 const photoModalSource = document.querySelector("#photoModalSource");
 const closePhotoButton = document.querySelector("#closePhotoButton");
-const modeBadge = document.querySelector("#modeBadge");
 const debugToggleButton = document.querySelector("#debugToggleButton");
 const debugPanel = document.querySelector("#debugPanel");
 const chatScroll = document.querySelector("#chatScroll");
@@ -313,8 +312,6 @@ function isLocalDebugMode() {
 function syncDebugVisibility() {
   document.body.classList.toggle("debug-mode", debugMode);
   document.body.classList.toggle("release-mode", !debugMode);
-  modeBadge.textContent = debugMode ? "진단" : "사용자";
-  modeBadge.title = debugMode ? "개발 진단 모드" : "사용자 화면";
   debugPanel.hidden = !debugMode;
   debugToggleButton.setAttribute("aria-expanded", String(debugMode));
 }
@@ -531,7 +528,7 @@ function renderResponse(payload, options = {}) {
 
   const notes = [modeDescription(mode)];
   if (payload.degraded) notes.push("일부 자료 확인이 원활하지 않아 준비된 자료로 먼저 안내했습니다.");
-  if (payload.live_update_pending) notes.push("최신 추천 결과를 확인 중이며, 준비되면 업데이트 보기로 반영할 수 있습니다.");
+  if (payload.live_update_pending) notes.push("최신 추천 결과를 확인 중이며, 준비되면 상단 알림으로 반영할 수 있습니다.");
   if (payload.reasoning_assist_used) notes.push("복합 조건을 반영해 후보 순서를 조정했습니다.");
   if (Array.isArray(payload.reasoning_assist_notes)) {
     payload.reasoning_assist_notes.forEach((note) => notes.push(`확인 메모: ${note}`));
@@ -670,7 +667,7 @@ function renderClarificationBanner(type) {
     },
     "live-update": {
       title: "새 추천 결과를 확인하고 있어요",
-      description: "먼저 볼 수 있는 결과를 보여드렸습니다. 새 결과가 준비되면 아래 버튼으로 바로 바꿔 볼 수 있습니다.",
+      description: "먼저 볼 수 있는 결과를 보여드렸습니다. 새 결과가 준비되면 상단 알림으로 바로 바꿔 볼 수 있습니다.",
     },
   }[type] || {
     title: "추가 질문 필요",
@@ -751,7 +748,7 @@ function renderSuggestions(messages, suggestionType = null) {
         suggestionType === "condition"
           ? "선택한 조건으로 다시 조회합니다."
           : suggestionType === "live-update"
-            ? "새 추천 결과를 불러옵니다."
+            ? "준비된 새 추천 결과를 반영합니다."
             : "후속 질문을 보냅니다.",
         "ok",
       );

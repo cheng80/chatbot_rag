@@ -1,6 +1,6 @@
 # 무장애 관광 챗봇 진행도
 
-마지막 갱신: 2026-05-17
+마지막 갱신: 2026-05-26
 
 이 문서는 `docs/project/GOAL.md`, `docs/tourism/accessible_tourism_mvp_plan.md`, `README.md`, `TODOS.md` 기준으로 현재 MVP 진행 상태를 빠르게 보기 위한 요약이다.
 응답 전략 변경 이력은 `docs/tourism/tourism_response_strategy_decision.md`에 별도로 기록한다.
@@ -21,7 +21,7 @@ Production readiness [██░░░░░░░░] 20%
 ```
 
 현재 상태는 **live 캐시/색인/fallback 우선 + live TourAPI on miss + 웹 확인 UI** 단계다.
-공개 데모 품질로 올리려면 남은 시군구 보강, live 조회 표본 QA, UI QA가 남아 있다.
+웹 UI 재QA는 40/40 통과했으므로, 공개 데모 품질로 올리기 전 남은 작업은 수동 표본 검토보다 자동 회귀 평가, live update 안정화, TOP_K=40 검증, 캐시/지역 예외 정리, 문서 고정에 집중한다.
 
 ## 영역별 상태
 
@@ -130,58 +130,126 @@ Production readiness [██░░░░░░░░] 20%
 - Swagger/ReDoc/OpenAPI JSON 링크를 UI에 노출
 - 발표용 캡처와 시연 시나리오를 `docs/project/demo_capture_scenarios.md`에 정리
 
-## 남은 큰 작업
+## 남은 자동 작업 순서
 
-| 우선순위 | 작업 | 이유 | 현재 위치 |
-|---|---|---|---|
-| P1 | live 조회 QA | 551건 live-enabled 자동 채점과 latency 프로파일은 확보, 실제 문장 품질 표본 검토 필요 | `/tourism/chat`, `scripts/eval_tourism_chat.py`, `scripts/benchmark_tourism_latency.py` |
-| P1 | fallback 데이터 QA 실행 | 지역별 최소 샘플은 확보됐고 샘플 감사 리포트와 실제 질문 품질 확인 필요 | `scripts/audit_tourism_samples.py` |
-| P1 | 웹 UI QA | 중간 QA 실패 2건 보강 뒤 실제 FastAPI 서버 연결 Playwright 재QA에서 개발 모드 20/20, 릴리즈 모드 20/20, 전체 40/40 통과. 대표 스크린샷과 원본 JSON은 `data/generated/tour_api/ui_qa/regression_20260517_fixed/`에 있다. Browser plugin runtime 노출 문제 때문에 Playwright로 대체했고, 외부 Terminal.app의 보이는 uvicorn 서버를 사용했다 | `frontend/web/`, `docs/project/tourism_ui_midcheck_20260517.md` |
-| P1 | 확장 eval 수동 채점 및 live-on-miss 비교 | 551건 자동 채점은 통과했지만 실제 문장 품질 수동 표본 검토와 응답 속도 비교가 필요 | `data/eval/tourism_100_questions.jsonl`, `data/eval/tourism_expanded_questions.jsonl` |
-| P1 | 의도 분류 취약 intent 3차 개선 | 3차 보강으로 hard holdout은 0.9747, Gemini verified holdout은 0.8536이다. `clarify_region` natural 전체는 0.9800이고, `change_region`/`replace_condition` 실사용 멀티턴 판단셋은 201/201 통과, adversarial chat holdout은 42/42 통과다. 1.0000이 나오는 focused/contract 셋은 실사용 품질 지표가 아니며, 반례를 계속 추가해야 하는 경계 테스트로만 취급 | `docs/tourism/tourism_intent_classifier.md`, `data/eval/tourism_intent_gemini_holdout_verified.jsonl`, `data/eval/tourism_intent_hard_holdout.jsonl`, `data/eval/tourism_intent_region_clarify_natural_holdout.jsonl`, `data/eval/tourism_change_replace_chat_holdout.jsonl`, `data/eval/tourism_adversarial_chat_holdout.jsonl` |
-| P1 | 문맥 해석 classifier 보강 | locked test 4,800건은 최신 micro-F1 0.9803, independent validation은 0.9741, 시설 조건 adversarial holdout 980건은 0.9946이다. fixed blind 80건은 보강 후 0.8340, rotating blind v1/v2/v3는 같은 파일 대응 뒤 높아졌지만 tuned diagnostic이다. v4 fresh blind는 rule-only 0.9091, hybrid LinearSVC 0.9012, hybrid LogisticRegression 0.8968이고 chat blind v2는 15/15 통과다. 다음은 v4 오류 bucket이 실제 카드 품질에 영향을 주는지 선별한다 | `app/services/tourism_context_classifier.py`, `scripts/eval_tourism_context_classifier.py`, `scripts/generate_tourism_context_rotating_blind_holdout.py`, `data/eval/tourism_context_rotating_blind_holdout_20260517_v4.jsonl`, `data/eval/tourism_context_blind_chat_eval_v2.jsonl` |
-| P1 | KoBERT/KLUE-RoBERTa 파일럿 fine-tuning | 독립 validation 기준 재실험 완료. `klue/roberta-small`은 validation 0.9241까지 현실화됐지만 locked test 단독 0.8594, rule hybrid 0.9474로 최신 기준선 0.9688을 넘지 못하고 latency가 느려 런타임 교체 보류 | `requirements-ml.txt`, `scripts/train_tourism_context_transformer.py`, `scripts/grid_tourism_context_transformer.py`, `data/processed/context_finetune/` |
-| P1 | ML 평가 운영 기준 적용 | validation 1.0000 같은 과적합/검증셋 실패 신호를 사람이 지적하지 않아도 잡도록 문서와 감사 스크립트를 추가했다. 다음 ML 실험은 감사 결과가 `eligible_for_manual_review` 이상이어야 채택 검토 가능 | `docs/tourism/ml_evaluation_governance.md`, `scripts/audit_tourism_ml_experiment.py` |
-| P1 | LLM hard-style 학습셋 생성 | Codex/LLM이 어려운 문맥 발화를 생성하도록 prompt builder와 validator를 추가했고, 독립 validation 생성기를 추가했다. 다음은 독립 validation 오류 bucket을 기반으로 새 family를 늘리고 검수 통과분만 extra train으로 병합 | `docs/tourism/context_llm_dataset_generation.md`, `scripts/build_tourism_context_llm_generation_prompt.py`, `scripts/validate_tourism_context_llm_dataset.py`, `scripts/generate_tourism_context_independent_validation.py` |
-| P1 | 핵심어/오타/동의어 후속 보강 | 5,000건 기준 promote candidate mismatch를 159까지 낮췄다. 다음 작업은 남은 review queue를 missing/extra로 분리하고, 충돌 없는 typo/spacing만 추가 적용한다. `리프트` 단독은 보류하지만 접근성 설비 맥락의 `휠체어/장애인/승강/계단/지하철/시설/건물/관광시설 리프트`는 반영한다. 공공기관으로만 한정하지 않는다. 넓은 paraphrase는 바로 사전에 넣지 않는다 | `docs/tourism/tourism_keyword_variant_followup.md`, `data/generated/tour_api/keyword_variant_reports/keyword_variant_20260518_5000_after_bucket_patch_review_queue.jsonl` |
-| P1 | SuperGemma4 문맥 보조 재검토 | 오답 221건 selective 적용에서 exact는 올랐지만 micro-F1이 하락했다. 현재는 런타임 채택이 아니라 QA/재라벨링 보조로만 유지 | `scripts/eval_supergemma_context_labels.py`, `data/generated/tour_api/supergemma_context_eval_latest.json` |
-| P1 | 복합 질문 의도 회귀 QA | 추론 보조는 기본 OFF로 두고, 규칙+intent shadow 결과와 ON/OFF eval 차이를 확인 필요 | `/tourism/chat`, `scripts/eval_tourism_chat.py` |
-| P2 | 로컬 모델 비교 실행/수동 채점 | 기본 로컬 모델과 native thinking 사용 여부 결정 | `scripts/benchmark_tourism_reasoning_models.py`, `docs/tourism/tourism_model_reasoning_benchmark.md` |
-| P2 | persistent TourAPI cache 검토 | 프로세스 재시작 후에도 반복 호출을 줄이기 위함 | `TODOS.md` |
-| P2 | 시군구 fallback 예외 지역 정리 | 0장/1장 지역의 행정구역 유효성 확인과 TourAPI 234개/행안부 매칭 228개 기준의 예외 정리가 필요. 250개는 제품 목표 상한일 뿐 확정 행정구역 수가 아님 | `docs/tourism/tourism_data_operations.md` |
-| P2 | 지역명 매칭 QA 확장 | 행정동/법정동 매칭은 연결됐지만 TourAPI 234개와 행안부 매칭 228개 사이의 차이, 생활권/일반구 표현 UI 후보 표시 QA가 필요 | `docs/tourism/admin_region_aliases.md` |
-| P2 | 초급자용 재현 문서셋 작성 | 프로젝트 마무리 시점에 AI 도구 없이도 초급 개발자가 순차 구현할 수 있는 Notion/문서셋이 필요 | `docs/README.md`, 향후 Notion |
-| P3 | Flutter 전환 여부 결정 | 웹 UI로 충분한지, 모바일 앱이 필요한지 판단 | `frontend/flutter_client/README.md` |
-| P3 | 의료 안전 정보 확장 검토 | 일반 관광/무장애 관광을 여행 안전 지원으로 확장할지 판단. MVP에는 포함하지 않음 | `docs/project/professor_review_brief.md` |
+아래 목록은 사람이 수동으로 표본 채점하거나 화면을 눈으로 확인해야 하는 일을 제외한 실행 순서다. 수동 판단이 필요한 `live 조회 표본 QA`, `확장 eval 수동 채점`, `Flutter 전환 여부 결정`, `의료 안전 정보 확장 판단`은 별도 보류 항목으로 둔다.
 
-## 다음 체크포인트
+| 순서 | 우선순위 | 작업 | 완료 조건 | 현재 위치 |
+|---:|---|---|---|---|
+| 1 | P0 | 현재 미커밋 live update 변경 검증 | `tests/test_tourism_chat_service.py` 통과, `git diff --check` 통과. `live_update_pending` 상태에서 두 번째 동기 live 호출이 생기지 않고, 업데이트 버튼은 suggested message가 아니라 상단 알림 흐름으로 유지 | `app/services/tourism_chat_service.py`, `frontend/web/`, `tests/test_tourism_chat_service.py` |
+| 2 | P0 | TOP_K=40 운영 반영 확인 | 운영 후보 검색 기본값이 AutoRAG retrieval-only 실험 결론과 맞게 40으로 적용됐는지 코드와 설정에서 확인하고, 적용되지 않았으면 반영 | `app/services/tourism_chat_service.py`, `app/services/tourism_query_service.py`, `docs/tourism/autorag_retrieval_experiment.md` |
+| 3 | P0 | TOP_K=40 자동 회귀 평가 | noisy realistic 200건, residual hard chat, challenge questions direct eval 산출물을 새로 만들고 자동 채점 실패 0건 또는 원인 분류 완료 | `scripts/eval_tourism_chat.py`, `data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl`, `data/eval/tourism_residual_hard_chat_20260518.jsonl`, `data/eval/tourism_challenge_questions.jsonl` |
+| 4 | P1 | 전체 단위 테스트와 정적 검사 | `.venv/bin/python -m pytest -q`, `node --check frontend/web/app.js`, `git diff --check` 통과 | `tests/`, `frontend/web/app.js` |
+| 5 | P1 | fallback 샘플 감사 자동 실행 | Markdown 파싱 실패, 필수 필드 누락, 중복 contentid, 3장 미만 지역 리포트 갱신 | `scripts/audit_tourism_samples.py`, `data/raw/tourism_accessible/`, `docs/tourism/tourism_data_operations.md` |
+| 6 | P1 | 문맥 해석 v4 영향 자동 선별 | v4 rotating blind failure bucket을 실제 `/tourism/chat` 평가셋으로 변환하거나 기존 chat eval에 매핑해, 카드 반환에 영향 있는 bucket만 코드 보강 대상으로 분리 | `data/eval/tourism_context_rotating_blind_holdout_20260517_v4.jsonl`, `data/eval/tourism_context_blind_chat_eval_v2.jsonl`, `scripts/eval_tourism_chat.py` |
+| 7 | P1 | 문맥 해석 변경 시 classifier 재평가 | rule/NB/Linear 비교, independent validation, focused holdout, chat eval 산출물 갱신. v1/v2/v3처럼 같은 파일 반복 보강은 품질 점수로 쓰지 않음 | `scripts/generate_tourism_context_interpretation_data.py`, `scripts/train_tourism_context_classifier.py`, `scripts/eval_tourism_context_classifier.py` |
+| 8 | P1 | 핵심어/오타/동의어 review queue 자동 분류 | 남은 159건을 `parser_missing_conditions`, `parser_extra_conditions`, `defer_paraphrase`, `unsupported_collision`으로 나누고 충돌 없는 typo/spacing만 테스트와 함께 반영 | `docs/tourism/tourism_keyword_variant_followup.md`, `data/generated/tour_api/keyword_variant_reports/` |
+| 9 | P1 | 의도 분류 회귀셋 재생성·재평가 | intent utterance, AI Hub extract, training set, classifier, hard/region/change/adversarial holdout 재생성 및 지표 갱신 | `scripts/generate_tourism_intent_utterances.py`, `scripts/build_tourism_intent_training_set.py`, `scripts/train_tourism_intent_classifier.py`, `scripts/eval_tourism_intent_classifier.py` |
+| 10 | P1 | ML 실험 감사 자동화 유지 | 새 Transformer/LLM 보조 실험은 `audit_tourism_ml_experiment.py` 결과가 기준선 미달, validation-hard gap, latency 악화를 표시하면 런타임 채택하지 않음 | `docs/tourism/ml_evaluation_governance.md`, `scripts/audit_tourism_ml_experiment.py` |
+| 11 | P1 | LLM hard-style 학습셋 생성 파이프라인 실행 | prompt 생성, JSONL schema 검수, 중복/overlap 검수, valid extra train 병합까지 자동 산출 | `docs/tourism/context_llm_dataset_generation.md`, `scripts/build_tourism_context_llm_generation_prompt.py`, `scripts/validate_tourism_context_llm_dataset.py` |
+| 12 | P2 | SuperGemma4 문맥 보조 재평가 | 4,800건 holdout 기준 selective 실험 산출물 갱신. exact 상승과 micro-F1 하락이 반복되면 런타임 보조가 아니라 재라벨링 보조로 유지 | `scripts/eval_supergemma_context_labels.py`, `data/generated/tour_api/supergemma_context_eval_latest.json` |
+| 13 | P2 | persistent TourAPI cache 구현 여부 결정 전 기술 설계 | TTL, 저장소(JSON/SQLite/Markdown), invalidation 정책을 문서화하고 구현 난이도와 quota 절감 효과를 정리. 구현 시 기존 Markdown/live-on-miss 동작 유지 | `TODOS.md`, `app/services/tourism_chat_service.py`, `data/generated/tour_api/` |
+| 14 | P2 | 시군구 fallback 예외 자동 리포트 갱신 | TourAPI 234개와 행안부 매칭 228개 차이, 0장/1장 지역, 현행 행정구역 예외를 스크립트 산출물로 고정 | `docs/tourism/tourism_data_operations.md`, `data/processed/tour_area_codes.json`, `data/processed/admin_region_aliases.json` |
+| 15 | P2 | 지역명 alias 회귀 테스트 확장 | 생활권/일반구/행정동 표현이 잘못 자동 확정되지 않도록 clarification 회귀 테스트 추가 | `docs/tourism/admin_region_aliases.md`, `scripts/build_admin_region_aliases.py`, `tests/` |
+| 16 | P2 | 문서와 데모 스크립트 자동 갱신 | 최신 실행 명령, fallback/live 모드, UI URL, eval 산출물 위치, 발표용 캡처 경로를 문서에 반영 | `README.md`, `docs/project/demo_capture_scenarios.md`, `docs/project/next_session_prompt.md` |
+| 17 | P2 | 초급자용 재현 문서 초안 작성 | AI 도구 없이 프로젝트 루트에서 순서대로 실행 가능한 설치, 색인, 테스트, 서버, 터널, UI 확인 절차 작성 | `docs/README.md` |
 
-1. `/tourism-ui/`를 외부 터널 URL로 열어 메신저형 사용자 흐름을 직접 테스트한다.
-2. 웹 UI/UX 개편은 코드 반영됐으므로 실제 FastAPI 연결 후 기본 개발 모드와 `?mode=release`를 나란히 열어 내부 진단 숨김, 사용자 질문 말풍선, bot typing indicator, toast, 카드 애니메이션, 오류/빈 결과 피드백을 QA한다.
-3. 모바일 폭에서 상단 앱바, 하단 입력 composer, 지역 버튼, 추천 카드, Help 모달, 토스트가 겹치지 않는지 확인한다.
-4. UI 작업 완료 판정용 40회 재QA는 통과했다. 다음 UI 작업은 발표용 최종 캡처 셋 정리와 문서/데모 스크립트 반영이다.
-5. 모바일 캡처는 full-page 캡처보다 viewport 캡처를 기준으로 본다. `data/generated/tour_api/ui_qa/live_visual_20260517_fixed/`와 `data/generated/tour_api/ui_qa/regression_20260517_fixed/mobile_cards_viewport.png`를 사용한다.
-6. 중간 QA 실패 2건은 코드 보강, 단위 테스트, 실제 브라우저 재QA를 완료했다.
-7. 서울/부산/강릉 외 지역 질문에서 live 조회 결과와 fallback 메시지를 수집한다.
-8. fallback Markdown 카드 품질을 지역별로 샘플링한다.
-9. 551건 자동 eval은 통과했으므로 다음에는 실패 수만 보지 말고 카드 순위, 답변 문장, 응답 지연을 표본 수동 채점한다.
-7. 의도 분류 발화셋은 `.venv/bin/python scripts/generate_tourism_intent_utterances.py`, `.venv/bin/python scripts/extract_aihub_tourism_intent_utterances.py`, `.venv/bin/python scripts/build_tourism_intent_training_set.py`, `.venv/bin/python scripts/train_tourism_intent_classifier.py` 순서로 재생성한다.
-8. 의도 분류 변경 뒤에는 `.venv/bin/python scripts/benchmark_tourism_intent_ablation.py`와 `.venv/bin/python scripts/benchmark_tourism_latency.py`로 품질/속도 수치를 갱신한다.
-9. 문맥 해석 변경 뒤에는 `.venv/bin/python scripts/generate_tourism_context_interpretation_data.py`, `.venv/bin/python scripts/train_tourism_context_classifier.py`, `.venv/bin/python scripts/eval_tourism_context_classifier.py` 순서로 rule/NB/Linear 비교와 2차 후보 suitability를 갱신한다. v1/v2/v3처럼 같은 rotating file에 반복 보강하지 말고, v4 failure bucket은 실제 `/tourism/chat` 카드 적합성 영향 여부를 먼저 확인한다.
-10. KoBERT/KLUE-RoBERTa 파일럿용 split은 `.venv/bin/python scripts/prepare_tourism_context_finetune_data.py --validation-ratio 0 --extra-train-input data/processed/tourism_context_hard_style_extra_train.valid.jsonl --hard-validation-input data/eval/tourism_context_independent_validation.jsonl --strict-family-split`로 갱신한다.
-11. ML 실험 결과는 `.venv/bin/python scripts/audit_tourism_ml_experiment.py`로 과적합, validation-hard gap, 기준선 미달, latency 악화를 먼저 감사한다.
-12. Codex/LLM hard-style 학습셋은 `.venv/bin/python scripts/build_tourism_context_llm_generation_prompt.py --target-rows 300 --batch-id 001`로 프롬프트를 만들고, LLM 출력 JSONL을 `.venv/bin/python scripts/validate_tourism_context_llm_dataset.py --input ...`으로 검수한 뒤 extra train으로만 병합한다.
-13. SuperGemma4 문맥 라벨링 보조 실험은 `.venv/bin/python scripts/eval_supergemma_context_labels.py`로 실행한다. 현재 결과는 exact 상승, micro-F1 하락이므로 기본 런타임 보조 판단자로 쓰지 않는다.
-14. Gemini verified holdout은 `.venv/bin/python scripts/eval_tourism_intent_classifier.py --input data/eval/tourism_intent_gemini_holdout_verified.jsonl`로 별도 확인한다.
-15. hard intent holdout은 `.venv/bin/python scripts/generate_tourism_intent_hard_holdout.py`로 재생성하고 `.venv/bin/python scripts/eval_tourism_intent_classifier.py --input data/eval/tourism_intent_hard_holdout.jsonl`로 확인한다.
-16. region clarify stress holdout은 `.venv/bin/python scripts/generate_tourism_intent_region_clarify_stress.py`로 재생성하고 `.venv/bin/python scripts/eval_tourism_intent_classifier.py --input data/eval/tourism_intent_region_clarify_stress.jsonl`로 확인한다. 이 결과는 품질 점수에 넣지 않고 contract/regression 통과 여부로만 본다.
-17. region clarify natural holdout은 `.venv/bin/python scripts/generate_tourism_intent_region_clarify_natural_holdout.py`로 재생성하고 `.venv/bin/python scripts/eval_tourism_intent_classifier.py --input data/eval/tourism_intent_region_clarify_natural_holdout.jsonl`로 확인한다.
-18. change/replace focused holdout은 `.venv/bin/python scripts/generate_tourism_intent_change_replace_natural_holdout.py`로 재생성하고 `.venv/bin/python scripts/eval_tourism_intent_classifier.py --input data/eval/tourism_intent_change_replace_natural_holdout.jsonl`로 확인한다. 1.0000이 나와도 품질 점수로 단독 사용하지 않고 경계 회귀 방어선으로만 본다.
-19. change/replace 실사용 멀티턴 판단셋은 `.venv/bin/python scripts/generate_tourism_change_replace_chat_holdout.py`로 재생성하고 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_change_replace_chat_holdout.jsonl --output data/generated/tour_api/eval_runs/tourism_change_replace_chat_holdout_latest.jsonl`로 확인한다.
-20. adversarial chat holdout은 `.venv/bin/python scripts/generate_tourism_adversarial_chat_holdout.py`로 재생성하고 `TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_adversarial_chat_holdout.jsonl --output data/generated/tour_api/eval_runs/tourism_adversarial_chat_holdout_latest.jsonl`로 확인한다.
-21. eval에서 빈 지역이 반복되면 먼저 TourAPI 234개와 행안부 매칭 228개 기준으로 예외 지역을 확인하고, 필요할 때만 행정시/일반구/생활권 표현을 제품 목표 상한 250개 안에서 별도 목록화한다.
-22. 프로젝트 마무리 시점에 초급자용 재현 문서셋 목차를 기준으로 Notion 또는 별도 문서셋을 작성한다.
-23. 2026-06-10 전까지 기본 서비스 고정, 문서, 데모 스크립트, 최종 회귀 테스트를 끝낸다.
+## 다음 자동 체크포인트
+
+1. 현재 미커밋 live update 변경을 검증한다.
+
+```bash
+.venv/bin/python -m pytest tests/test_tourism_chat_service.py -q
+node --check frontend/web/app.js
+git diff --check
+```
+
+2. TOP_K=40 반영 뒤 hard/noisy/challenge eval을 재실행한다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_noisy_realistic_chat_eval_v1_200.jsonl --output data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_residual_hard_chat_20260518.jsonl --output data/generated/tour_api/eval_runs/residual_hard_chat_topk40.jsonl
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_challenge_questions.jsonl --output data/generated/tour_api/eval_runs/tourism_challenge_questions_topk40.jsonl
+```
+
+3. fallback 샘플 감사를 갱신한다.
+
+```bash
+.venv/bin/python scripts/audit_tourism_samples.py
+```
+
+4. 의도 분류 변경 뒤에는 발화셋, 학습셋, 모델, 지표를 순서대로 갱신한다.
+
+```bash
+.venv/bin/python scripts/generate_tourism_intent_utterances.py
+.venv/bin/python scripts/extract_aihub_tourism_intent_utterances.py
+.venv/bin/python scripts/build_tourism_intent_training_set.py
+.venv/bin/python scripts/train_tourism_intent_classifier.py
+.venv/bin/python scripts/benchmark_tourism_intent_ablation.py
+.venv/bin/python scripts/benchmark_tourism_latency.py
+```
+
+5. 문맥 해석 변경 뒤에는 rule/NB/Linear 비교와 suitability를 갱신한다.
+
+```bash
+.venv/bin/python scripts/generate_tourism_context_interpretation_data.py
+.venv/bin/python scripts/train_tourism_context_classifier.py
+.venv/bin/python scripts/eval_tourism_context_classifier.py
+```
+
+6. ML/Transformer 실험은 감사 스크립트로 채택 가능성을 먼저 확인한다.
+
+```bash
+.venv/bin/python scripts/audit_tourism_ml_experiment.py --transformer-metrics data/generated/tour_api/context_transformer_independent_validation/metrics.json --context-baseline-metrics data/generated/tour_api/context_classifier_eval_independent_test_latest.json
+```
+
+7. Codex/LLM hard-style 학습셋은 prompt 생성, JSONL 검수, extra train 병합 순서로만 진행한다.
+
+```bash
+.venv/bin/python scripts/build_tourism_context_llm_generation_prompt.py --target-rows 300 --batch-id 001
+.venv/bin/python scripts/validate_tourism_context_llm_dataset.py --input data/processed/tourism_context_hard_style_extra_train.candidate.jsonl
+```
+
+8. change/replace와 adversarial chat 회귀셋을 재생성·재평가한다.
+
+```bash
+.venv/bin/python scripts/generate_tourism_change_replace_chat_holdout.py
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_change_replace_chat_holdout.jsonl --output data/generated/tour_api/eval_runs/tourism_change_replace_chat_holdout_latest.jsonl
+.venv/bin/python scripts/generate_tourism_adversarial_chat_holdout.py
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_adversarial_chat_holdout.jsonl --output data/generated/tour_api/eval_runs/tourism_adversarial_chat_holdout_latest.jsonl
+```
+
+9. 예외 지역과 alias 산출물을 갱신하고 관련 문서를 업데이트한다.
+10. 최신 실행 결과를 `README.md`, `docs/project/next_session_prompt.md`, `docs/project/demo_capture_scenarios.md`에 반영한다.
+
+## 2026-05-26 자동 실행 결과
+
+- 현재 미커밋 live update 변경 검증: `tests/test_tourism_chat_service.py` 70 passed, `node --check frontend/web/app.js` 통과, `git diff --check` 통과.
+- TOP_K=40 확인: `app/core/config.py`의 `TOP_K` 기본값은 40이고 `Retriever.retrieve()`가 `settings.top_k`를 vector search `top_k`로 전달한다. 코드 수정 없이 반영 상태로 확인했다.
+- TOP_K=40 direct eval:
+  - `data/generated/tour_api/eval_runs/tourism_challenge_questions_topk40.jsonl`: 30 rows, failures 0
+  - `data/generated/tour_api/eval_runs/residual_hard_chat_topk40.jsonl`: 80 rows, failures 0
+  - `data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40.jsonl`: 200 rows, failures 42
+  - `data/generated/tour_api/eval_runs/noisy_realistic_v1_200_topk40_gated_roberta.jsonl`: 200 rows, failures 42
+- noisy 200 실패 bucket: 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 카드 부족과 `unsupported` 답변 문구의 자동 채점어 부족이 대부분이다. gated RoBERTa를 켜도 실패 수는 줄지 않아 조건 라벨 모델 문제가 아니라 데이터 커버리지/채점 기준/unsupported copy 문제로 분류한다.
+- 전체 회귀: `.venv/bin/python -m pytest -q`는 362 passed, 2 warnings. 이후 `node --check frontend/web/app.js`와 `git diff --check`도 통과했다.
+- fallback 샘플 감사: `scripts/audit_tourism_samples.py` 결과 files=904, parsed=904, parse_failures=0, duplicates=0, missing_required=0. 리포트는 `data/generated/tour_api/tourism_sample_audit.md`에 갱신됐다.
+- 문맥 v4 영향 자동 선별: `data/generated/tour_api/context_v4_chat_impact_report.json` 생성. v4 rule mismatch 20건 중 `card_filter_or_session_behavior` 10건, `ranking_or_copy_context` 10건으로 분류했다. `data/generated/tour_api/context_classifier_eval_v4_latest.json` 기준 best는 `hybrid_linear_svc`, exact 0.7375, micro-F1 0.9048이다.
+- keyword variant review queue 자동 분류: `keyword_variant_20260518_5000_after_bucket_patch_review_queue.jsonl` 159건을 `data/generated/tour_api/keyword_variant_reports/keyword_variant_20260518_5000_auto_classified_review_queue.json`과 `.jsonl`로 분류했다. 자동 bucket은 `defer_paraphrase` 63건, `unsupported_collision` 96건이다. 즉시 promote할 안전한 typo/spacing 후보는 이 queue에서는 따로 나오지 않았다.
+- intent pipeline 재생성:
+  - `tourism_intent_generated_utterances.jsonl`: 13,200 rows
+  - `tourism_intent_aihub_utterances.jsonl`: 2,700 rows
+  - `tourism_intent_training.jsonl`: 16,254 rows
+  - `tourism_intent_classifier.json` 재학습 내부 split accuracy: 0.8737
+- intent holdout 결과:
+  - Gemini verified holdout: 0.8550
+  - hard holdout: 0.9747
+  - region clarify natural holdout: 0.9800
+  - change/replace natural holdout: 1.0000
+  - adversarial holdout: 0.9264
+  - ablation 기본 모델(`project_plus_aihub`): 0.9229
+- latency benchmark: direct fallback chat overall mean 212.6983ms, p95 283.4613ms. Retriever `top_k=40` vector search only mean 1.2751ms, p95 1.9912ms이고 embed+vector retrieve p95 86.7760ms다.
+- ML 감사: `audit_tourism_ml_experiment.py` 결과 `do_not_adopt_runtime`. 주요 사유는 validation-hard gap, 기준선 대비 품질 개선 부족, latency regression이다. Transformer/LLM 보조는 런타임 채택하지 않는다.
 
 앱/Flutter 구현은 기본 서비스 완료 뒤로 미룬다.
 

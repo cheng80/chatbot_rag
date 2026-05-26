@@ -13,58 +13,81 @@
     "unsupported_request"
   ],
   "metrics": {
-    "accuracy": 0.9164,
+    "accuracy": 0.8737,
     "confusion": {
       "add_condition": {
-        "add_condition": 416,
-        "clarify_region": 1,
+        "add_condition": 411,
+        "change_region": 2,
         "exclude_preference": 1,
-        "recommend_places": 4,
-        "unsupported_request": 6
+        "live_topup": 1,
+        "recommend_places": 3,
+        "show_more": 1,
+        "unsupported_request": 9
       },
       "ask_source": {
-        "ask_source": 243,
-        "live_topup": 1
+        "ask_source": 236,
+        "change_region": 2,
+        "live_topup": 6
       },
       "change_region": {
-        "change_region": 215,
-        "exclude_preference": 9,
-        "narrow_region": 15,
-        "recommend_places": 5
+        "change_region": 235,
+        "exclude_preference": 6,
+        "live_topup": 1,
+        "recommend_places": 2
       },
       "clarify_region": {
-        "add_condition": 104,
-        "clarify_region": 142
+        "add_condition": 13,
+        "change_region": 9,
+        "clarify_region": 224
       },
       "exclude_preference": {
-        "exclude_preference": 245
+        "change_region": 2,
+        "exclude_preference": 233,
+        "live_topup": 2,
+        "replace_condition": 8
       },
       "live_topup": {
-        "live_topup": 244
+        "ask_source": 31,
+        "change_region": 1,
+        "live_topup": 212
       },
       "narrow_region": {
-        "add_condition": 18,
-        "narrow_region": 223,
-        "recommend_places": 3
+        "add_condition": 14,
+        "change_region": 5,
+        "clarify_region": 54,
+        "live_topup": 5,
+        "narrow_region": 162,
+        "recommend_places": 4
       },
       "recommend_places": {
-        "add_condition": 23,
+        "add_condition": 36,
+        "change_region": 1,
+        "clarify_region": 1,
         "exclude_preference": 1,
-        "recommend_places": 411,
-        "unsupported_request": 12
+        "live_topup": 7,
+        "narrow_region": 2,
+        "recommend_places": 385,
+        "show_more": 1,
+        "unsupported_request": 13
       },
       "replace_condition": {
-        "exclude_preference": 40,
-        "replace_condition": 204
+        "change_region": 2,
+        "exclude_preference": 91,
+        "live_topup": 11,
+        "replace_condition": 140
       },
       "show_more": {
-        "show_more": 243,
+        "change_region": 6,
+        "live_topup": 6,
+        "show_more": 231,
         "unsupported_request": 1
       },
       "unsupported_request": {
-        "add_condition": 15,
-        "live_topup": 13,
-        "unsupported_request": 397
+        "add_condition": 19,
+        "change_region": 2,
+        "live_topup": 25,
+        "replace_condition": 4,
+        "unsupported_request": 375
       }
     },
     "test_rows": 3255,

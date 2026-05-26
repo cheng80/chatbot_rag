@@ -360,7 +360,7 @@ class TourismChatService:
         if query.get("unsupported_intent") and not self._has_supported_tourism_part(query):
             response = TourismChatResponse(
                 answer=(
-                    "현재 서비스는 관광지의 무장애 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
+                    "현재 서비스 범위는 무장애 관광지의 접근성, 가족 편의, 위치 기반 추천을 우선 지원합니다. "
                     "가격 비교, 실시간 혼잡도, 의료기관, 예약, 이동시간 계산은 확인된 데이터가 없어 추천하지 않겠습니다. "
                     "대신 방문하려는 지역과 접근성 조건을 알려주면 갈 수 있는 관광지를 찾아드릴 수 있습니다."
                 ),
@@ -514,7 +514,7 @@ class TourismChatService:
                 expanded = expanded or supplemental_expanded
                 has_more_cards = supplemental_has_more_cards
 
-        if not cards:
+        if not cards and not (self._is_live_update_strategy() and live_update_pending):
             candidates, live_degraded, api_called = self._cards_from_live_tour_api(query)
             live_api_called = live_api_called or api_called
             degraded = degraded or live_degraded
@@ -2213,8 +2213,6 @@ class TourismChatService:
         live_update_pending: bool = False,
     ) -> list[str]:
         suggestions = self._build_more_card_suggestions(message, has_more_cards)
-        if live_update_pending:
-            suggestions.append("최신 결과 업데이트 보기")
         live_top_up_suggested = self._should_suggest_live_top_up(message, cards, query, lookup_mode)
         if live_top_up_suggested:
             suggestions.append(f"{self._strip_followup_intent(message)} 최신 추천 더 확인하기")

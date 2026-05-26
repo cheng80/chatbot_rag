@@ -39,7 +39,7 @@ def test_card_markdown_contains_rag_fields():
     markdown = normalizer.card_to_markdown(card)
 
     assert "관광지명: 테스트 관광지" in markdown
-    assert "출처: 한국관광공사 무장애 여행 정보 OpenAPI" in markdown
+    assert "출처: 한국관광공사 무장애 여행 정보" in markdown
     assert "편의정보:" in markdown
 
 

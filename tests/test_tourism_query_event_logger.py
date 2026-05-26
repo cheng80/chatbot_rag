@@ -53,7 +53,7 @@ def test_tourism_query_event_logger_writes_jsonl_without_raw_message(tmp_path):
             "rank": 1,
             "content_id": "2456536",
             "title": "강남 마이스 관광특구",
-            "source_name": "한국관광공사 무장애 여행 정보 OpenAPI",
+            "source_name": "한국관광공사 무장애 여행 정보",
         }
     ]
 

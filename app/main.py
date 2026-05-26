@@ -12,7 +12,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        description="FastAPI + Chroma + Ollama 기반 로컬 RAG 챗봇",
+        description="무장애 관광 상담 챗봇 API",
     )
 
     app.add_middleware(

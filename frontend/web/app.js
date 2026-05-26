@@ -29,13 +29,17 @@ const photoModalAddress = document.querySelector("#photoModalAddress");
 const photoModalMap = document.querySelector("#photoModalMap");
 const photoModalSource = document.querySelector("#photoModalSource");
 const closePhotoButton = document.querySelector("#closePhotoButton");
-const modeBadge = document.querySelector("#modeBadge");
 const debugToggleButton = document.querySelector("#debugToggleButton");
 const debugPanel = document.querySelector("#debugPanel");
 const chatScroll = document.querySelector("#chatScroll");
 const userEcho = document.querySelector("#userEcho");
 const typingIndicator = document.querySelector("#typingIndicator");
 const toast = document.querySelector("#toast");
+const updateNotice = document.querySelector("#updateNotice");
+const updateNoticeTitle = document.querySelector("#updateNoticeTitle");
+const updateNoticeDescription = document.querySelector("#updateNoticeDescription");
+const updateNoticeAccept = document.querySelector("#updateNoticeAccept");
+const updateNoticeDismiss = document.querySelector("#updateNoticeDismiss");
 const promptDrawer = document.querySelector("#promptDrawer");
 const optionDrawer = document.querySelector("#optionDrawer");
 const chatModeButton = document.querySelector("#chatModeButton");
@@ -68,6 +72,11 @@ let regionOptions = fallbackRegionOptions();
 let optionGeneratedMessage = "";
 let optionManualEdit = false;
 let lastPhotoTrigger = null;
+let nextSubmittedMessage = "";
+let nextSubmittedDisplayMessage = "";
+let liveUpdateController = null;
+let pendingLiveUpdatePayload = null;
+let requestGeneration = 0;
 
 const demoPreview = {
   answer:
@@ -113,6 +122,8 @@ debugToggleButton.addEventListener("click", toggleDebugPanel);
 helpButton.addEventListener("click", openHelp);
 closeHelpButton.addEventListener("click", closeHelp);
 closePhotoButton.addEventListener("click", closePhotoModal);
+updateNoticeAccept.addEventListener("click", acceptPreparedLiveUpdate);
+updateNoticeDismiss.addEventListener("click", hideUpdateNotice);
 promptDrawer?.addEventListener("toggle", syncPromptDrawerSummary);
 optionDrawer?.addEventListener("toggle", syncOptionDrawerSummary);
 answerToggleButton.addEventListener("click", () => {
@@ -180,6 +191,9 @@ document.querySelectorAll("[data-region]").forEach((button) => {
 });
 
 clearButton.addEventListener("click", () => {
+  requestGeneration += 1;
+  cancelLiveUpdateWatch();
+  hideUpdateNotice();
   document.querySelectorAll("[data-region]").forEach((regionButton) => {
     regionButton.setAttribute("aria-pressed", "false");
   });
@@ -187,7 +201,7 @@ clearButton.addEventListener("click", () => {
   diagnostics.replaceChildren();
   renderClarificationBanner(null);
   suggestions.replaceChildren();
-  suggestions.classList.remove("clarification-options", "condition-options", "region-options");
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options", "expansion-options", "live-update-options");
   sessionId = createSessionId();
   chatDraftMessage = "";
   optionGeneratedMessage = "";
@@ -209,9 +223,16 @@ clearButton.addEventListener("click", () => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const message = messageInput.value.trim();
+  requestGeneration += 1;
+  const requestId = requestGeneration;
+  cancelLiveUpdateWatch();
+  hideUpdateNotice();
+  const displayMessage = (nextSubmittedDisplayMessage || messageInput.value).trim();
+  const message = (nextSubmittedMessage || messageInput.value).trim();
+  nextSubmittedMessage = "";
+  nextSubmittedDisplayMessage = "";
 
-  if (!message) {
+  if (!message || !displayMessage) {
     setState("입력 필요", "error");
     diagnostics.replaceChildren(createDiagnostic("질문을 입력해야 합니다."));
     showToast("질문을 입력해 주세요.", "error");
@@ -222,11 +243,11 @@ form.addEventListener("submit", async (event) => {
   setLoading(true);
   collapseComposerAfterSubmit();
   lastSubmittedMessage = message;
-  renderUserMessage(message);
+  renderUserMessage(displayMessage);
   preparePendingResponse();
   suggestions.replaceChildren();
   renderClarificationBanner(null);
-  suggestions.classList.remove("clarification-options", "condition-options", "region-options");
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options", "expansion-options", "live-update-options");
 
   try {
     const response = await fetch(`${normalizedApiBase()}/tourism/chat`, {
@@ -242,6 +263,7 @@ form.addEventListener("submit", async (event) => {
       return;
     }
 
+    if (requestId !== requestGeneration) return;
     renderResponse(payload || {});
   } catch (error) {
     setState("연결 실패", "error");
@@ -249,14 +271,14 @@ form.addEventListener("submit", async (event) => {
     setAnswerText(`서버에 연결하지 못했습니다.\n${error.message}`);
     suggestions.replaceChildren();
     renderClarificationBanner(null);
-    suggestions.classList.remove("clarification-options", "condition-options", "region-options");
+    suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options", "expansion-options", "live-update-options");
     sourceList.replaceChildren(createSourceEmpty("서버 연결 후 출처가 표시됩니다."));
     cardsGrid.replaceChildren();
     cardCount.textContent = "0개";
     demoMoreButton.disabled = true;
     demoMoreButton.hidden = true;
   } finally {
-    setLoading(false);
+    if (requestId === requestGeneration) setLoading(false);
   }
 });
 
@@ -290,8 +312,6 @@ function isLocalDebugMode() {
 function syncDebugVisibility() {
   document.body.classList.toggle("debug-mode", debugMode);
   document.body.classList.toggle("release-mode", !debugMode);
-  modeBadge.textContent = debugMode ? "DEV" : "USER";
-  modeBadge.title = debugMode ? "개발 진단 모드" : "사용자 화면";
   debugPanel.hidden = !debugMode;
   debugToggleButton.setAttribute("aria-expanded", String(debugMode));
 }
@@ -476,7 +496,7 @@ function setLoading(isLoading) {
     demoMoreButton.disabled = true;
     if (debugMode) {
       setState("질문 분석 중");
-      diagnostics.replaceChildren(createDiagnostic("지역/조건을 구조화하고, 복합 질문이면 추론 보조로 후보 순서를 조정합니다."));
+      diagnostics.replaceChildren(createDiagnostic("지역과 조건을 확인하고, 복합 질문이면 후보 순서를 한 번 더 점검합니다."));
     }
   }
 }
@@ -484,7 +504,7 @@ function setLoading(isLoading) {
 function preparePendingResponse() {
   renderClarificationBanner(null);
   suggestions.replaceChildren();
-  suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options");
+  suggestions.classList.remove("clarification-options", "condition-options", "region-options", "recovery-options", "expansion-options", "live-update-options");
   sourceList.replaceChildren(createSourceEmpty("응답을 준비하는 중입니다."));
   setAnswerText("질문을 분석하고 추천 후보를 찾는 중입니다.", { empty: true });
   cardsGrid.replaceChildren();
@@ -501,16 +521,17 @@ function setState(text, tone = "") {
   requestState.className = `state-pill ${tone}`.trim();
 }
 
-function renderResponse(payload) {
+function renderResponse(payload, options = {}) {
   const cards = Array.isArray(payload.cards) ? payload.cards : [];
   const mode = payload.lookup_mode || "unknown";
   setState(modeLabel(mode, payload.degraded), modeTone(mode, payload.degraded));
 
   const notes = [modeDescription(mode)];
   if (payload.degraded) notes.push("일부 자료 확인이 원활하지 않아 준비된 자료로 먼저 안내했습니다.");
-  if (payload.reasoning_assist_used) notes.push("복합 조건을 반영하기 위해 LLM 추론 보조로 후보 순서를 조정했습니다.");
+  if (payload.live_update_pending) notes.push("최신 추천 결과를 확인 중이며, 준비되면 상단 알림으로 반영할 수 있습니다.");
+  if (payload.reasoning_assist_used) notes.push("복합 조건을 반영해 후보 순서를 조정했습니다.");
   if (Array.isArray(payload.reasoning_assist_notes)) {
-    payload.reasoning_assist_notes.forEach((note) => notes.push(`추론 보조 메모: ${note}`));
+    payload.reasoning_assist_notes.forEach((note) => notes.push(`확인 메모: ${note}`));
   }
   if (Array.isArray(payload.warnings)) notes.push(...payload.warnings);
   if (debugMode) {
@@ -521,14 +542,25 @@ function renderResponse(payload) {
   const clarificationType = mode === "clarification" ? inferClarificationType(payload) : null;
   const suggestionType = clarificationType || inferSuggestionType(payload, cards);
   renderClarificationBanner(clarificationType);
-  renderSuggestions(payload.suggested_messages || [], suggestionType);
+  renderSuggestions(visibleSuggestedMessages(payload), suggestionType);
   renderSources(payload.sources || [], cards);
   cardCount.textContent = `${cards.length}개`;
   cardsGrid.replaceChildren(...cards.map((card) => renderCard(card, lastSubmittedMessage)));
-  if (cards.length > 0) {
+  if (payload.live_update_pending) {
+    showToast("새 추천 결과가 준비되면 알려드릴게요.", "ok");
+    if (!options.skipLiveUpdateWatch) startLiveUpdateWatch();
+  } else if (mode === "live_update") {
+    showToast("새 추천 결과를 반영했습니다.", "ok");
+  } else if (cards.length > 0) {
     showToast(`${cards.length}개의 추천 카드를 찾았습니다.`, "ok");
   }
   scrollToResponseStart();
+}
+
+function visibleSuggestedMessages(payload) {
+  const messages = Array.isArray(payload?.suggested_messages) ? payload.suggested_messages : [];
+  if (!payload?.live_update_pending) return messages;
+  return messages.filter((message) => !/최신 결과 업데이트 보기|업데이트 보기/.test(message));
 }
 
 function renderDemoPreview() {
@@ -553,33 +585,41 @@ function renderDemoPreview() {
 }
 
 function modeLabel(mode, degraded) {
-  if (mode === "live") return "Live API 응답";
-  if (mode === "live_top_up") return "Live 보강 응답";
-  if (mode === "cache") return "Live 캐시 응답";
-  if (mode === "indexed") return degraded ? "색인 fallback" : "색인 응답";
-  if (mode === "sample") return "샘플 fallback";
+  if (mode === "live") return "최신 자료 응답";
+  if (mode === "live_update") return "최신 결과 반영";
+  if (mode === "live_update_pending") return "최신 결과 확인 중";
+  if (mode === "live_update_timeout") return "확인 시간 초과";
+  if (mode === "live_update_empty") return "새 결과 없음";
+  if (mode === "live_top_up") return "최신 자료 보강";
+  if (mode === "cache") return "저장 자료 응답";
+  if (mode === "indexed") return degraded ? "준비 자료 응답" : "준비 자료 응답";
+  if (mode === "sample") return "준비 자료 응답";
   if (mode === "clarification") return "추가 확인 필요";
   if (mode === "unsupported") return "지원 범위 밖";
-  return degraded ? "Fallback 응답" : "정상 응답";
+  return degraded ? "확인 자료 응답" : "정상 응답";
 }
 
 function modeTone(mode, degraded) {
   if (mode === "clarification") return "warn";
   if (mode === "unsupported") return "warn";
   if (mode === "sample" || degraded) return "warn";
-  if (mode === "cache" || mode === "live" || mode === "live_top_up" || mode === "indexed") return "ok";
+  if (mode === "cache" || mode === "live" || mode === "live_update" || mode === "live_update_pending" || mode === "live_top_up" || mode === "indexed") return "ok";
   return "";
 }
 
 function modeDescription(mode) {
-  if (mode === "live") return "지역이 확정되어 TourAPI 후보와 접근성 상세를 live로 조회했습니다.";
-  if (mode === "live_top_up") return "저장된 후보에 live TourAPI 조회 후보를 보강했습니다.";
-  if (mode === "cache") return "이전에 live 조회해 저장한 Markdown 캐시에서 같은 지역 관광 카드를 찾았습니다.";
-  if (mode === "indexed") return "live 결과 대신 Chroma 색인에서 관광 카드 문서를 찾았습니다.";
-  if (mode === "sample") return "API/색인 결과 대신 로컬 Markdown fallback 샘플을 사용했습니다.";
+  if (mode === "live") return "지역이 확정되어 최신 자료에서 접근성 정보를 확인했습니다.";
+  if (mode === "live_update") return "추가로 확인한 최신 추천 결과를 반영했습니다.";
+  if (mode === "live_update_pending") return "최신 추천 결과를 아직 확인 중입니다.";
+  if (mode === "live_update_timeout") return "최신 추천 결과 확인 시간이 초과되어 먼저 안내한 결과를 유지했습니다.";
+  if (mode === "live_update_empty") return "반영할 새 추천 결과가 없습니다.";
+  if (mode === "live_top_up") return "저장된 후보에 최신 확인 결과를 보강했습니다.";
+  if (mode === "cache") return "이전에 확인해 둔 같은 지역 관광지를 찾았습니다.";
+  if (mode === "indexed") return "준비된 관광지 자료에서 조건에 맞는 카드를 찾았습니다.";
+  if (mode === "sample") return "준비된 관광지 자료를 사용했습니다.";
   if (mode === "clarification") return "추천 전에 지역 또는 접근성 기준 확인이 필요합니다.";
-  if (mode === "unsupported") return "현재 MVP 범위를 벗어난 질문이라 관광지 카드를 만들지 않았습니다.";
-  return "응답 생성 경로를 확인하지 못했습니다.";
+  if (mode === "unsupported") return "현재 서비스에서 바로 확인하기 어려운 질문이라 관광지 카드를 만들지 않았습니다.";
+  return "응답 상태를 확인하지 못했습니다.";
 }
 
 function renderError(status, payload) {
@@ -606,7 +646,7 @@ function renderError(status, payload) {
 function renderClarificationBanner(type) {
   if (!type) {
     clarificationBanner.hidden = true;
-    clarificationBanner.classList.remove("condition-clarification", "region-clarification");
+    clarificationBanner.classList.remove("condition-clarification", "region-clarification", "live-update-banner");
     clarificationTitle.textContent = "추가 질문 필요";
     clarificationDescription.textContent = "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.";
     return;
@@ -625,6 +665,10 @@ function renderClarificationBanner(type) {
       title: "추가 질문 필요",
       description: "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.",
     },
+    "live-update": {
+      title: "새 추천 결과를 확인하고 있어요",
+      description: "먼저 볼 수 있는 결과를 보여드렸습니다. 새 결과가 준비되면 상단 알림으로 바로 바꿔 볼 수 있습니다.",
+    },
   }[type] || {
     title: "추가 질문 필요",
     description: "아래 후보를 선택하면 원래 질문 맥락을 유지한 채 다시 조회합니다.",
@@ -633,6 +677,7 @@ function renderClarificationBanner(type) {
   clarificationBanner.hidden = false;
   clarificationBanner.classList.toggle("condition-clarification", type === "condition");
   clarificationBanner.classList.toggle("region-clarification", type === "region");
+  clarificationBanner.classList.toggle("live-update-banner", type === "live-update");
   clarificationTitle.textContent = copy.title;
   clarificationDescription.textContent = copy.description;
 }
@@ -658,6 +703,9 @@ function inferSuggestionType(payload, cards) {
   if (messages.some((message) => /전체로 넓혀|범위.*넓혀/.test(message))) {
     return "expansion";
   }
+  if (messages.some((message) => /최신 결과 업데이트 보기|업데이트 보기|최신 추천/.test(message))) {
+    return "live-update";
+  }
   return null;
 }
 
@@ -668,6 +716,7 @@ function renderSuggestions(messages, suggestionType = null) {
   suggestions.classList.toggle("region-options", suggestionType === "region" && messages.length > 0);
   suggestions.classList.toggle("recovery-options", suggestionType === "shortage" && messages.length > 0);
   suggestions.classList.toggle("expansion-options", suggestionType === "expansion" && messages.length > 0);
+  suggestions.classList.toggle("live-update-options", suggestionType === "live-update" && messages.length > 0);
   const moreMessage = messages.find((message) => /더 보기|전부|20곳/.test(message));
   demoMoreButton.disabled = !moreMessage;
   demoMoreButton.hidden = !moreMessage;
@@ -692,8 +741,17 @@ function renderSuggestions(messages, suggestionType = null) {
       button.setAttribute("aria-label", message);
     }
     button.addEventListener("click", () => {
-      messageInput.value = message;
-      showToast(suggestionType === "condition" ? "선택한 조건으로 다시 조회합니다." : "후속 질문을 보냅니다.", "ok");
+      messageInput.value = label;
+      nextSubmittedMessage = message;
+      nextSubmittedDisplayMessage = label;
+      showToast(
+        suggestionType === "condition"
+          ? "선택한 조건으로 다시 조회합니다."
+          : suggestionType === "live-update"
+            ? "준비된 새 추천 결과를 반영합니다."
+            : "후속 질문을 보냅니다.",
+        "ok",
+      );
       form.requestSubmit();
     });
     suggestions.append(button);
@@ -709,6 +767,8 @@ function suggestionButtonLabel(message, suggestionType) {
   if (suggestionType === "expansion" && /전체로 넓혀|범위.*넓혀/.test(message)) {
     return "같은 시·도까지 넓혀 보기";
   }
+  if (/최신 결과 업데이트 보기|업데이트 보기/.test(message)) return "새 추천 결과 보기";
+  if (/최신 정보 더 찾기|최신 추천 더 확인/.test(message)) return "최신 추천 더 확인하기";
   if (suggestionType !== "condition") return message;
   const patterns = [
     ["휠체어 접근", "휠체어 접근"],
@@ -1318,6 +1378,66 @@ function hideToast() {
   toast.hidden = true;
   toast.textContent = "";
   toast.className = "toast";
+}
+
+function cancelLiveUpdateWatch() {
+  if (liveUpdateController) {
+    liveUpdateController.abort();
+    liveUpdateController = null;
+  }
+  pendingLiveUpdatePayload = null;
+}
+
+async function startLiveUpdateWatch() {
+  cancelLiveUpdateWatch();
+  const controller = new AbortController();
+  liveUpdateController = controller;
+  const watchGeneration = requestGeneration;
+
+  try {
+    const response = await fetch(`${normalizedApiBase()}/tourism/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "최신 결과 업데이트 보기", session_id: sessionId }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null);
+    if (controller.signal.aborted || watchGeneration !== requestGeneration || liveUpdateController !== controller) return;
+    liveUpdateController = null;
+    if (!response.ok || !payload) return;
+    if (payload.lookup_mode === "live_update") {
+      pendingLiveUpdatePayload = payload;
+      showUpdateNotice();
+      showToast("새 추천 결과가 준비됐습니다.", "ok");
+    } else if (payload.lookup_mode === "live_update_timeout") {
+      showToast("확인이 길어져 먼저 안내한 결과를 유지합니다.", "ok");
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      liveUpdateController = null;
+    }
+  }
+}
+
+function showUpdateNotice() {
+  updateNoticeTitle.textContent = "새 추천 결과가 준비됐어요";
+  updateNoticeDescription.textContent = "방금 확인한 결과로 추천 카드를 바꿔 볼까요?";
+  updateNotice.hidden = false;
+}
+
+function hideUpdateNotice() {
+  updateNotice.hidden = true;
+}
+
+function acceptPreparedLiveUpdate() {
+  const payload = pendingLiveUpdatePayload;
+  if (!payload) {
+    hideUpdateNotice();
+    return;
+  }
+  pendingLiveUpdatePayload = null;
+  hideUpdateNotice();
+  renderResponse(payload, { skipLiveUpdateWatch: true });
 }
 
 function scrollToResponseStart() {

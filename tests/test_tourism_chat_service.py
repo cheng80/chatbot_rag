@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import threading
+import time
 
 from app.core.config import Settings
 from app.schemas.tourism import AccessibilityInfo, TourismPlaceCard
@@ -49,8 +51,18 @@ class FakeLLMService:
         return self.response
 
 
+def tourism_settings(**overrides):
+    defaults = {
+        "tourism_lookup_strategy": "cache_first",
+        "tourism_reasoning_assist_enabled": False,
+        "tourism_condition_transformer_enabled": False,
+    }
+    defaults.update(overrides)
+    return Settings(**defaults)
+
+
 def test_tourism_chat_returns_cards_and_sources(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     response = service.answer("서울에서 휠체어와 유모차로 가기 좋은 곳 추천해줘")
 
@@ -68,7 +80,7 @@ def test_tourism_chat_uses_reasoning_assist_for_complex_question(tmp_path):
         '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
     )
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -89,7 +101,7 @@ def test_tourism_chat_disables_reasoning_assist_by_default(tmp_path):
         '"missing_or_uncertain":["혼잡도는 확인 필요"]}'
     )
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -106,7 +118,7 @@ def test_tourism_chat_disables_reasoning_assist_by_default(tmp_path):
 def test_tourism_chat_skips_reasoning_assist_for_simple_question(tmp_path):
     llm = FakeLLMService('{"ranked_ids":["sample-seoul-002"]}')
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -122,7 +134,7 @@ def test_tourism_chat_skips_reasoning_assist_for_simple_question(tmp_path):
 def test_tourism_chat_keeps_existing_order_when_reasoning_assist_fails(tmp_path):
     llm = FakeLLMService("not-json")
     service = TourismChatService(
-        Settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_reasoning_assist_enabled=True, tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
         llm_service=llm,
@@ -159,7 +171,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
 
     tour_api = FakeTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_rows=2,
@@ -177,7 +189,7 @@ def test_tourism_chat_prefers_live_tour_api_when_available(tmp_path):
     assert [card.content_id for card in response.cards] == ["live-1", "live-2"]
     assert response.lookup_mode == "live"
     assert response.degraded is False
-    assert response.sources[0].source == "한국관광공사 무장애 여행 정보 OpenAPI"
+    assert response.sources[0].source == "한국관광공사 무장애 여행 정보"
     assert tour_api.list_calls == 1
     assert tour_api.detail_common_calls == 2
     assert tour_api.detail_with_tour_calls == 2
@@ -194,7 +206,7 @@ def test_tourism_chat_uses_indexed_cards_before_live_tour_api(tmp_path):
 
     tour_api = CountingTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=tmp_path / "live_cache",
@@ -229,7 +241,7 @@ def test_tourism_chat_caches_live_tour_api_region_results(tmp_path):
 
     tour_api = FakeTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=tmp_path / "live_cache",
@@ -267,7 +279,7 @@ def test_tourism_chat_reads_persisted_live_markdown_before_api_call(tmp_path):
 
     tour_api = CountingTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=live_cache_dir,
@@ -299,7 +311,7 @@ def test_tourism_chat_persists_live_tour_api_cards_to_markdown(tmp_path):
             return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
 
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tour_api_service_key="test",
             tour_api_accessible_service_key="test",
             tourism_live_cache_path=live_cache_dir,
@@ -318,10 +330,221 @@ def test_tourism_chat_persists_live_tour_api_cards_to_markdown(tmp_path):
     assert "저장 대상 관광지" in cached_files[0].read_text(encoding="utf-8")
 
 
+def test_tourism_chat_live_update_returns_live_when_ready_before_grace(tmp_path):
+    class FastTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            time.sleep(0.01)
+            return [{"contentid": "live-fast"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "빠른 최신 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.05,
+            tourism_live_background_timeout_seconds=0.2,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        tour_api_service=FastTourAPI(),
+    )
+
+    response = service.answer("서울에서 휠체어 관광지 추천", session_id="s-fast")
+
+    assert response.lookup_mode == "live"
+    assert response.live_update_pending is False
+    assert response.cards[0].title == "빠른 최신 관광지"
+
+
+def test_tourism_chat_live_update_fallback_then_pending_update(tmp_path):
+    class SlowTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            time.sleep(0.08)
+            return [{"contentid": "live-slow"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "늦게 온 최신 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.02,
+            tourism_live_background_timeout_seconds=30.0,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        tour_api_service=SlowTourAPI(),
+    )
+
+    first = service.answer("서울에서 휠체어 관광지 추천", session_id="s-slow")
+
+    assert first.lookup_mode == "indexed"
+    assert first.live_update_pending is True
+    assert "최신 결과 업데이트 보기" not in first.suggested_messages
+
+    update = service.answer("최신 결과 업데이트 보기", session_id="s-slow")
+    for _ in range(50):
+        if update.lookup_mode == "live_update":
+            break
+        time.sleep(0.1)
+        update = service.answer("최신 결과 업데이트 보기", session_id="s-slow")
+
+    assert update.lookup_mode == "live_update"
+    assert update.live_update_pending is False
+    assert update.cards[0].title == "늦게 온 최신 관광지"
+    assert "새로운 최신 추천 결과" in update.answer
+
+
+def test_tourism_chat_live_update_does_not_start_second_sync_live_call_after_grace(tmp_path):
+    calls = 0
+    lock = threading.Lock()
+
+    class SlowTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.2)
+            return [{"contentid": "live-slow-no-sync"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "동기 재호출 방지 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.02,
+            tourism_live_background_timeout_seconds=1.0,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        EmptyRetriever(),
+        TourismQueryService(),
+        tour_api_service=SlowTourAPI(),
+    )
+
+    started_at = time.perf_counter()
+    first = service.answer("서울에서 휠체어 관광지 추천", session_id="s-no-sync")
+    elapsed = time.perf_counter() - started_at
+
+    assert first.lookup_mode == "unknown"
+    assert first.live_update_pending is True
+    assert elapsed < 0.3
+    with lock:
+        assert calls == 1
+
+
+def test_tourism_chat_live_update_times_out_after_background_limit(tmp_path):
+    release = threading.Event()
+
+    class TooSlowTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            release.wait(30)
+            return [{"contentid": "live-too-slow"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "너무 늦은 최신 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.02,
+            tourism_live_background_timeout_seconds=0.08,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        tour_api_service=TooSlowTourAPI(),
+    )
+
+    first = service.answer("서울에서 휠체어 관광지 추천", session_id="s-timeout")
+    assert first.lookup_mode == "indexed"
+    assert first.live_update_pending is True
+
+    time.sleep(0.12)
+    timeout = service.answer("최신 결과 업데이트 보기", session_id="s-timeout")
+    release.set()
+
+    assert timeout.lookup_mode == "live_update_timeout"
+    assert timeout.cards == []
+    assert timeout.degraded is True
+
+
+def test_tourism_chat_live_update_cancels_previous_on_new_request(tmp_path):
+    release = threading.Event()
+
+    class BlockingTourAPI:
+        def accessible_area_based_list(self, area_code: str, sigungu_code=None, num_of_rows=10):
+            release.wait(0.3)
+            return [{"contentid": "cancelled-live"}]
+
+        def detail_common(self, content_id: str):
+            return {"contentid": content_id, "title": "취소된 최신 관광지", "addr1": "서울 중구"}
+
+        def detail_with_tour(self, content_id: str):
+            return {"contentid": content_id, "wheelchair": "휠체어 접근 가능"}
+
+    service = TourismChatService(
+        tourism_settings(
+            tourism_lookup_strategy="live_update",
+            tourism_live_first_wait_seconds=0.02,
+            tourism_live_background_timeout_seconds=0.2,
+            tour_api_service_key="test",
+            tour_api_accessible_service_key="test",
+            tourism_live_cache_path=tmp_path / "live_cache",
+            tourism_sample_path=tmp_path / "samples",
+        ),
+        FakeRetriever(),
+        TourismQueryService(),
+        tour_api_service=BlockingTourAPI(),
+    )
+
+    first = service.answer("서울에서 휠체어 관광지 추천", session_id="s-cancel")
+    assert first.live_update_pending is True
+
+    second = service.answer("부산에서 휠체어 관광지 추천", session_id="s-cancel")
+    assert second.lookup_mode in {"indexed", "sample"}
+    release.set()
+    time.sleep(0.05)
+
+    update = service.answer("최신 결과 업데이트 보기", session_id="s-cancel")
+
+    assert update.lookup_mode != "live_update"
+    assert all(card.title != "취소된 최신 관광지" for card in update.cards)
+    cached_text = "\n".join(path.read_text(encoding="utf-8") for path in (tmp_path / "live_cache").glob("*.md"))
+    assert "취소된 최신 관광지" not in cached_text
+
+
 def test_tourism_chat_logs_query_card_event(tmp_path):
     log_path = tmp_path / "events.jsonl"
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_query_event_log_path=log_path,
             tourism_query_event_log_enabled=True,
             tourism_query_event_log_include_message=False,
@@ -331,7 +554,7 @@ def test_tourism_chat_logs_query_card_event(tmp_path):
         FakeRetriever(),
         TourismQueryService(),
         event_logger=TourismQueryEventLogger(
-            Settings(
+            tourism_settings(
                 tourism_query_event_log_path=log_path,
                 tourism_query_event_log_enabled=True,
                 tourism_query_event_log_include_message=False,
@@ -368,7 +591,7 @@ def test_tourism_chat_uses_local_samples_before_live_tour_api(tmp_path):
 
     tour_api = BrokenTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key="test",
@@ -412,7 +635,7 @@ def test_tourism_chat_suggests_live_top_up_when_fallback_has_less_than_five_card
 
     tour_api = CountingTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key="test",
@@ -427,7 +650,7 @@ def test_tourism_chat_suggests_live_top_up_when_fallback_has_less_than_five_card
 
     assert len(response.cards) == 3
     assert tour_api.list_calls == 0
-    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 최신 정보 더 찾기"]
+    assert response.suggested_messages == ["제주시에서 휠체어 관광지 추천해줘 최신 추천 더 확인하기"]
 
 
 def test_tourism_chat_live_top_up_runs_only_when_user_requests_it(tmp_path):
@@ -463,7 +686,7 @@ def test_tourism_chat_live_top_up_runs_only_when_user_requests_it(tmp_path):
 
     tour_api = FakeTourAPI()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key="test",
@@ -496,7 +719,7 @@ def test_tourism_chat_falls_back_to_local_samples(tmp_path):
             raise RuntimeError("Ollama unavailable")
 
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -511,11 +734,11 @@ def test_tourism_chat_falls_back_to_local_samples(tmp_path):
     assert response.cards[0].title == "오죽헌"
     assert response.sources[0].chunk_id == "sample-gangneung-001"
     assert response.degraded is True
-    assert "fallback" in response.warnings[0]
+    assert "먼저 확인된 자료" in response.warnings[0]
 
 
 def test_tourism_chat_does_not_expand_sigungu_without_intent():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("광진구에서 휠체어로 갈만한 곳 추천")
 
@@ -526,7 +749,7 @@ def test_tourism_chat_does_not_expand_sigungu_without_intent():
 
 def test_tourism_chat_keeps_nearby_sigungu_inside_requested_region(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -543,7 +766,7 @@ def test_tourism_chat_keeps_nearby_sigungu_inside_requested_region(tmp_path):
 
 def test_tourism_chat_explicit_expand_followup_keeps_previous_condition(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -573,7 +796,7 @@ def test_tourism_chat_expansion_copy_requires_actual_outside_sigungu_cards():
 
 
 def test_tourism_chat_conditional_expansion_keeps_local_cards_first():
-    service = TourismChatService(Settings(), EmptyRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), EmptyRetriever(), TourismQueryService())
     query = {
         "is_sigungu": True,
         "area_name": "서울",
@@ -603,7 +826,7 @@ def test_tourism_chat_conditional_expansion_keeps_local_cards_first():
 
 
 def test_tourism_chat_conditional_expansion_expands_only_when_local_cards_are_few():
-    service = TourismChatService(Settings(), EmptyRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), EmptyRetriever(), TourismQueryService())
     query = {
         "is_sigungu": True,
         "area_name": "서울",
@@ -679,7 +902,7 @@ def test_tourism_chat_rejects_general_place_type_only_query(tmp_path):
     (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
     (sample_dir / "restaurant.md").write_text(normalizer.card_to_markdown(restaurant), encoding="utf-8")
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -698,7 +921,7 @@ def test_tourism_chat_rejects_general_place_type_only_query(tmp_path):
 
 def test_tourism_chat_rejects_general_tourism_query_without_accessibility_condition(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -733,7 +956,7 @@ def test_tourism_chat_does_not_expand_place_type_when_accessibility_condition_is
     (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
     (sample_dir / "restaurant.md").write_text(normalizer.card_to_markdown(restaurant), encoding="utf-8")
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -762,7 +985,7 @@ def test_tourism_chat_distinguishes_exact_evidence_missing_from_no_card_output(t
     )
     (sample_dir / "gallery.md").write_text(normalizer.card_to_markdown(gallery), encoding="utf-8")
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -794,7 +1017,7 @@ def test_tourism_chat_accepts_one_alternative_evidence_group(tmp_path):
     )
     (sample_dir / "library.md").write_text(normalizer.card_to_markdown(library), encoding="utf-8")
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -832,7 +1055,7 @@ def test_tourism_chat_keeps_tactile_map_strict_from_braille_block(tmp_path):
     (sample_dir / "braille.md").write_text(normalizer.card_to_markdown(braille_only), encoding="utf-8")
     (sample_dir / "tactile.md").write_text(normalizer.card_to_markdown(tactile), encoding="utf-8")
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -848,7 +1071,7 @@ def test_tourism_chat_keeps_tactile_map_strict_from_braille_block(tmp_path):
 
 def test_tourism_chat_remembers_region_after_condition_clarification(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -901,7 +1124,7 @@ def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
         ),
         encoding="utf-8",
     )
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService(area_code_cache_path=cache_path))
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService(area_code_cache_path=cache_path))
 
     response = service.answer("중구에서 휠체어 타시는 아버지와 갈 관광지 추천")
 
@@ -919,7 +1142,7 @@ def test_tourism_chat_asks_to_clarify_ambiguous_region(tmp_path):
 
 def test_tourism_chat_asks_to_clarify_ambiguous_condition_boundary(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -939,7 +1162,7 @@ def test_tourism_chat_asks_to_clarify_ambiguous_condition_boundary(tmp_path):
 
 def test_tourism_chat_clarifies_broad_accessibility_good_phrase(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         FakeRetriever(),
         TourismQueryService(),
     )
@@ -1003,7 +1226,7 @@ def test_tourism_chat_resolves_area_qualified_ambiguous_region(tmp_path):
             return []
 
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -1040,7 +1263,7 @@ def test_tourism_chat_filters_same_sigungu_name_by_area(tmp_path):
     (sample_dir / "ulsan.md").write_text(TourismNormalizer().card_to_markdown(ulsan_card), encoding="utf-8")
 
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -1090,7 +1313,7 @@ def test_tourism_chat_explains_legacy_region_name_replacement(tmp_path):
         encoding="utf-8",
     )
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(area_code_cache_path=cache_path),
     )
@@ -1116,7 +1339,7 @@ def test_tourism_chat_suggests_more_when_more_than_five_cards_exist(tmp_path):
         )
         (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1140,7 +1363,7 @@ def test_tourism_chat_returns_more_cards_when_more_is_requested(tmp_path):
         )
         (sample_dir / f"jeju_{index}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1174,7 +1397,7 @@ def test_tourism_chat_more_keeps_area_region_scope(tmp_path):
         )
         (sample_dir / f"seoul_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1207,7 +1430,7 @@ def test_tourism_chat_area_filter_uses_address_not_title(tmp_path):
     (sample_dir / "gyeonggi_valid.md").write_text(normalizer.card_to_markdown(valid_card), encoding="utf-8")
     (sample_dir / "gyeonggi_noise.md").write_text(normalizer.card_to_markdown(title_noise), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1240,7 +1463,7 @@ def test_tourism_chat_area_filter_does_not_match_address_suffix_alias(tmp_path):
     (sample_dir / "sejong_valid.md").write_text(normalizer.card_to_markdown(valid_card), encoding="utf-8")
     (sample_dir / "sejong_noise.md").write_text(normalizer.card_to_markdown(suffix_noise), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1275,7 +1498,7 @@ def test_tourism_chat_more_filters_every_card_by_requested_condition(tmp_path):
         )
         (sample_dir / f"busan_noise_{index}.md").write_text(normalizer.card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1295,7 +1518,7 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
             return []
 
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -1313,7 +1536,7 @@ def test_tourism_chat_handles_empty_retrieval_and_empty_samples(tmp_path):
 
 def test_tourism_chat_no_card_suggestions_include_region_expansion_and_relaxation(tmp_path):
     service = TourismChatService(
-        Settings(tourism_live_cache_path=tmp_path / "live_cache"),
+        tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1326,7 +1549,7 @@ def test_tourism_chat_no_card_suggestions_include_region_expansion_and_relaxatio
 
 
 def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("서울 강남구에 바닷가 휠체어 관광지 추천해줘")
 
@@ -1335,7 +1558,7 @@ def test_tourism_chat_does_not_return_region_cards_for_unmatched_place_feature()
 
 
 def test_tourism_chat_does_not_return_broad_region_cards_for_unmatched_place_feature():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("대전에서 바닷가 휠체어 관광지 추천해줘")
 
@@ -1344,7 +1567,7 @@ def test_tourism_chat_does_not_return_broad_region_cards_for_unmatched_place_fea
 
 
 def test_tourism_chat_asks_for_region_before_searching():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("휠체어 타는 가족이랑 갈 만한 관광지 추천해줘")
 
@@ -1355,7 +1578,7 @@ def test_tourism_chat_asks_for_region_before_searching():
 
 
 def test_tourism_chat_rejects_unsupported_price_comparison():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("휠체어 대여 가격이 제일 싼 곳 알려줘")
 
@@ -1365,18 +1588,18 @@ def test_tourism_chat_rejects_unsupported_price_comparison():
 
 
 def test_tourism_chat_answers_supported_part_when_scope_request_is_mixed(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     response = service.answer("서울에서 휠체어 관광지 추천하면서 근처 응급실과 약국도 같이 알려줘")
 
     assert response.cards
     assert response.lookup_mode == "indexed"
-    assert "현재 MVP의 확인 데이터 범위 밖" in response.answer
+    assert "현재 서비스에서 확인할 수 있는 데이터 범위 밖" in response.answer
     assert response.warnings
 
 
 def test_tourism_chat_clarifies_when_unsupported_condition_is_core():
-    service = TourismChatService(Settings(), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(), FakeRetriever(), TourismQueryService())
 
     response = service.answer("제주에서 지하철역 바로 연결된 무장애 관광지 추천해줘")
 
@@ -1412,7 +1635,7 @@ def test_tourism_chat_sample_cards_are_cached(tmp_path):
 
     codec = CountingCodec()
     service = TourismChatService(
-        Settings(
+        tourism_settings(
             tourism_sample_path=sample_dir,
             tourism_live_cache_path=tmp_path / "live_cache",
             tour_api_service_key=None,
@@ -1428,7 +1651,7 @@ def test_tourism_chat_sample_cards_are_cached(tmp_path):
 
 
 def test_tourism_chat_uses_session_region_for_more_followup(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     first = service.answer("서울에서 휠체어 관광지 추천해줘", session_id="conv-more")
     followup = service.answer("더 보기", session_id="conv-more")
@@ -1440,7 +1663,7 @@ def test_tourism_chat_uses_session_region_for_more_followup(tmp_path):
 
 
 def test_tourism_chat_replaces_negated_condition_in_followup(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("서울에서 유모차 관광지 추천해줘", session_id="conv-condition")
     followup = service.answer("아니, 유모차 말고 휠체어로 갈 수 있는 곳", session_id="conv-condition")
@@ -1452,7 +1675,7 @@ def test_tourism_chat_replaces_negated_condition_in_followup(tmp_path):
 
 
 def test_tourism_chat_does_not_reuse_context_for_pure_unsupported_followup(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     first = service.answer("서울에서 휠체어 관광지 추천해줘", session_id="conv-unsupported")
     followup = service.answer("입장료도 알려줘", session_id="conv-unsupported")
@@ -1483,7 +1706,7 @@ def test_tourism_chat_resets_conditions_for_find_again_followup(tmp_path):
     )
     (sample_dir / "gangneung_hearing.md").write_text(TourismNormalizer().card_to_markdown(hearing_card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1498,7 +1721,7 @@ def test_tourism_chat_resets_conditions_for_find_again_followup(tmp_path):
 
 
 def test_tourism_chat_continues_when_unsupported_topic_is_negated(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("부산 중구에서 휠체어 관광지 추천해줘", session_id="conv-negated-unsupported")
     followup = service.answer("응급실은 말고 관광지만 계속", session_id="conv-negated-unsupported")
@@ -1509,7 +1732,7 @@ def test_tourism_chat_continues_when_unsupported_topic_is_negated(tmp_path):
 
 
 def test_tourism_chat_clarifies_core_unsupported_followup(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("제주에서 휠체어 관광지 추천해줘", session_id="conv-subway-core")
     followup = service.answer("지하철역 바로 연결된 곳만", session_id="conv-subway-core")
@@ -1520,7 +1743,7 @@ def test_tourism_chat_clarifies_core_unsupported_followup(tmp_path):
 
 
 def test_tourism_chat_applies_negative_preference_in_followup(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("부산 중구에서 휠체어 관광지 추천해줘", session_id="conv-negative")
     followup = service.answer("그중 시장 말고", session_id="conv-negative")
@@ -1530,7 +1753,7 @@ def test_tourism_chat_applies_negative_preference_in_followup(tmp_path):
 
 
 def test_tourism_chat_does_not_inherit_sigungu_when_switching_to_area(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("강릉에서 휠체어 관광지 추천해줘", session_id="conv-area-switch")
     followup = service.answer("강릉 말고 서울로", session_id="conv-area-switch")
@@ -1541,7 +1764,7 @@ def test_tourism_chat_does_not_inherit_sigungu_when_switching_to_area(tmp_path):
 
 
 def test_tourism_chat_removes_excluded_previous_preference(tmp_path):
-    service = TourismChatService(Settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
+    service = TourismChatService(tourism_settings(tourism_live_cache_path=tmp_path / "live_cache"), FakeRetriever(), TourismQueryService())
 
     service.answer("서울에서 시장 관광지 추천해줘", session_id="conv-preference-remove")
     followup = service.answer("시장 말고 휠체어 기준", session_id="conv-preference-remove")
@@ -1564,7 +1787,7 @@ def test_tourism_chat_uses_stroller_mobility_evidence_when_no_dedicated_stroller
     )
     (sample_dir / "stroller_mobility.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1598,7 +1821,7 @@ def test_tourism_chat_requires_explicit_detail_terms_on_same_card(tmp_path):
     for card in cards:
         (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1625,7 +1848,7 @@ def test_tourism_chat_contextualizes_visual_accessibility_card_reason(tmp_path):
     )
     (sample_dir / "jeju_braille.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1661,7 +1884,7 @@ def test_tourism_chat_relaxes_multi_condition_unless_all_conditions_are_explicit
     for card in [wheelchair_only, stroller_only]:
         (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1695,7 +1918,7 @@ def test_tourism_chat_excludes_food_cards_with_table_evidence(tmp_path):
     for card in [museum, restaurant]:
         (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )
@@ -1727,7 +1950,7 @@ def test_tourism_chat_uses_mobility_evidence_for_stroller_place_type_preference(
     for card in [family_museum, accessible_market]:
         (sample_dir / f"{card.content_id}.md").write_text(TourismNormalizer().card_to_markdown(card), encoding="utf-8")
     service = TourismChatService(
-        Settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
+        tourism_settings(tourism_sample_path=sample_dir, tourism_live_cache_path=tmp_path / "live_cache", tour_api_service_key=None),
         EmptyRetriever(),
         TourismQueryService(),
     )

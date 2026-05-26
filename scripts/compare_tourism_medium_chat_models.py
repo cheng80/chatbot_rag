@@ -15,6 +15,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "eval" / "tourism_context_medium_chat_eval_v4_120.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "medium_chat_model_compare_20260518"
+SUPERGEMMA4_MODEL = "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M"
+GEMMA3_FAST_MODEL = "gemma3:4b-it-q4_K_M"
+GEMMA4_MODEL = "gemma4:e4b"
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -180,13 +183,31 @@ def run_condition_eval(rows: list[dict[str, Any]]) -> dict[str, Any]:
     from app.services.tourism_condition_transformer import TourismConditionTransformer
     from app.services.tourism_query_service import CONDITION_KEYWORDS, TourismQueryService
 
+    quickspacer_available = True
+
     class QuickSpacerCorrector:
         def __init__(self):
-            from quickspacer import Spacer
+            try:
+                from quickspacer import Spacer
+            except ModuleNotFoundError:
+                nonlocal quickspacer_available
+                quickspacer_available = False
+                self.spacer = None
+                return
 
             self.spacer = Spacer()
 
         def correct(self, text: str, protected_terms: list[str]) -> ExternalCorrectionResult:
+            if self.spacer is None:
+                return ExternalCorrectionResult(
+                    raw_text=text,
+                    corrected_text=text,
+                    accepted=False,
+                    provider="quickspacer",
+                    model="quickspacer",
+                    reason="module_missing",
+                    damaged_terms=[],
+                )
             spaced = self.spacer.space([text])
             corrected = str(spaced[0]).strip() if isinstance(spaced, list) and spaced else str(text)
             return ExternalCorrectionResult(
@@ -203,8 +224,10 @@ def run_condition_eval(rows: list[dict[str, Any]]) -> dict[str, Any]:
     services = {
         "rule_parser": TourismQueryService(enable_external_correction=False),
         "et5_local": TourismQueryService(enable_external_correction=True),
-        "quickspacer": TourismQueryService(external_corrector=QuickSpacerCorrector(), enable_external_correction=True),
     }
+    quickspacer = QuickSpacerCorrector()
+    if quickspacer_available:
+        services["quickspacer"] = TourismQueryService(external_corrector=quickspacer, enable_external_correction=True)
     results = {}
     for name, service in services.items():
         predictions = {case["id"]: set(service.extract(case["text"]).get("conditions") or []) for case in cases}
@@ -226,6 +249,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--skip-chat", action="store_true")
     parser.add_argument("--skip-condition", action="store_true")
+    parser.add_argument(
+        "--include-reasoning-assist",
+        action="store_true",
+        help="Also run slow full-pipeline variants with TOURISM_REASONING_ASSIST_ENABLED=true and Ollama chat models.",
+    )
     return parser.parse_args()
 
 
@@ -233,9 +261,27 @@ def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = load_jsonl(args.input)
+    variant_names = [
+        "current_runtime",
+        "rule_parser",
+        "et5_local",
+        "quickspacer",
+        "roberta_small_candidate",
+        "current_supergemma4_reasoning",
+        "et5_roberta_supergemma4_reasoning",
+        "current_gemma3_reasoning",
+        "current_gemma4_reasoning",
+    ]
     chat_eval = {}
     if not args.skip_chat:
         variants = {
+            "current_runtime": {
+                "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
+                "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
+                "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
+                "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false",
+                "TOURISM_REASONING_ASSIST_ENABLED": "false",
+            },
             "rule_parser": {"TOURISM_KOREAN_CORRECTION_ENABLED": "false", "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false"},
             "et5_local": {
                 "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
@@ -254,9 +300,55 @@ def main() -> None:
                 "TOURISM_CONDITION_TRANSFORMER_ENABLED": "true",
             },
         }
+        if args.include_reasoning_assist:
+            variants.update(
+                {
+                    "current_supergemma4_reasoning": {
+                        "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
+                        "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
+                        "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
+                        "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false",
+                        "TOURISM_REASONING_ASSIST_ENABLED": "true",
+                        "OLLAMA_CHAT_MODEL": SUPERGEMMA4_MODEL,
+                        "LLM_THINK": "false",
+                    },
+                    "et5_roberta_supergemma4_reasoning": {
+                        "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
+                        "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
+                        "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
+                        "TOURISM_CONDITION_TRANSFORMER_ENABLED": "true",
+                        "TOURISM_REASONING_ASSIST_ENABLED": "true",
+                        "OLLAMA_CHAT_MODEL": SUPERGEMMA4_MODEL,
+                        "LLM_THINK": "false",
+                    },
+                    "current_gemma3_reasoning": {
+                        "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
+                        "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
+                        "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
+                        "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false",
+                        "TOURISM_REASONING_ASSIST_ENABLED": "true",
+                        "OLLAMA_CHAT_MODEL": GEMMA3_FAST_MODEL,
+                        "LLM_THINK": "false",
+                    },
+                    "current_gemma4_reasoning": {
+                        "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
+                        "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
+                        "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
+                        "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false",
+                        "TOURISM_REASONING_ASSIST_ENABLED": "true",
+                        "OLLAMA_CHAT_MODEL": GEMMA4_MODEL,
+                        "LLM_THINK": "false",
+                    },
+                }
+            )
         for name, env in variants.items():
             print(json.dumps({"running_chat_variant": name}, ensure_ascii=False), flush=True)
             chat_eval[name] = run_chat_eval(args.input, args.output_dir, name, env)
+    else:
+        for name in variant_names:
+            output_path = args.output_dir / f"{name}.jsonl"
+            if output_path.exists():
+                chat_eval[name] = summarize_chat_output(output_path)
     condition_eval = {} if args.skip_condition else run_condition_eval(rows)
     report = {
         "input": str(args.input),
@@ -270,7 +362,12 @@ def main() -> None:
     }
     write_json(args.output_dir / "summary.json", report)
     write_markdown(args.output_dir / "summary.md", report)
-    print(json.dumps({"output": str((args.output_dir / "summary.json").relative_to(PROJECT_ROOT))}, ensure_ascii=False))
+    output_path = args.output_dir / "summary.json"
+    try:
+        output_display = str(output_path.resolve().relative_to(PROJECT_ROOT))
+    except ValueError:
+        output_display = str(output_path)
+    print(json.dumps({"output": output_display}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

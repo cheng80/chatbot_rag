@@ -35,8 +35,8 @@ notebooks/
 | 12 | `tourism/context_llm_dataset_generation.md` | Codex/LLM hard-style 학습셋 생성 절차 |
 | 13 | `tourism/tourism_keyword_variant_followup.md` | 핵심어/동의어/오타 보강 후속 작업과 보류 기준 |
 | 14 | `tourism/tourism_model_reasoning_benchmark.md` | 로컬 LLM 추론 보조 비교 |
-| 15 | `tourism/tourism_service_enhancement_ideas.md` | 기본 추천 기능 이후의 편의 기능 보강안 |
-| 16 | `tourism/autorag_retrieval_experiment.md` | AutoRAG 기반 관광 Markdown 검색 최적화 실험 계획 |
+| 15 | `tourism/autorag_retrieval_experiment.md` | AutoRAG retrieval-only 오프라인 검색 실험 |
+| 16 | `tourism/tourism_service_enhancement_ideas.md` | 기본 추천 기능 이후의 편의 기능 보강안 |
 | 17 | `design/tourism_chatbot_DESIGN.md` | `/tourism-ui/` 디자인 기준 |
 | 18 | `project/demo_capture_scenarios.md` | 발표용 캡처와 시연 질문 |
 | 19 | `project/mvp_quality_work_log.md` | 작업 이력과 산출물 목록 |

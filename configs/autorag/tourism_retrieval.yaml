@@ -19,7 +19,7 @@ node_lines:
         top_k: [5, 10, 20, 40]
         modules:
           - module_type: bm25
-            bm25_tokenizer: [space, ko_kiwi]
+            bm25_tokenizer: [space, ko_kiwi, ko_okt, ko_kkma]
 
       - node_type: semantic_retrieval
         strategy:

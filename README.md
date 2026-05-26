@@ -63,7 +63,7 @@ ChromaDB/RAG로 미리 수집한 관광 자료 검색
 답변 + 관광지 카드 + 출처 + 주의 문구 반환
 ```
 
-검색 후보 단계는 AutoRAG 오프라인 비교 결과를 참고해 운영 로직은 그대로 두고 후보 검색 폭만 조정합니다. 현재 비교에서는 Ollama `bge-m3` 기반 vector-only `top_k=40`이 BM25와 BM25+Vector RRF보다 안정적이었습니다.
+검색 후보 단계는 기존 Chroma vector-only 구조를 유지합니다. 과거 오프라인 검색 비교에서 `top_k=40`이 가장 안정적이어서 운영 기본 검색 폭만 넓혔고, 별도 검색 최적화 프레임워크는 런타임에 사용하지 않습니다.
 
 2026-05-26 기준 자동 회귀 결과:
 
@@ -166,6 +166,8 @@ ollama pull bge-m3
 `supergemma4-e4b-abliterated`는 한국어 상담 답변 품질을 보기 위한 1차 LLM 후보이고, `gemma3:4b-it-q4_K_M`는 비교 기준선입니다.
 `gemma4:e4b`와 `qwen3:4b`는 별도 사고 과정을 반환하는 모델 후보로 비교했습니다. 사용자 제안 모델인 `huihui_ai/gemma-4-abliterated:e4b`는 실험 후보에 포함하되, 안전 필터 약화 경고가 있어 공개 테스트 기본값으로 쓰기 전 수동 검토가 필요합니다.
 `bge-m3`가 로컬 환경에서 지원되지 않으면 `.env`의 `OLLAMA_EMBED_MODEL` 값을 다른 Ollama 임베딩 모델로 바꿔 사용할 수 있습니다.
+
+AutoRAG는 운영 런타임 의존성이 아니라 retrieval-only 오프라인 검색 실험 도구입니다. 필요할 때만 별도 venv에 `requirements-autorag.txt`를 설치해 `docs/tourism/autorag_retrieval_experiment.md` 절차로 실행합니다.
 
 ## 4. 환경 변수
 

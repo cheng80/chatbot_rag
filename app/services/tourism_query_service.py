@@ -183,7 +183,7 @@ PREFERENCE_KEYWORDS = {
     "카페_음식점": ["카페", "식당", "음식점", "맛집", "레스토랑"],
     "조용한": ["조용", "한적", "붐비지", "덜 붐비"],
 }
-NEGATION_NEARBY_KEYWORDS = ["말고", "빼고", "제외", "아닌", "말고는", "말고요", "취소"]
+NEGATION_NEARBY_KEYWORDS = ["말고", "빼고", "제외", "아닌", "말고는", "말고요", "취소", "패스"]
 UNSUPPORTED_INTENT_KEYWORDS = {
     "wheelchair_rental_price": ["휠체어 대여", "대여 가격", "가격이 제일 싼", "제일 싼 곳", "최저가"],
     "medical_lookup": ["병원", "약국", "응급실", "응급의료"],

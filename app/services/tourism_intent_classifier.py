@@ -172,7 +172,7 @@ class TourismIntentClassifier:
         for intent, keywords in rules:
             if any(keyword in normalized for keyword in keywords):
                 return TourismIntentPrediction(intent=intent, confidence=1.0, scores={intent: 1.0})
-        if any(keyword in normalized for keyword in ["말고", "빼고", "제외", "아니고", "대신", "됐고"]):
+        if any(keyword in normalized for keyword in ["말고", "빼고", "제외", "아니고", "대신", "됐고", "패스"]):
             return TourismIntentPrediction(intent="exclude_preference", confidence=0.98, scores={"exclude_preference": 0.98})
         if TourismIntentClassifier._looks_like_recommend_request(normalized):
             return TourismIntentPrediction(intent="recommend_places", confidence=0.96, scores={"recommend_places": 0.96})
@@ -523,7 +523,7 @@ class TourismIntentClassifier:
             return False
         return bool(
             re.search(
-                r"(빼고|빼줘|제외|사양|안 갈래|안 가고|안 가려고|안 가고 싶|추천 안|안 해줘도|됐어|필요 없어)",
+                r"(빼고|빼줘|제외|사양|패스|안 갈래|안 가고|안 가려고|안 가고 싶|추천 안|안 해줘도|됐어|필요 없어)",
                 text,
             )
         )

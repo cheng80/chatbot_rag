@@ -827,6 +827,141 @@ def test_tourism_query_keeps_bare_general_gu_ambiguous_when_multiple_parents(tmp
     assert len(query["ambiguous_region_candidates"]) == 2
 
 
+def test_tourism_query_resolves_general_gu_when_parent_city_is_named(tmp_path: Path):
+    area_cache_path = tmp_path / "tour_area_codes.json"
+    admin_alias_path = tmp_path / "admin_region_aliases.json"
+    area_cache_path.write_text(json.dumps({"region_index": {}, "ambiguous_region_aliases": {}}, ensure_ascii=False))
+    admin_alias_path.write_text(
+        json.dumps(
+            {
+                "aliases": {
+                    "고양 일산동구": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "고양시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "2",
+                        }
+                    ],
+                    "일산동구": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "고양시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "2",
+                        },
+                        {
+                            "area_name": "강원",
+                            "sigungu_name": "원주시",
+                            "tour_area_code": "32",
+                            "tour_sigungu_code": "9",
+                        },
+                    ],
+                },
+                "dong_aliases": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=area_cache_path, admin_region_alias_path=admin_alias_path)
+
+    query = service.extract("고양 일산동구에서 휠체어 관광지 추천")
+
+    assert query["region"] == "고양 일산동구"
+    assert query["area_code"] == "31"
+    assert query["sigungu_code"] == "2"
+    assert query["area_name"] == "경기"
+    assert query["sigungu_name"] == "고양시"
+    assert query["ambiguous_region"] is None
+
+
+def test_tourism_query_keeps_bare_legal_dong_ambiguous_when_multiple_sigungu(tmp_path: Path):
+    area_cache_path = tmp_path / "tour_area_codes.json"
+    admin_alias_path = tmp_path / "admin_region_aliases.json"
+    area_cache_path.write_text(json.dumps({"region_index": {}, "ambiguous_region_aliases": {}}, ensure_ascii=False))
+    admin_alias_path.write_text(
+        json.dumps(
+            {
+                "aliases": {},
+                "dong_aliases": {
+                    "상동": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "부천시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "11",
+                        },
+                        {
+                            "area_name": "전남",
+                            "sigungu_name": "목포시",
+                            "tour_area_code": "38",
+                            "tour_sigungu_code": "8",
+                        },
+                    ]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=area_cache_path, admin_region_alias_path=admin_alias_path)
+
+    query = service.extract("상동에서 유모차로 갈만한 관광지 추천")
+
+    assert query["region"] is None
+    assert query["ambiguous_region"] == "상동"
+    assert len(query["ambiguous_region_candidates"]) == 2
+
+
+def test_tourism_query_resolves_legal_dong_when_city_context_is_named(tmp_path: Path):
+    area_cache_path = tmp_path / "tour_area_codes.json"
+    admin_alias_path = tmp_path / "admin_region_aliases.json"
+    area_cache_path.write_text(json.dumps({"region_index": {}, "ambiguous_region_aliases": {}}, ensure_ascii=False))
+    admin_alias_path.write_text(
+        json.dumps(
+            {
+                "aliases": {},
+                "dong_aliases": {
+                    "부천 상동": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "부천시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "11",
+                        }
+                    ],
+                    "상동": [
+                        {
+                            "area_name": "경기",
+                            "sigungu_name": "부천시",
+                            "tour_area_code": "31",
+                            "tour_sigungu_code": "11",
+                        },
+                        {
+                            "area_name": "전남",
+                            "sigungu_name": "목포시",
+                            "tour_area_code": "38",
+                            "tour_sigungu_code": "8",
+                        },
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=area_cache_path, admin_region_alias_path=admin_alias_path)
+
+    query = service.extract("부천 상동에서 유모차로 갈만한 관광지 추천")
+
+    assert query["region"] == "부천 상동"
+    assert query["area_code"] == "31"
+    assert query["sigungu_code"] == "11"
+    assert query["area_name"] == "경기"
+    assert query["sigungu_name"] == "부천시"
+
+
 def test_tourism_query_uses_region_after_replacement_marker(tmp_path: Path):
     cache_path = tmp_path / "tour_area_codes.json"
     cache_path.write_text(
@@ -879,6 +1014,35 @@ def test_tourism_query_handles_particle_before_exclusion_marker(tmp_path: Path):
     query = service.extract("호텔이나 숙박은 빼고 관광지만 계속")
 
     assert query["preferences"] == []
+    assert query["excluded_preferences"] == ["숙박"]
+
+
+def test_tourism_query_marks_passed_lodging_as_excluded_preference(tmp_path: Path):
+    cache_path = tmp_path / "tour_area_codes.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "ambiguous_region_aliases": {},
+                "region_index": {
+                    "제주시": {
+                        "area_code": "39",
+                        "sigungu_code": "4",
+                        "area_name": "제주",
+                        "sigungu_name": "제주시",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    service = TourismQueryService(area_code_cache_path=cache_path, admin_region_alias_path=tmp_path / "missing_admin_aliases.json")
+
+    query = service.extract("제주시에서 숙박업소처럼 보이는 후보는 패스하고 낮에 볼거리만 추천해줘")
+
+    assert query["region"] == "제주시"
+    assert query["unsupported_intent"] is None
+    assert query["ml_intent"] == "exclude_preference"
     assert query["excluded_preferences"] == ["숙박"]
 
 

@@ -66,14 +66,13 @@ git status --short
 
 ## 최근 미커밋 작업 메모
 
-2026-05-25 AutoRAG 관광 검색 후보 실험:
+2026-05-25 검색 후보 실험 정리:
 
 - Excalidraw/이미지 다이어그램 작업은 중단하고 관련 파일/README 참조를 롤백했다. 다시 시도하려면 별도 작업으로 시작한다.
-- AutoRAG는 운영 엔진이 아니라 `/tourism/chat` 후보 검색 방식 비교용 오프라인 실험 도구로만 쓴다. 공식 AutoRAG의 prompt/generator 포함 전체 RAG Optimization을 운영 파이프라인으로 붙인 것이 아니라 retrieval-only screening으로 제한했다. 설정/절차는 `docs/tourism/autorag_retrieval_experiment.md`에 있다.
-- OpenAI API 토큰은 쓰지 않는다. AutoRAG 기본 OpenAI embedding 경로는 `OPENAI_API_KEY`가 필요하고 ChatGPT/Auth 세션으로 대체할 수 없다. 이 프로젝트의 full config는 Ollama `bge-m3` Chroma vector DB를 사용한다. 새 환경에서 모델이 없으면 `ollama pull bge-m3`를 먼저 실행한다.
-- `scripts/build_autorag_tourism_dataset.py`로 `data/raw/tourism_accessible/*.md`와 로컬 live markdown cache를 `corpus.parquet`, eval 질문 일부를 `qa.parquet`로 변환한다. 산출물은 `data/processed/autorag_tourism/` 아래에 만들며 git ignore 대상이다.
-- 1차 QA 80건, corpus 904건 기준 retrieval-only validate/evaluate에서 `VectorDB + bge-m3 + top_k=40`이 `retrieval_recall=0.9250`, `retrieval_ndcg=0.441883`, `retrieval_mrr=0.436346`으로 BM25와 BM25+Vector RRF보다 높았다. 이후 raw 904건 + live markdown 96건, QA 683건 기준 semantic vector-only top-k 재산출에서도 `top_k=40`이 best였다. 재산출 결과는 `data/processed/autorag_tourism_full_20260525/semantic_topk_trials/0/retrieve_node_line/semantic_retrieval/summary.csv`에 있다. BM25/RRF는 운영에 이식하지 않았다.
-- 운영 반영은 기존 vector-only 구조를 유지하고 후보 검색 기본 `TOP_K`를 40으로 넓히는 방식이다. 사용자에게 기본으로 보여주는 추천 카드 수는 여전히 최대 5장이고, `더 보기`/지역확장/unsupported 정책은 그대로 유지한다.
+- 과거 오프라인 retrieval-only screening에서 `bge-m3` 기반 vector-only `top_k=40`이 가장 안정적이었다.
+- 2026-05-27 이후 Rapid/MLX 전환 실험 관련 설정/스크립트/의존성은 제거했다. 운영은 기존 Chroma vector-only 구조를 유지한다.
+- 2026-05-27 AutoRAG는 운영 runner가 아니라 retrieval-only 오프라인 실험 도구로 되살렸다. BM25 토크나이저 후보는 `space`, `ko_kiwi`, `ko_okt`, `ko_kkma`이고, 로컬 관광 corpus 1,010개/QA 192개 직접 비교에서는 `bge-m3` vector-only top40 recall 0.6276/MRR 0.4052가 `ko_kkma` BM25 top40 recall 0.5072/MRR 0.2937, `ko_okt` BM25 top40 recall 0.3971/MRR 0.3332보다 높았다. 운영 검색은 계속 vector-only `top_k=40`이다.
+- 운영 반영은 후보 검색 기본 `TOP_K`를 40으로 넓히는 방식이다. 사용자에게 기본으로 보여주는 추천 카드 수는 여전히 최대 5장이고, `더 보기`/지역확장/unsupported 정책은 그대로 유지한다.
 - TOP_K=40 적용 후 challenge 30건과 residual hard chat 80건은 자동 채점 실패 0건이다. noisy realistic 200건은 unsupported copy 수정 전 42 실패였고, 서비스 범위 답변 문구 수정 후 28 실패로 줄었다. 남은 실패는 주로 카드 수/필수 근거 부족이며 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 데이터 문제로 분류한다.
 
 ```bash
@@ -287,7 +286,7 @@ curl -X POST http://localhost:8000/chat \
 - `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
 - `/tourism/chat`의 LLM 추론 보조는 기본값이 꺼져 있다. 복합 상황 질문 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켠다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
 - 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
-- 2026-05-15 로컬 모델 추론 보조 벤치마크를 실행했다. 결과 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. 현재 결론은 MVP 기본 추론 보조는 OFF이며, 켜더라도 native `think=false`로만 실험하는 것이다. `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 동작하지만 30초 이상 지연됐고, `qwen3:4b`는 현재 프롬프트에서 JSON/한국어 계약을 지키지 못했다.
+- 2026-05-27 기준 로컬 모델/파이프라인 벤치마크 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. MVP 기본 추론 보조는 OFF다. 20문항 LLM 트리거 eval은 SuperGemma4/Gemma3/Gemma4/OFF 모두 20/20 통과했지만, SuperGemma4가 assist 평균 9.9초로 가장 균형적이고 Gemma3는 Metal memory 부족 경고, Gemma4는 assist 평균 18.9초 지연이 있었다. 켜더라도 SuperGemma4 `think=false`로만 제한 실험한다.
 - 생성된 모델 벤치마크 원본은 `data/generated/tour_api/model_benchmarks/` 아래에 있으며 git ignore 대상이다. 필요하면 `scripts/benchmark_tourism_reasoning_models.py`로 다시 만든다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 신선도는 Post-MVP 주기적 갱신 배치로 해결한다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.

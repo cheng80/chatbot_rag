@@ -1,6 +1,6 @@
 # 문맥 해석 LLM hard-style 학습셋 생성 절차
 
-마지막 갱신: 2026-05-17
+마지막 갱신: 2026-05-27
 
 ## 목적
 
@@ -39,11 +39,28 @@
 data/generated/tour_api/context_llm_prompts/context_llm_generation_prompt_001.md
 ```
 
-이 프롬프트를 Codex에 주고 JSONL만 출력하게 한다. 출력은 예를 들어 다음 파일에 둔다.
+이 프롬프트를 LLM에 주고 JSONL만 출력하게 한다. 출력은 예를 들어 다음 파일에 둔다.
 
 ```text
 data/generated/tour_api/context_llm_batches/context_llm_batch_001.raw.jsonl
 ```
+
+## 1-1. 다음 실행 전 준비사항
+
+5번 작업을 진행하려면 아래 입력과 조건이 먼저 필요하다.
+
+| 준비 항목 | 필요 내용 |
+|---|---|
+| 생성 prompt | `data/generated/tour_api/context_llm_prompts/context_llm_generation_prompt_001.md`가 최신이어야 한다. 없으면 1번 명령으로 다시 만든다. |
+| LLM 출력 파일 | JSONL 후보를 `data/generated/tour_api/context_llm_batches/context_llm_batch_001.raw.jsonl`에 둔다. 한 줄에 JSON 객체 하나만 있어야 하며 Markdown/code fence를 넣지 않는다. |
+| 목표 행 수 | 현재 prompt 기준 300 rows 생성, 검수 통과 최소 250 rows를 목표로 한다. |
+| schema | `id`, `text`, `labels`, `category`, `required_terms`, `optional_terms`, `excluded_terms`, `risk_tags`, `rationale`만 허용한다. |
+| 라벨 | `strict_and`, `soft_and`, `or_condition`, `add_condition`, `replace_condition`, `exclude_condition`, `family_context`, `mobility_context`, `specific_facility_required`만 허용한다. |
+| 금지 | 기존 train/hard holdout 문장 복사, hard holdout 문장 조사만 바꾼 변형, 같은 category 반복 템플릿, 라벨 충돌 row. |
+| 검수 명령 | 2번 `validate_tourism_context_llm_dataset.py` 명령을 먼저 `--fail-on-reject` 없이 실행해 거절 사유를 확인한다. |
+| 병합 조건 | valid rows가 250개 이상이고 reject 사유가 schema/overlap/라벨 충돌 위주로 정리된 뒤에만 extra train으로 병합한다. |
+
+LLM 출력 파일이 없으면 이 단계는 진행할 수 없다. 이 경우 해야 할 일은 prompt를 최신 평가 결과에 맞춰 재생성하고, LLM에게 JSONL 후보를 만들게 하는 것이다.
 
 ## 2. LLM 결과 검수
 
@@ -65,6 +82,13 @@ data/generated/tour_api/context_llm_batches/context_llm_batch_001.raw.jsonl
 - 기존 train/hard holdout 문장 overlap 차단
 
 `--fail-on-reject`는 하나라도 거절된 row가 있으면 exit code 2로 종료한다. 대량 생성 초기에는 이 옵션을 빼고 거절 샘플을 먼저 보는 것이 좋다.
+검수 출력 JSON의 `valid_rows`, `rejected_rows`, `label_counts`, `rejected_samples`를 보고 다음을 확인한다.
+
+- valid rows가 `--min-rows` 이상인지
+- `<none>` row가 최소 10% 가까이 유지되는지
+- multi-label row가 충분한지
+- `soft_and`와 structural action 라벨 충돌이 없는지
+- 기존 train/holdout overlap이 없는지
 
 ## 3. fine-tuning split에 병합
 
@@ -127,3 +151,65 @@ data/generated/tour_api/context_llm_batches/context_llm_batch_001.raw.jsonl
 3. `유모차`를 family/mobility/시설 대여 맥락으로 나누는 문장을 늘린다.
 4. 아무 라벨도 없어야 하는 negative near-miss를 최소 10% 유지한다.
 5. hard-style validation을 별도 파일로 분리하는 다음 단계가 필요하다.
+
+## 2026-05-27 실행 결과
+
+기존 raw batch `data/generated/tour_api/context_llm_batches/context_llm_batch_20260517_human_light_1000.raw.jsonl`를 최신 validator로 재검수했다.
+
+검수:
+
+```bash
+.venv/bin/python scripts/validate_tourism_context_llm_dataset.py \
+  --input data/generated/tour_api/context_llm_batches/context_llm_batch_20260517_human_light_1000.raw.jsonl \
+  --output data/processed/tourism_context_llm_hard_training_20260527.valid.jsonl \
+  --min-rows 250 \
+  --fail-on-reject
+```
+
+결과:
+
+- input rows: 1,000
+- valid rows: 1,000
+- rejected rows: 0
+- `<none>` rows: 109
+- multi-label 중심 라벨 분포 유지
+
+병합:
+
+```bash
+.venv/bin/python scripts/prepare_tourism_context_finetune_data.py \
+  --extra-train-input data/processed/tourism_context_llm_hard_training_20260527.valid.jsonl \
+  --output-dir data/processed/context_finetune_20260527_llm_hard_1000
+```
+
+결과:
+
+- source train rows: 5,400
+- train rows: 4,599
+- validation rows: 801
+- test rows: 4,800
+
+NB shadow model:
+
+```bash
+.venv/bin/python scripts/train_tourism_context_classifier.py \
+  --input data/processed/context_finetune_20260527_llm_hard_1000/train.jsonl \
+  --output data/generated/tour_api/context_classifier_llm_hard_20260527.json
+```
+
+내부 split 결과는 exact 0.7087, micro-F1 0.8422다.
+
+독립 평가:
+
+| 평가셋 | best | rule-only exact/F1 | NB exact/F1 | best hybrid exact/F1 | 결론 |
+|---|---|---:|---:|---:|---|
+| hard holdout 4,800 | hybrid logistic | 0.9781 / 0.9920 | 0.9527 / 0.9822 | 0.9781 / 0.9920 | 기존 rule/hybrid와 동률, 채택 근거 없음 |
+| v4 rotating blind 80 | hybrid linear SVC | 0.7500 / 0.9127 | 0.6750 / 0.8816 | 0.7500 / 0.9127 | 개선 없음 |
+| blind holdout 80 | hybrid linear SVC | 0.7750 / 0.8934 | 0.7125 / 0.8692 | 0.7375 / 0.8826 | rule-only보다 낮음 |
+
+결론:
+
+- 1,000건 LLM hard-style 후보는 검수/병합 가능한 데이터로 확보했다.
+- 이 batch만으로는 런타임 문맥 판단자 교체나 NB shadow model 교체 근거가 없다.
+- `pilot_finetune` 신호는 v4/blind에서 headroom이 있다는 뜻이지 런타임 채택 신호가 아니다.
+- 다음 데이터 생성은 v4/blind failure bucket의 `soft_and`, `exclude_condition`, `mobility_context`, negative near-miss를 직접 겨냥해야 한다.

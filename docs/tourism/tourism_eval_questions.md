@@ -102,6 +102,15 @@ v4 rotating blind 생성과 평가는 아래처럼 실행했다.
   --output data/generated/tour_api/context_classifier_eval_rotating_v4_20260517.json
 ```
 
+2026-05-27에는 v4 mismatch 전체를 바로 룰 보강하지 않고, `data/generated/tour_api/context_v4_chat_impact_report.json`의 `card_filter_or_session_behavior` 10건만 실제 `/tourism/chat` 회귀셋으로 승격했다.
+새 파일은 `data/eval/tourism_context_v4_chat_impact_eval.jsonl`이다.
+이 파일은 모델 점수 개선용이 아니라 카드 반환, 무환각, soft 조건 과필터링 방지, near-miss 배제를 확인하는 제품 회귀셋이다.
+최초 실행에서 10건 모두 통과했다.
+
+```bash
+TOURISM_LIVE_LOOKUP_ENABLED=false .venv/bin/python scripts/eval_tourism_chat.py --direct --input data/eval/tourism_context_v4_chat_impact_eval.jsonl --output data/generated/tour_api/eval_runs/tourism_context_v4_chat_impact_latest.jsonl
+```
+
 chat blind v2 생성과 평가는 아래처럼 실행했다.
 
 ```bash

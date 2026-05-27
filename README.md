@@ -2,17 +2,17 @@
 
 한국관광공사 OpenAPI와 로컬 RAG 검색 자료를 함께 사용해, 무장애·가족 친화 관광지를 상담하듯 추천하는 로컬 실행형 챗봇 프로젝트입니다.
 
-현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다. 운영 기본 경로는 저장된 캐시와 Chroma/RAG fallback을 먼저 쓰고, 같은 지역·조건 근거가 부족할 때만 TourAPI live 조회로 보강하는 방식입니다. 웹 확인 UI는 이 repo에 있고, Flutter 전환 앱은 별도 repo `../chatbot_rag_app`와 GitHub `cheng80/chatbot_rag_app`에서 관리합니다.
+현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다. `live_update` 모드에서는 TourAPI를 먼저 확인하고, 응답이 늦거나 실패하면 저장된 캐시와 Chroma/RAG fallback 안전망으로 바로 응답합니다. 웹 확인 UI는 이 repo에 있고, Flutter 전환 앱은 별도 repo `../chatbot_rag_app`와 GitHub `cheng80/chatbot_rag_app`에서 관리합니다.
 
 일반 관광 추천도 기반 데이터상 가능하지만, 현재 검증 범위는 **무장애·가족 친화 조건을 중심으로 한 근거 있는 관광 추천**에 둡니다.
 
-![무장애·가족 친화 관광 챗봇 README 생성형 인포그래픽](docs/project/readme_project_infographic_ai_generated.png)
+![무장애·가족 친화 관광 챗봇 README 생성형 인포그래픽](docs/project/readme_project_infographic_ai_live_update_v1.png)
 
-생성형 포스터의 기준이 되는 HTML 원본은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다.
+생성형 포스터의 기준이 되는 HTML 원본은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다. 같은 내용을 포스터 스타일로 재해석한 [생성형 README 요약 이미지](docs/project/readme_project_infographic_ai_live_update_v1.png)도 함께 보관합니다.
 
-챗봇 RAG 내부 구조를 더 자세히 푼 그림은 아래 AI 균형형 인포그래픽과 [편집용 HTML](docs/project/chatbot_rag_internal_process_infographic.html), [기존 PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
+챗봇 RAG 내부 구조를 더 자세히 푼 그림은 아래 AI live_update 인포그래픽과 [편집용 HTML](docs/project/chatbot_rag_internal_process_infographic.html), [PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
 
-![챗봇 RAG 내부 구조 AI 균형형 인포그래픽](docs/project/chatbot_rag_internal_process_infographic_ai_balanced_v3.png)
+![챗봇 RAG 내부 구조 AI live_update 인포그래픽](docs/project/chatbot_rag_internal_process_infographic_ai_live_update_v4.png)
 
 교수님 또는 외부 검토자에게는 먼저 [무장애·가족 친화 관광 챗봇 시제품 검토 자료](docs/project/professor_review_brief.md)를 보여주는 것을 권장합니다. 이 README는 설치와 실행 방법을 함께 담은 개발·운영 안내 문서입니다.
 
@@ -47,7 +47,9 @@ ChromaDB 벡터DB에서 관련 문서 검색
 답변 + 출처 반환
 ```
 
-관광 챗봇은 매번 공공데이터를 새로 호출하지 않습니다. 이미 저장한 관광 카드 캐시와 RAG로 색인한 Markdown 자료를 먼저 확인하고, 같은 지역 카드가 없을 때만 한국관광공사 TourAPI를 조회합니다. 저장된 후보가 5장보다 적은 경우에는 자동으로 live 조회를 늘리지 않고 `최신 정보 더 찾기` 후속 선택지를 제안합니다. 데이터 최신성은 시제품 단계에서는 제한적으로 다루고, 이후 주기적 갱신 절차로 보완합니다.
+관광 챗봇은 `TOURISM_LOOKUP_STRATEGY` 설정에 따라 후보 조회 순서를 바꿀 수 있습니다. `live_update` 모드에서는 지역과 조건이 확정되면 한국관광공사 TourAPI를 먼저 조회하고, 응답이 늦거나 실패하면 저장된 live Markdown 캐시, ChromaDB/RAG 색인 자료, raw fallback Markdown으로 바로 응답합니다. `cache_first` 모드는 저장 자료를 먼저 쓰고 후보가 없거나 사용자가 최신 정보 보강을 요청할 때만 TourAPI를 조회합니다.
+
+현재 시제품의 데이터 최신성은 live 조회와 원본 응답 SQLite 캐시로 제한적으로 보완하며, 장기적으로는 주기적 갱신 절차를 추가하는 방향입니다. 저장 자료만으로 반환한 후보가 5장보다 적을 때는 자동으로 live 조회를 더 늘리지 않고, 사용자가 누를 수 있는 `최신 정보 더 찾기` 후속 선택지를 제안합니다.
 
 ```text
 사용자 질문
@@ -56,11 +58,15 @@ ChromaDB 벡터DB에서 관련 문서 검색
   ↓
 동명이 지역이면 지역 선택 후보 반환
   ↓
-이전에 조회해 저장한 관광 카드 캐시 확인
+live_update 모드이면 TourAPI를 먼저 조회
+  ↓
+정해진 대기 시간 안에 live 결과가 오면 live 카드 반환
+  ↓
+늦거나 실패하면 live Markdown 캐시 확인
   ↓
 ChromaDB/RAG로 미리 수집한 관광 자료 검색
   ↓
-그래도 없으면 한국관광공사 TourAPI 조회
+raw fallback Markdown 확인
   ↓
 관광지 후보와 무장애 상세 정보 확인
   ↓
@@ -203,11 +209,16 @@ TOUR_API_ACCESSIBLE_SERVICE_KEY=
 TOUR_API_RESPONSE_CACHE_ENABLED=true
 TOUR_API_RESPONSE_CACHE_PATH=./data/generated/tour_api/live_response_cache.sqlite3
 TOURISM_LIVE_LOOKUP_ENABLED=true
+TOURISM_LOOKUP_STRATEGY=cache_first
+TOURISM_LIVE_FIRST_WAIT_SECONDS=5
+TOURISM_LIVE_BACKGROUND_TIMEOUT_SECONDS=15
 TOURISM_LIVE_CACHE_PATH=./data/generated/tour_api/live_markdown
 TOURISM_SAMPLE_PATH=./data/raw/tourism_accessible
 TOURISM_QUERY_EVENT_LOG_ENABLED=true
 TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=false
 ```
+
+`TOURISM_LOOKUP_STRATEGY=live_update`로 바꾸면 TourAPI를 먼저 시도합니다. `TOURISM_LIVE_FIRST_WAIT_SECONDS` 안에 결과가 오면 live 카드를 바로 반환하고, 늦거나 실패하면 캐시/RAG/fallback 결과를 먼저 보여줍니다. 백그라운드 live 결과가 `TOURISM_LIVE_BACKGROUND_TIMEOUT_SECONDS` 안에 도착하면 다음 요청에서 `최신 결과 업데이트 보기` 같은 승인 선택지로 반영할 수 있습니다.
 
 ## 5. 문서 넣기
 
@@ -358,20 +369,22 @@ flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 
 주요 정책:
 
-- 지역이 확정되면 먼저 이전에 조회해 저장한 관광 카드 캐시를 확인한다.
-- 캐시에 없으면 ChromaDB/RAG로 미리 수집한 관광 Markdown을 검색한다.
-- RAG 자료에도 같은 지역 카드가 없고 공공데이터 키가 있으면 요청 시점에 한국관광공사 TourAPI를 조회한다.
-- 실시간 조회 결과는 메모리와 `data/generated/tour_api/live_markdown/`에 캐시해 같은 지역 반복 호출을 줄인다.
-- 저장된 후보가 1-4장만 있으면 자동 live 조회를 늘리지 않고 `최신 정보 더 찾기` 후속 선택지로 사용자 확인을 받는다.
-- 캐시/RAG 자료에도 없고 실시간 조회가 실패하거나 결과가 없으면 결과 부족 응답을 반환하고 주의 문구에 진단을 남긴다.
-- 응답의 `lookup_mode`는 현재 응답이 캐시, 실시간 조회, RAG 검색 자료, 폴백 자료, 지역 선택 질문 중 어디에서 왔는지 나타낸다.
+- `TOURISM_LOOKUP_STRATEGY=live_update`이면 지역이 확정된 질문에서 TourAPI를 먼저 시도한다.
+- live 결과가 정해진 대기 시간 안에 오고 요청 조건 근거가 맞으면 `lookup_mode=live`로 반환한다.
+- live 응답이 늦거나 실패하면 저장된 live Markdown 캐시, ChromaDB/RAG 색인 자료, raw fallback Markdown 순서로 응답을 유지한다.
+- 백그라운드 live 결과가 제한 시간 안에 도착하면 다음 요청에서 사용자의 승인 후 `lookup_mode=live_update`로 반영한다.
+- `TOURISM_LOOKUP_STRATEGY=cache_first`이면 저장 자료를 먼저 쓰고, 후보가 없거나 사용자가 `최신 정보 더 찾기`를 요청할 때 TourAPI를 조회한다.
+- 저장 자료 응답이 5장보다 적어도 자동으로 live 조회를 추가 확장하지 않고 `최신 정보 더 찾기` 후속 선택지를 제안한다.
+- 실시간 조회 결과는 원본 SQLite 캐시와 `data/generated/tour_api/live_markdown/`에 저장해 같은 지역 반복 호출을 줄인다.
+- 모든 후보 경로가 실패하거나 조건 근거가 맞는 카드가 없으면 결과 부족 응답을 반환하고 주의 문구에 진단을 남긴다.
+- 응답의 `lookup_mode`는 현재 응답이 live, live update, 캐시, RAG 검색 자료, 폴백 자료, 지역 선택 질문 중 어디에서 왔는지 나타낸다.
 - 복합 상황 질문의 LLM 추론 보조는 기본값이 꺼져 있다. 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켜고, 응답의 `reasoning_assist_used`와 `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
 - 추론 보조는 후보 카드의 순서와 설명 방향만 조정한다. 후보에 없는 장소나 접근성 정보를 만들면 안 된다.
 - 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
 - `/tourism/chat` 응답은 `data/generated/tour_api/query_card_events.jsonl`에 이벤트로 남긴다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다.
 - 원문 질문까지 저장해야 할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`를 켠다.
-- 개발과 확인 단계의 기본 모드는 캐시/RAG를 먼저 쓰고 부족할 때만 TourAPI를 실시간 조회하는 방식이다. `TourAPIService`는 원본 TourAPI 응답을 `data/generated/tour_api/live_response_cache.sqlite3`에 저장해 서버 재시작 뒤 같은 지역/상세 조회를 재사용한다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 폴백 자료만으로 운영한다.
-- 장기 권장 구조는 캐시/RAG 우선, 주기적 갱신, 부족 지역 실시간 조회의 조합이다. 데이터 최신성은 시제품 이후 갱신 절차로 보완한다.
+- `TourAPIService`는 원본 TourAPI 응답을 `data/generated/tour_api/live_response_cache.sqlite3`에 저장해 서버 재시작 뒤 같은 지역/상세 조회를 재사용한다. 호출량이나 시연장 네트워크가 불안하면 `.env`에서 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 폴백 자료만으로 운영한다.
+- 장기 권장 구조는 live 조회, 저장 자료 안전망, 주기적 갱신의 조합이다. 데이터 최신성은 시제품 이후 갱신 절차로 보완한다.
 - 시군구처럼 좁은 지역을 명시하면 자동으로 타 지역을 섞지 않는다.
 - `근처`, `주변`, `가까운`, `인근`은 상위 광역 확장 신호로 쓰지 않고, 요청 시군구 후보를 먼저 반환한다.
 - `부족하면 서울 전체로 넓혀줘`처럼 조건부 확장을 말한 경우에는 요청 시군구 후보가 기본 표시 수인 5장보다 부족할 때만 상위 지역 후보를 섞는다.

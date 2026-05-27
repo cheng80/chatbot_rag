@@ -551,7 +551,29 @@
       </aside>
 
       <div class="stage red">
-        <h3><span class="num">4</span>저장 자료 검색</h3>
+        <h3><span class="num">4</span>Live TourAPI 우선 확인</h3>
+        <div class="nodes">
+          <div class="node"><strong>최신 후보 조회</strong><small>TourAPI 먼저 시도</small></div>
+          <span class="arrow"></span>
+          <div class="node"><strong>5초 대기</strong><small>빠르면 live 반환</small></div>
+          <span class="arrow"></span>
+          <div class="node"><strong>15초 백그라운드</strong><small>늦은 결과 보관</small></div>
+          <span class="arrow"></span>
+          <div class="node"><strong>승인 후 반영</strong><small>최신 결과 업데이트</small></div>
+          <span class="arrow"></span>
+          <div class="node"><strong>실패 시 안전망</strong><small>저장 자료로 계속</small></div>
+        </div>
+      </div>
+      <aside class="explain red">
+        <h4>무엇을 하나요?</h4>
+        <ul>
+          <li>live_update 모드는 TourAPI를 먼저 시도</li>
+          <li>늦거나 실패하면 저장 자료를 즉시 사용</li>
+        </ul>
+      </aside>
+
+      <div class="stage violet">
+        <h3><span class="num">5</span>저장 자료 안전망</h3>
         <div class="nodes">
           <div class="node"><strong>메모리 캐시</strong><small>같은 실행 후보 재사용</small></div>
           <span class="arrow"></span>
@@ -561,36 +583,14 @@
           <span class="arrow"></span>
           <div class="node"><strong>Chroma 검색</strong><small>bge-m3, top_k=40</small></div>
           <span class="arrow"></span>
-          <div class="node"><strong>후보 목록</strong><small>중복 제거 후 합치기</small></div>
-        </div>
-      </div>
-      <aside class="explain red">
-        <h4>무엇을 하나요?</h4>
-        <ul>
-          <li>이미 확보한 자료를 먼저 찾음</li>
-          <li>공공데이터 호출은 마지막 수단</li>
-        </ul>
-      </aside>
-
-      <div class="stage violet">
-        <h3><span class="num">5</span>실시간 TourAPI 보강</h3>
-        <div class="nodes">
-          <div class="node"><strong>후보 목록</strong><small>areaBasedList2</small></div>
-          <span class="arrow"></span>
-          <div class="node"><strong>기본 정보</strong><small>detailCommon2</small></div>
-          <span class="arrow"></span>
-          <div class="node"><strong>무장애 상세</strong><small>detailWithTour2</small></div>
-          <span class="arrow"></span>
-          <div class="node"><strong>호출량 기록</strong><small>일일 사용량 가드</small></div>
-          <span class="arrow"></span>
-          <div class="node"><strong>로컬 저장</strong><small>다음 호출 절약</small></div>
+          <div class="node"><strong>부족 시 선택지</strong><small>최신 정보 더 찾기</small></div>
         </div>
       </div>
       <aside class="explain violet">
         <h4>무엇을 하나요?</h4>
         <ul>
-          <li>저장 자료가 부족할 때만 실시간 조회</li>
-          <li>응답을 다시 캐시와 Markdown으로 저장</li>
+          <li>캐시, RAG, fallback 순서로 응답 유지</li>
+          <li>5장 미만이면 자동 확장 대신 후속 선택지 제안</li>
         </ul>
       </aside>
 

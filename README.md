@@ -2,14 +2,16 @@
 
 한국관광공사 OpenAPI와 로컬 RAG 검색 자료를 함께 사용해, 무장애·가족 친화 관광지를 상담하듯 추천하는 로컬 실행형 챗봇 프로젝트입니다.
 
-현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다. 웹 확인 UI는 이 repo에 있고, Flutter 전환 앱은 별도 repo `../chatbot_rag_app`와 GitHub `cheng80/chatbot_rag_app`에서 관리합니다.
+현재 1차 시제품은 사용자의 자연어 질문에서 지역, 동행자 상황, 접근성 조건, 주변 지역 확장 의도를 먼저 파악한 뒤, 접근성·가족 친화 근거가 있는 관광지 카드를 반환합니다. 운영 기본 경로는 저장된 캐시와 Chroma/RAG fallback을 먼저 쓰고, 같은 지역·조건 근거가 부족할 때만 TourAPI live 조회로 보강하는 방식입니다. 웹 확인 UI는 이 repo에 있고, Flutter 전환 앱은 별도 repo `../chatbot_rag_app`와 GitHub `cheng80/chatbot_rag_app`에서 관리합니다.
 
 일반 관광 추천도 기반 데이터상 가능하지만, 현재 검증 범위는 **무장애·가족 친화 조건을 중심으로 한 근거 있는 관광 추천**에 둡니다.
 
 ![무장애·가족 친화 관광 챗봇 구조 인포그래픽](docs/project/readme_project_infographic.png)
 
 시각 요약 원본 HTML은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다.
-챗봇 RAG 내부 구조를 더 자세히 푼 그림은 [챗봇 RAG 내부 구조 인포그래픽](docs/project/chatbot_rag_internal_process_infographic.html)과 [PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
+챗봇 RAG 내부 구조를 더 자세히 푼 그림은 아래 AI 균형형 인포그래픽과 [편집용 HTML](docs/project/chatbot_rag_internal_process_infographic.html), [기존 PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
+
+![챗봇 RAG 내부 구조 AI 균형형 인포그래픽](docs/project/chatbot_rag_internal_process_infographic_ai_balanced_v3.png)
 
 교수님 또는 외부 검토자에게는 먼저 [무장애·가족 친화 관광 챗봇 시제품 검토 자료](docs/project/professor_review_brief.md)를 보여주는 것을 권장합니다. 이 README는 설치와 실행 방법을 함께 담은 개발·운영 안내 문서입니다.
 
@@ -44,7 +46,7 @@ ChromaDB 벡터DB에서 관련 문서 검색
 답변 + 출처 반환
 ```
 
-관광 챗봇은 매번 공공데이터를 새로 호출하지 않습니다. 이미 저장한 관광 카드 캐시와 RAG로 색인한 Markdown 자료를 먼저 확인하고, 같은 지역 카드가 없을 때만 한국관광공사 TourAPI를 조회합니다. 데이터 최신성은 시제품 단계에서는 제한적으로 다루고, 이후 주기적 갱신 절차로 보완합니다.
+관광 챗봇은 매번 공공데이터를 새로 호출하지 않습니다. 이미 저장한 관광 카드 캐시와 RAG로 색인한 Markdown 자료를 먼저 확인하고, 같은 지역 카드가 없을 때만 한국관광공사 TourAPI를 조회합니다. 저장된 후보가 5장보다 적은 경우에는 자동으로 live 조회를 늘리지 않고 `최신 정보 더 찾기` 후속 선택지를 제안합니다. 데이터 최신성은 시제품 단계에서는 제한적으로 다루고, 이후 주기적 갱신 절차로 보완합니다.
 
 ```text
 사용자 질문
@@ -68,14 +70,16 @@ ChromaDB/RAG로 미리 수집한 관광 자료 검색
 답변 + 관광지 카드 + 출처 + 주의 문구 반환
 ```
 
-검색 후보 단계는 기존 Chroma vector-only 구조를 유지합니다. 과거 오프라인 검색 비교에서 `top_k=40`이 가장 안정적이어서 운영 기본 검색 폭만 넓혔고, 별도 검색 최적화 프레임워크는 런타임에 사용하지 않습니다.
+검색 후보 단계는 기존 Chroma vector-only 구조를 유지합니다. 2026-05-27 한국어 BM25 토크나이저 재실험에서 실제 관광 corpus 1,010개와 QA 192개 기준 `bge-m3` vector-only top40이 BM25 후보보다 안정적이어서, 운영 기본 검색 폭만 `TOP_K=40`으로 넓혔습니다. AutoRAG는 retrieval-only 오프라인 실험 도구로만 두고 런타임에는 붙이지 않습니다.
 
-2026-05-26 기준 자동 회귀 결과:
+2026-05-27 기준 자동 회귀·벤치마크 요약:
 
 - TOP_K=40 challenge 30건: 실패 0
 - TOP_K=40 residual hard chat 80건: 실패 0
-- noisy realistic 200건: unsupported 답변 문구 수정 후 실패 28
-- 남은 noisy 실패는 주로 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 카드/근거 부족이다. 코드가 근거를 만들어내는 방식으로 해결하지 않는다.
+- noisy realistic 200건 direct 실행: unsupported 답변 문구 수정 후 실패 28
+- 통합 파이프라인 비교: `current_runtime` 168/200, `roberta_small_candidate` 174/200, `et5_roberta_combined` 172/200
+- LLM reasoning assist가 실제 켜지는 20문항 eval: OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과
+- 기본값은 reasoning assist OFF다. 남은 noisy 실패는 주로 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 카드/근거 부족이므로 코드가 근거를 만들어내는 방식으로 해결하지 않는다.
 
 ## 2. 폴더 구조
 
@@ -339,7 +343,7 @@ flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 
 ## 10. 관광 시제품 데이터와 정책
 
-현재 예비 관광 자료는 모든 광역권에 대해 지역별 약 20장 수준으로 확보했습니다. 전체 관광지를 모두 저장한 데이터베이스가 아니라, 공공데이터 조회 장애나 호출량 제한 상황에서도 기본 응답이 무너지지 않도록 하는 최소 안전망입니다.
+현재 예비 관광 자료는 `data/raw/tourism_accessible/` 기준 904개 Markdown으로 확보했습니다. Chroma에는 905개 문서 / 914개 청크가 색인되어 있고, TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 fallback 카드를 갖고 있습니다. 전체 관광지를 모두 저장한 데이터베이스가 아니라, 공공데이터 조회 장애나 호출량 제한 상황에서도 기본 응답이 무너지지 않도록 하는 최소 안전망입니다.
 
 전체 진행도는 [무장애 관광 챗봇 진행도](docs/project/progress_overview.md)에서 확인한다.
 예비 관광 자료 수집, 호출량, 전국 시군구 규모, 샘플 QA 기준은 [관광 데이터 운영 문서](docs/tourism/tourism_data_operations.md)에서 관리합니다.
@@ -349,7 +353,7 @@ flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 |---|---|
 | 수도권/광역시 | 서울, 부산, 인천, 대전, 대구, 광주, 울산, 세종 |
 | 도 단위 | 경기, 강원, 충북, 충남, 경북, 경남, 전북, 전남, 제주 |
-| 별도 테스트 지역 | 강릉 |
+| 별도 보강 지역 | 강릉, 서귀포시 |
 
 주요 정책:
 
@@ -357,6 +361,7 @@ flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 - 캐시에 없으면 ChromaDB/RAG로 미리 수집한 관광 Markdown을 검색한다.
 - RAG 자료에도 같은 지역 카드가 없고 공공데이터 키가 있으면 요청 시점에 한국관광공사 TourAPI를 조회한다.
 - 실시간 조회 결과는 메모리와 `data/generated/tour_api/live_markdown/`에 캐시해 같은 지역 반복 호출을 줄인다.
+- 저장된 후보가 1-4장만 있으면 자동 live 조회를 늘리지 않고 `최신 정보 더 찾기` 후속 선택지로 사용자 확인을 받는다.
 - 캐시/RAG 자료에도 없고 실시간 조회가 실패하거나 결과가 없으면 결과 부족 응답을 반환하고 주의 문구에 진단을 남긴다.
 - 응답의 `lookup_mode`는 현재 응답이 캐시, 실시간 조회, RAG 검색 자료, 폴백 자료, 지역 선택 질문 중 어디에서 왔는지 나타낸다.
 - 복합 상황 질문의 LLM 추론 보조는 기본값이 꺼져 있다. 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켜고, 응답의 `reasoning_assist_used`와 `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
@@ -373,6 +378,7 @@ flutter run --dart-define=API_BASE=http://127.0.0.1:8000
 - `중구`, `남구`, `동구`, `서구`, `북구`처럼 여러 시도에 있는 지명은 먼저 지역 선택 후보를 반환한다.
 - `아빠`, `어머니`, `부모님` 같은 관계 호칭만으로 나이를 추정하지 않는다.
 - 공공데이터에 없는 편의정보는 추측하지 않고 `확인 필요`로 남긴다.
+- 청원군, 마산시, 진해시, 남제주군, 북제주군처럼 TourAPI 지역 코드에 남아 있는 과거 지명은 현재 행정구역 기준으로 안내한다. 공식 무장애 상세 3장 미만 지역은 현재 계룡시 1장으로 관리한다.
 
 ## 11. 외부 임시 확인
 
@@ -419,12 +425,13 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 | 로컬 LLM 실행 | Ollama + `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
 | 비교 기준선 | `gemma3:4b-it-q4_K_M` |
 | 임베딩 | bge-m3 |
-| 벡터DB / RAG 검색 | ChromaDB |
+| 벡터DB / RAG 검색 | ChromaDB vector-only, `TOP_K=40` |
 | 일반 DB | SQLite |
 | 외부 접속 | Cloudflare Quick Tunnel |
 | 화면 확인 | `/tourism-ui/` 정적 웹 화면 |
 | 요청 테스트 | Swagger/ReDoc, curl, pytest |
 | 로그 분석 | `notebooks/tourism_event_log_analysis.ipynb` |
+| 오프라인 검색 실험 | AutoRAG retrieval-only, 런타임 미사용 |
 
 ## 13. 개발 순서
 
@@ -433,7 +440,7 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 3. `python scripts/ingest_all.py` 실행
 4. `python -m uvicorn app.main:app --reload` 실행
 5. `/tourism-ui/`, Swagger, curl, pytest로 요청/응답 확인
-6. 검색 품질이 낮으면 `CHUNK_SIZE`, `CHUNK_OVERLAP`, `TOP_K` 조정
+6. 검색 품질이 낮으면 먼저 eval 실패 bucket과 카드 근거 부족을 확인하고, 임베딩 모델이나 `TOP_K`를 바꾸면 재색인한다.
 7. 문서가 많아지면 재정렬, 복합 검색, 권한 필터링 추가
 
 관광 샘플을 갱신할 때:
@@ -463,6 +470,8 @@ python scripts/rebuild_index.py
 python -m pytest
 ```
 
+현재 전국 시군구 fallback은 대부분 확보되어 있으므로, 추가 수집은 전체 재수집보다 `docs/tourism/noisy_realistic_residuals.md`의 희소 접근성 근거 bucket 또는 `scripts/audit_tourism_samples.py` 결과에서 드러난 부족 지역만 좁혀 진행한다.
+
 ## 14. Cloudflare 테스트/배포 문서
 
 현재 외부 접속 테스트는 Cloudflare Tunnel 또는 ngrok을 기준으로 한다. Cloudflare Quick Tunnel에서 Named Tunnel, 접근 제어, Cloudflare-native 이전 검토로 이어지는 작업 순서는 다음 문서를 참고한다.
@@ -473,7 +482,7 @@ python -m pytest
 
 ## 15. 모델 비교 실험 순서
 
-비교 대상은 현재 기본 LLM, 빠른 기준선, 별도 사고 과정 후보를 함께 본다. 임베딩은 `bge-m3`로 고정해 LLM 답변 품질과 추론 보조 지연만 비교한다.
+비교 대상은 현재 기본 LLM, 빠른 기준선, 별도 사고 과정 후보를 함께 본다. 임베딩은 `bge-m3`로 고정한다. 2026-05-27 기준 Apple Silicon 전용 provider 전환 검토는 종료했고, 운영은 Ollama `SuperGemma4` generation + `bge-m3` embedding + Chroma vector-only `TOP_K=40`을 유지한다.
 
 1. 모델 준비
 
@@ -535,6 +544,13 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 | 응답 속도 | `/chat` 전체 응답 시간이 실사용 가능한가 |
 
 8. 채택 기준은 품질 우선이다. `supergemma4` 또는 공식 `gemma4:e4b`가 한국어와 상담 품질에서 확실히 앞서고 환각이 늘지 않으면 주요 후보로 유지한다. `qwen3:4b`는 별도 사고 과정이 실제 품질 향상과 허용 가능한 지연 시간을 동시에 만족할 때만 추론 보조 후보로 둔다. 안전 필터가 약화된 모델은 공개 테스트 기본값으로 바로 쓰지 않는다.
+
+2026-05-27 최신 판단:
+
+- MVP 기본값은 `TOURISM_REASONING_ASSIST_ENABLED=false`다.
+- LLM 보조가 실제 켜지는 20문항 eval은 OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과했다.
+- LLM 보조를 실험적으로 켜야 한다면 SuperGemma4 `think=false`만 우선 사용한다. Gemma3는 Metal memory 부족 경고가 있었고, Gemma4는 assist 평균 지연이 약 18.9초로 길었다.
+- medium/noisy 실패 대부분은 `card_missing_required_terms`, `card_count_low`라서 LLM 모델 교체보다 데이터 근거 보강과 조건별 카드 근거 개선을 먼저 한다.
 
 자세한 모델별 벤치마크 기준과 결과 기록은 `docs/tourism/tourism_model_reasoning_benchmark.md`를 본다.
 

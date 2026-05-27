@@ -6,6 +6,11 @@
 
 일반 관광 추천도 기반 데이터상 가능하지만, 현재 검증 범위는 **무장애·가족 친화 조건을 중심으로 한 근거 있는 관광 추천**에 둡니다.
 
+![무장애·가족 친화 관광 챗봇 구조 인포그래픽](docs/project/readme_project_infographic.png)
+
+시각 요약 원본 HTML은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다.
+챗봇 RAG 내부 구조를 더 자세히 푼 그림은 [챗봇 RAG 내부 구조 인포그래픽](docs/project/chatbot_rag_internal_process_infographic.html)과 [PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
+
 교수님 또는 외부 검토자에게는 먼저 [무장애·가족 친화 관광 챗봇 시제품 검토 자료](docs/project/professor_review_brief.md)를 보여주는 것을 권장합니다. 이 README는 설치와 실행 방법을 함께 담은 개발·운영 안내 문서입니다.
 
 ## 1. 서비스 개요

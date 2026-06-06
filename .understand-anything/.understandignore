@@ -1,0 +1,13 @@
+# Understand-Anything analysis exclusions for this project.
+# Keep generated data, model artifacts, API caches, binary references, and
+# notebook outputs out of the code knowledge graph.
+
+data/raw/
+data/processed/
+data/generated/
+data/models/
+data/vector_store/
+docs/etc/references/
+notebooks/
+portfolio-screenshots/
+*.ipynb

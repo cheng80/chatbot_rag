@@ -190,6 +190,12 @@ data/generated/skill_backups/
 data/generated/tour_api/
 tmp/
 
+# Understand-Anything local scratch and dashboard overlays
+.understand-anything/*
+!.understand-anything/.understandignore
+!.understand-anything/config.json
+!.understand-anything/knowledge-graph.json
+
 ############################################################
 # Symbols / Debug
 ############################################################

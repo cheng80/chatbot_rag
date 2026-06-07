@@ -50,7 +50,7 @@
 
 MVP의 기본 원칙은 **근거 수집은 결정론적으로, 상담 판단은 제한적으로 LLM 사용**이다. LLM이 없는 장소나 편의정보를 새로 만들어내면 안 되므로, 데이터 조회와 카드 생성의 1차 책임은 cache, Chroma, Markdown fallback, TourAPI가 가진다.
 
-여기서 말하는 추론 보조는 Ollama native `think=true`와 다르다. 현재 기본 모델인 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`는 Gemma 4 기반 8B급 모델이지만, 로컬 확인 기준 `Capabilities: completion`만 노출되고 `think=true` 호출에는 `does not support thinking`을 반환했다. 따라서 MVP 기본 구현은 **확인된 후보 카드를 대상으로 한 짧은 reasoning 프롬프트**를 뜻한다.
+여기서 말하는 추론 보조는 Ollama native `think=true`와 다르다. 현재 기본 모델인 `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`는 Gemma 4 기반 모델이지만, 로컬 확인 기준 `think=true` 호출에는 `does not support thinking`을 반환했다. 따라서 MVP 기본 구현은 **확인된 후보 카드를 대상으로 한 짧은 reasoning 프롬프트**를 뜻한다.
 
 Gemma 4 계열은 한국어 맥락과 긴 문맥 처리 후보로 유지한다. 단, native thinking 검증은 공식 `gemma4:e4b`, `qwen3:4b`, `deepseek-r1` 같은 별도 모델 후보를 설치해 비교한다. 사용자 제안 모델인 `huihui_ai/gemma-4-abliterated:e4b`는 비교 후보에 포함하되, 안전 필터 약화 특성 때문에 공개 테스트 기본값은 수동 검토 후 결정한다.
 

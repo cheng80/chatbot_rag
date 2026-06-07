@@ -239,7 +239,7 @@ UI 원칙:
 8. TourAPI 실패/쿼터/결과 없음 시 Chroma와 로컬 Markdown fallback 유지
 9. 관광지 카드 응답 schema 추가
 10. 공모전용 질문 20개 평가셋 작성 (별도 TODO)
-11. `supergemma4` vs `gemma3` 비교 실행 (별도 TODO)
+11. 현재 기본 Unsloth Gemma4, 이전 SuperGemma4, `gemma3` 비교 실행 (별도 TODO)
 12. Flutter 또는 간단한 web client에서 챗봇+카드 표시 (별도 TODO)
 
 ## 4. 2차 대안 전환 기준

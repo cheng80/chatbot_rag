@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "model_benchmarks"
 DEFAULT_MODELS = [
+    "hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL",
     "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M",
     "gemma3:4b-it-q4_K_M",
     "qwen3:4b",

@@ -64,7 +64,7 @@
 - bge-m3
 - TourAPI
 - SQLite
-- SuperGemma4
+- Unsloth Gemma4
 - JSON
 
 정확히 써야 하는 문구:

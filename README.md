@@ -6,13 +6,13 @@
 
 일반 관광 추천도 기반 데이터상 가능하지만, 현재 검증 범위는 **무장애·가족 친화 조건을 중심으로 한 근거 있는 관광 추천**에 둡니다.
 
-![무장애·가족 친화 관광 챗봇 README 생성형 인포그래픽](docs/project/readme_project_infographic_ai_live_update_v1.png)
+![무장애·가족 친화 관광 챗봇 README 인포그래픽](docs/project/readme_project_infographic_ai_live_update_v1.png)
 
-생성형 포스터의 기준이 되는 HTML 원본은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다. 같은 내용을 포스터 스타일로 재해석한 [생성형 README 요약 이미지](docs/project/readme_project_infographic_ai_live_update_v1.png)도 함께 보관합니다.
+포스터의 기준이 되는 HTML 원본은 [README 프로젝트 인포그래픽](docs/project/readme_project_infographic.html)에서 확인할 수 있습니다. 같은 내용을 PNG로 렌더링한 [README 요약 이미지](docs/project/readme_project_infographic_ai_live_update_v1.png)도 함께 보관합니다.
 
-챗봇 RAG 내부 구조를 더 자세히 푼 그림은 아래 AI live_update 인포그래픽과 [편집용 HTML](docs/project/chatbot_rag_internal_process_infographic.html), [PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
+챗봇 RAG 내부 구조를 더 자세히 푼 그림은 아래 인포그래픽과 [편집용 HTML](docs/project/chatbot_rag_internal_process_infographic.html), [PNG 이미지](docs/project/chatbot_rag_internal_process_infographic.png)에서 확인할 수 있습니다.
 
-![챗봇 RAG 내부 구조 AI live_update 인포그래픽](docs/project/chatbot_rag_internal_process_infographic_ai_live_update_v4.png)
+![챗봇 RAG 내부 구조 인포그래픽](docs/project/chatbot_rag_internal_process_infographic_ai_live_update_v4.png)
 
 교수님 또는 외부 검토자에게는 먼저 [무장애·가족 친화 관광 챗봇 시제품 검토 자료](docs/project/professor_review_brief.md)를 보여주는 것을 권장합니다. 이 README는 설치와 실행 방법을 함께 담은 개발·운영 안내 문서입니다.
 
@@ -79,13 +79,14 @@ raw fallback Markdown 확인
 
 검색 후보 단계는 기존 Chroma vector-only 구조를 유지합니다. 2026-05-27 한국어 BM25 토크나이저 재실험에서 실제 관광 corpus 1,010개와 QA 192개 기준 `bge-m3` vector-only top40이 BM25 후보보다 안정적이어서, 운영 기본 검색 폭만 `TOP_K=40`으로 넓혔습니다. AutoRAG는 retrieval-only 오프라인 실험 도구로만 두고 런타임에는 붙이지 않습니다.
 
-2026-05-27 기준 자동 회귀·벤치마크 요약:
+2026-05-27 기준 자동 회귀·벤치마크와 2026-06-07 모델 변경 요약:
 
 - TOP_K=40 challenge 30건: 실패 0
 - TOP_K=40 residual hard chat 80건: 실패 0
 - noisy realistic 200건 direct 실행: unsupported 답변 문구 수정 후 실패 28
 - 통합 파이프라인 비교: `current_runtime` 168/200, `roberta_small_candidate` 174/200, `et5_roberta_combined` 172/200
-- LLM reasoning assist가 실제 켜지는 20문항 eval: OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과
+- 2026-05-27 LLM reasoning assist가 실제 켜지는 20문항 eval: OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과
+- 2026-06-07 기본 답변 모델: `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`
 - 기본값은 reasoning assist OFF다. 남은 noisy 실패는 주로 수어/자막, 점자블록/촉지도, 보조견 같은 희소 접근성 카드/근거 부족이므로 코드가 근거를 만들어내는 방식으로 해결하지 않는다.
 
 ## 2. 폴더 구조
@@ -172,6 +173,7 @@ python -m pip install -r requirements.txt
 ### 로컬 LLM 모델 준비
 
 ```bash
+ollama run hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ollama pull gemma3:4b-it-q4_K_M
 ollama pull gemma4:e4b
@@ -179,7 +181,7 @@ ollama pull qwen3:4b
 ollama pull bge-m3
 ```
 
-`supergemma4-e4b-abliterated`는 한국어 상담 답변 품질을 보기 위한 1차 LLM 후보이고, `gemma3:4b-it-q4_K_M`는 비교 기준선입니다.
+`unsloth/gemma-4-E4B-it-qat`는 현재 기본 LLM이고, `supergemma4-e4b-abliterated`와 `gemma3:4b-it-q4_K_M`는 비교 기준선입니다.
 `gemma4:e4b`와 `qwen3:4b`는 별도 사고 과정을 반환하는 모델 후보로 비교했습니다. 사용자 제안 모델인 `huihui_ai/gemma-4-abliterated:e4b`는 실험 후보에 포함하되, 안전 필터 약화 경고가 있어 공개 테스트 기본값으로 쓰기 전 수동 검토가 필요합니다.
 `bge-m3`가 로컬 환경에서 지원되지 않으면 `.env`의 `OLLAMA_EMBED_MODEL` 값을 다른 Ollama 임베딩 모델로 바꿔 사용할 수 있습니다.
 
@@ -197,7 +199,7 @@ cp .env.example .env
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
+OLLAMA_CHAT_MODEL=hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 OLLAMA_EMBED_MODEL=bge-m3
 CHROMA_PATH=./data/vector_store/chroma
 CHROMA_COLLECTION=manual_documents
@@ -436,8 +438,8 @@ Quick Tunnel은 임시 확인용이다. 시연이 끝나면 `cloudflared`와 `uv
 
 | 역할 | 선택 |
 |---|---|
-| 로컬 LLM 실행 | Ollama + `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
-| 비교 기준선 | `gemma3:4b-it-q4_K_M` |
+| 로컬 LLM 실행 | Ollama + `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` |
+| 비교 기준선 | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`, `gemma3:4b-it-q4_K_M` |
 | 임베딩 | bge-m3 |
 | 벡터DB / RAG 검색 | ChromaDB vector-only, `TOP_K=40` |
 | 일반 DB | SQLite |
@@ -496,11 +498,12 @@ python -m pytest
 
 ## 15. 모델 비교 실험 순서
 
-비교 대상은 현재 기본 LLM, 빠른 기준선, 별도 사고 과정 후보를 함께 본다. 임베딩은 `bge-m3`로 고정한다. 2026-05-27 기준 Apple Silicon 전용 provider 전환 검토는 종료했고, 운영은 Ollama `SuperGemma4` generation + `bge-m3` embedding + Chroma vector-only `TOP_K=40`을 유지한다.
+비교 대상은 현재 기본 LLM, 빠른 기준선, 별도 사고 과정 후보를 함께 본다. 임베딩은 `bge-m3`로 고정한다. 2026-06-07 기준 운영은 Ollama `Unsloth Gemma4 E4B QAT` generation + `bge-m3` embedding + Chroma vector-only `TOP_K=40`을 유지한다.
 
 1. 모델 준비
 
 ```bash
+ollama run hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ollama pull gemma3:4b-it-q4_K_M
 ollama pull gemma4:e4b
@@ -520,7 +523,7 @@ python scripts/rebuild_index.py
 3. `.env`의 `OLLAMA_CHAT_MODEL`만 바꿔가며 서버를 재시작한다.
 
 ```env
-OLLAMA_CHAT_MODEL=hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
+OLLAMA_CHAT_MODEL=hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 ```
 
 ```env
@@ -539,7 +542,7 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 
 ```bash
 .venv/bin/python scripts/benchmark_tourism_reasoning_models.py \
-  --models hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M gemma3:4b-it-q4_K_M gemma4:e4b qwen3:4b huihui_ai/gemma-4-abliterated:e4b \
+  --models hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M gemma3:4b-it-q4_K_M gemma4:e4b qwen3:4b huihui_ai/gemma-4-abliterated:e4b \
   --runs 1
 ```
 
@@ -557,13 +560,13 @@ OLLAMA_CHAT_MODEL=gemma3:4b-it-q4_K_M
 | 관광 상담 적합성 | 여행 조건, 지역, 동행자 맥락을 잘 반영하는가 |
 | 응답 속도 | `/chat` 전체 응답 시간이 실사용 가능한가 |
 
-8. 채택 기준은 품질 우선이다. `supergemma4` 또는 공식 `gemma4:e4b`가 한국어와 상담 품질에서 확실히 앞서고 환각이 늘지 않으면 주요 후보로 유지한다. `qwen3:4b`는 별도 사고 과정이 실제 품질 향상과 허용 가능한 지연 시간을 동시에 만족할 때만 추론 보조 후보로 둔다. 안전 필터가 약화된 모델은 공개 테스트 기본값으로 바로 쓰지 않는다.
+8. 채택 기준은 품질 우선이다. `unsloth/gemma-4-E4B-it-qat` 또는 공식 `gemma4:e4b`가 한국어와 상담 품질에서 확실히 앞서고 환각이 늘지 않으면 주요 후보로 유지한다. `qwen3:4b`는 별도 사고 과정이 실제 품질 향상과 허용 가능한 지연 시간을 동시에 만족할 때만 추론 보조 후보로 둔다. 안전 필터가 약화된 모델은 공개 테스트 기본값으로 바로 쓰지 않는다.
 
 2026-05-27 최신 판단:
 
 - MVP 기본값은 `TOURISM_REASONING_ASSIST_ENABLED=false`다.
 - LLM 보조가 실제 켜지는 20문항 eval은 OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과했다.
-- LLM 보조를 실험적으로 켜야 한다면 SuperGemma4 `think=false`만 우선 사용한다. Gemma3는 Metal memory 부족 경고가 있었고, Gemma4는 assist 평균 지연이 약 18.9초로 길었다.
+- LLM 보조를 실험적으로 켜야 한다면 현재 기본 Unsloth Gemma4 `think=false`를 우선 사용한다. 이 태그는 native `think=true`를 지원하지 않는다. Gemma3는 Metal memory 부족 경고가 있었고, Gemma4는 assist 평균 지연이 약 18.9초로 길었다.
 - medium/noisy 실패 대부분은 `card_missing_required_terms`, `card_count_low`라서 LLM 모델 교체보다 데이터 근거 보강과 조건별 카드 근거 개선을 먼저 한다.
 
 자세한 모델별 벤치마크 기준과 결과 기록은 `docs/tourism/tourism_model_reasoning_benchmark.md`를 본다.

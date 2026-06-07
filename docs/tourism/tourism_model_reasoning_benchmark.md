@@ -1,6 +1,6 @@
 # 관광 챗봇 로컬 모델 추론 벤치마크
 
-마지막 갱신: 2026-05-27
+마지막 갱신: 2026-06-07
 
 ## 목적
 
@@ -12,7 +12,8 @@
 
 | 모델 | 역할 | 선택 이유 |
 |---|---|---|
-| `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` | 현재 기준선 | 현재 `.env.example` 기본 답변 모델이며 한국어 상담 품질 확인 대상 |
+| `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` | 현재 기본값 | 현재 `.env.example` 기본 답변 모델이며 빠른 한국어 상담 답변 후보 |
+| `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` | 이전 기준선 | 기존 기본 답변 모델이며 한국어 상담 품질 비교 대상 |
 | `gemma3:4b-it-q4_K_M` | 빠른 기준선 | 기존 비교 모델, native thinking 없이 속도와 안정성 기준 제공 |
 | `gemma4:e4b` | 공식 Gemma 4 후보 | Ollama 페이지 기준 Gemma 4 E4B는 thinking capability를 제공하며 한국어 맥락 후보로 유지 |
 | `qwen3:4b` | thinking 후보 | Ollama 로컬 확인 기준 `Capabilities: thinking` 노출, 작은 크기로 지연 시간 비교 가능 |
@@ -100,7 +101,7 @@ MVP 기본 모델은 아래 조건을 만족해야 한다.
 
 ```bash
 .venv/bin/python scripts/benchmark_tourism_reasoning_models.py \
-  --models hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M gemma3:4b-it-q4_K_M gemma4:e4b qwen3:4b huihui_ai/gemma-4-abliterated:e4b \
+  --models hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M gemma3:4b-it-q4_K_M gemma4:e4b qwen3:4b huihui_ai/gemma-4-abliterated:e4b \
   --runs 1 \
   --timeout 600
 ```
@@ -114,7 +115,7 @@ data/generated/tour_api/model_benchmarks/tourism_model_benchmark_20260515-193912
 | 모델 | 모드 | 재랭킹 JSON | native thinking 관측 | 속도 메모 | 1차 판단 |
 |---|---|---|---|---|---|
 | `gemma3:4b-it-q4_K_M` | `think=false` | 성공, `C1,C4,C2,C3` | 없음 | JSON 5.2초, 답변 2.8초 | 가장 빠른 기준선. 답변은 짧고 보수적이나 상담 품질은 약함 |
-| `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` | `think=false` | 성공, `C4,C1,C2` | 없음 | JSON 7.0초, 답변 6.6초 | 현재 기본값 유지 가능. native thinking은 미지원 |
+| `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` | `think=false` | 성공, `C4,C1,C2` | 없음 | JSON 7.0초, 답변 6.6초 | 당시 기본값 유지 가능. native thinking은 미지원 |
 | `gemma4:e4b` | `think=false` | 성공, `C4,C2,C1` | 없음 | JSON 9.4초, 답변 6.4초 | 공식 Gemma 4 후보 중 가장 균형적 |
 | `gemma4:e4b` | `think=true` | 성공, `C4,C2` | 있음 | JSON 29.8초, 답변 34.3초 | 품질은 좋지만 MVP 실시간 기본값으로는 느림. 필요 시 제한적 사용 |
 | `qwen3:4b` | `think=false` | 실패 | 없음 | JSON 7.9초, 답변 7.6초 | 영어 사고문이 섞여 JSON 계약과 한국어 답변 계약을 못 지킴 |
@@ -125,7 +126,7 @@ data/generated/tour_api/model_benchmarks/tourism_model_benchmark_20260515-193912
 현재 결론:
 
 - MVP 기본 추론 보조는 `think=false`로 유지한다.
-- 기본 모델 후보는 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` 유지 또는 공식 `gemma4:e4b` 전환을 20문항 eval 수동 채점 뒤 결정한다.
+- 2026-05-15 당시 기본 모델 후보는 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` 유지 또는 공식 `gemma4:e4b` 전환을 20문항 eval 수동 채점 뒤 결정하기로 했다.
 - native thinking은 복합 질문 전체에 켜기에는 지연 시간이 크다. 데모 전에는 끄고, Post-MVP에서 특정 고난도 질문에만 opt-in하는 방향이 맞다.
 - `qwen3:4b`는 thinking capability가 있지만 현재 프롬프트 계약을 지키지 못해 이 프로젝트의 1차 후보에서는 제외한다.
 - `huihui_ai/gemma-4-abliterated:e4b`는 사용자가 제안한 모델로 실험 가치는 있지만, safety filtering 약화 경고 때문에 공개 사용자 기본값으로는 보류한다.
@@ -137,7 +138,7 @@ Apple Silicon 전용 대안 provider는 실제 서비스 모델과 실제 관광
 현재 결론:
 
 - `/tourism/chat` generation은 Ollama를 유지한다.
-- 서비스 모델은 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`를 유지한다.
+- 서비스 모델은 `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`를 유지한다.
 - embedding은 Ollama `bge-m3`를 유지한다.
 - Chroma collection은 기존 `manual_documents`와 `TOP_K=40` 운영을 유지한다.
 - provider switching이나 dual-index 구조는 쓰지 않는다. 임베딩 모델이 바뀌면 벡터 공간이 달라져 재색인과 별도 collection이 필요하기 때문이다.
@@ -196,8 +197,8 @@ AutoRAG는 운영 런타임으로 되살리지 않고, retrieval-only 오프라�
 |---|---|---|---|---|
 | `current_runtime` | ET5 local risky-only | off | off | 없음 |
 | `et5_roberta_combined` | ET5 local risky-only | on | off | 없음 |
-| `current_supergemma4_reasoning` | ET5 local risky-only | off | on | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
-| `et5_roberta_supergemma4_reasoning` | ET5 local risky-only | on | on | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
+| `current_default_reasoning` | ET5 local risky-only | off | on | `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` |
+| `et5_roberta_default_reasoning` | ET5 local risky-only | on | on | `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` |
 | `current_gemma3_reasoning` | ET5 local risky-only | off | on | `gemma3:4b-it-q4_K_M` |
 | `current_gemma4_reasoning` | ET5 local risky-only | off | on | `gemma4:e4b` |
 
@@ -220,7 +221,7 @@ AutoRAG는 운영 런타임으로 되살리지 않고, retrieval-only 오프라�
 - 카드 수 부족이나 필수 근거 누락이 줄었는지
 - unsupported/범위 밖 질문이 다시 관광 카드로 오염되지 않는지
 - 맞춤법 보정과 조건 Transformer가 LLM 보조보다 먼저 해결하는 케이스가 얼마나 되는지
-- SuperGemma4가 카드 품질을 올리는지, 아니면 지연만 늘리는지
+- 현재 기본 Unsloth Gemma4가 카드 품질을 올리는지, 아니면 지연만 늘리는지
 
 ## 2026-05-27 통합 벤치마크 결과
 
@@ -263,14 +264,14 @@ LLM 보조가 실제 켜지는 20문항 eval 비교:
 판단:
 
 - MVP 기본값은 계속 `TOURISM_REASONING_ASSIST_ENABLED=false`로 둔다.
-- LLM 보조를 실험적으로 켜야 한다면 SuperGemma4 `think=false`가 현재 최선이다.
+- LLM 보조를 실험적으로 켜야 한다면 현재 기본 Unsloth Gemma4 `think=false`를 우선 사용한다. 이 태그와 SuperGemma4 태그 모두 Ollama native `think=true`는 지원하지 않는다.
 - Gemma3/Gemma4는 20문항 통과만으로 기본 전환하지 않는다. Gemma3는 메모리 경고가 있고, Gemma4는 지연이 너무 크다.
 - 노이즈 현실형 세트에서는 `roberta_small_candidate`가 pass rate는 가장 높지만 평균 지연이 1초를 넘는다. 균형안은 `et5_roberta_combined`이며, 즉시 런타임 기본값 변경보다는 잔여 실패 28건의 근거 부족 bucket을 먼저 보강한다.
 - medium/noisy 실패 대부분은 `card_missing_required_terms`, `card_count_low`라서 LLM 모델 교체보다 데이터 근거 보강과 조건별 카드 근거 개선의 우선순위가 높다.
 
 ## 운영 반영 원칙
 
-- `OLLAMA_CHAT_MODEL` 기본값 변경은 20문항 eval과 이 벤치마크 결과를 같이 본 뒤 한다.
+- `OLLAMA_CHAT_MODEL` 기본값 변경은 20문항 eval과 이 벤치마크 결과를 같이 본 뒤 한다. 2026-06-07에는 응답 속도와 상담형 답변 품질 비교를 근거로 Unsloth Gemma4 E4B QAT를 기본값으로 바꿨다.
 - native thinking이 가능해도 모든 질문에 켜지 않는다. 복합 조건 질문에서만 제한적으로 사용한다.
 - thinking 출력은 사용자에게 그대로 노출하지 않는다. 응답에는 `reasoning_assist_used`, `reasoning_assist_notes` 같은 진단만 남긴다.
 - 응답 시간이 길면 UI에는 로딩 상태를 명확히 보여준다.

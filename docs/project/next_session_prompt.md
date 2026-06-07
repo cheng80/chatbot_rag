@@ -23,8 +23,8 @@
 ## 프로젝트 요약
 
 - 목표: ChatGPT/Gemini API 없이 FastAPI + ChromaDB + Ollama 기반 로컬 RAG 챗봇을 만든다.
-- 답변 모델: `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`
-- 비교 모델: `gemma3:4b-it-q4_K_M`, `gemma4:e4b`, `qwen3:4b`, `huihui_ai/gemma-4-abliterated:e4b`
+- 답변 모델: `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`
+- 비교 모델: `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`, `gemma3:4b-it-q4_K_M`, `gemma4:e4b`, `qwen3:4b`, `huihui_ai/gemma-4-abliterated:e4b`
 - 임베딩 모델: `bge-m3`
 - Vector DB: ChromaDB
 - API: FastAPI
@@ -203,6 +203,7 @@ ollama pull gemma4:e4b
 ollama pull qwen3:4b
 # 선택: 사용자 제안 Gemma 4 abliterated 후보
 ollama pull huihui_ai/gemma-4-abliterated:e4b
+ollama run hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ```
 
@@ -286,7 +287,7 @@ curl -X POST http://localhost:8000/chat \
 - `/tourism/chat` 응답 이벤트는 `data/generated/tour_api/query_card_events.jsonl`에 JSONL로 저장한다. 기본값은 원문 질문을 저장하지 않고 `message_hash`만 저장한다. 필요할 때만 `TOURISM_QUERY_EVENT_LOG_INCLUDE_MESSAGE=true`로 원문 저장을 켠다.
 - `/tourism/chat`의 LLM 추론 보조는 기본값이 꺼져 있다. 복합 상황 질문 품질 비교나 실험이 필요할 때만 `TOURISM_REASONING_ASSIST_ENABLED=true`로 켠다. 응답과 이벤트 로그의 `reasoning_assist_used`, `reasoning_assist_notes`로 사용 여부와 확인 필요 메모를 확인한다.
 - 추론 보조를 끈 기본 모드에서 질문 의도 파악이 달라지는지 확인하려면 같은 eval을 ON/OFF로 실행해 `lookup_mode`, 카드 수, 카드 ID 순서, `warnings`, `suggested_messages`를 비교한다.
-- 2026-05-27 기준 로컬 모델/파이프라인 벤치마크 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. MVP 기본 추론 보조는 OFF다. 20문항 LLM 트리거 eval은 SuperGemma4/Gemma3/Gemma4/OFF 모두 20/20 통과했지만, SuperGemma4가 assist 평균 9.9초로 가장 균형적이고 Gemma3는 Metal memory 부족 경고, Gemma4는 assist 평균 18.9초 지연이 있었다. 켜더라도 SuperGemma4 `think=false`로만 제한 실험한다.
+- 2026-06-07 기준 로컬 모델/파이프라인 벤치마크 요약은 `docs/tourism/tourism_model_reasoning_benchmark.md`에 있다. MVP 기본 추론 보조는 OFF다. 현재 기본 답변 모델은 Unsloth Gemma4 E4B QAT이며, 켜더라도 native `think=true`가 아니라 짧은 reasoning-assist 프롬프트를 `think=false`로 제한 실험한다.
 - 생성된 모델 벤치마크 원본은 `data/generated/tour_api/model_benchmarks/` 아래에 있으며 git ignore 대상이다. 필요하면 `scripts/benchmark_tourism_reasoning_models.py`로 다시 만든다.
 - 개발/QA 기본 모드는 `cache/fallback-first + live-on-miss`이다. 호출량 또는 시연장 네트워크가 불안하면 `TOURISM_LIVE_LOOKUP_ENABLED=false`로 끄고 fallback-only로 운영한다. 장기 신선도는 Post-MVP 주기적 갱신 배치로 해결한다.
 - offline-index 우선 방식과 cache/fallback-first + live-on-miss 방식의 차이, 장단점, 되돌림 기준은 `docs/tourism/tourism_response_strategy_decision.md`를 먼저 확인한다.

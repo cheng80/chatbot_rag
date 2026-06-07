@@ -101,9 +101,10 @@ Production readiness [██░░░░░░░░] 20%
 - Gemini API holdout은 현재 676건까지만 고정 평가 자산으로 두고, 추가 AI-generated independent holdout이 필요하면 Codex `gpt-5.4-mini` 또는 `gpt-5.3-codex-spark` 계열로 새 파일을 만든다.
 - 이벤트 로그에 `preferences`, `excluded_preferences`, `ml_intent`, `ml_intent_confidence`를 추가해 개발 모드에서 규칙/학습 신호 차이를 확인 가능
 - 2026-05-15 로컬 모델 추론 보조 벤치마크 실행 완료, `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`는 native thinking이 되지만 30초 이상 지연 확인
-- 2026-05-27 Apple Silicon 전용 provider 전환 검토를 종료했다. 서비스 모델과 실제 관광 corpus 기준에서 Ollama `SuperGemma4` generation과 `bge-m3` embedding을 유지한다. 전환 실험용 venv, 모델 cache, 산출물, 전용 비교 스크립트는 디스크 절약을 위해 삭제했다. AutoRAG는 별도 venv의 retrieval-only 실험 도구로 되살렸지만 운영 검색은 기존 Chroma vector-only 구조를 유지한다.
+- 2026-05-27 Apple Silicon 전용 provider 전환 검토를 종료했다. 당시 서비스 모델과 실제 관광 corpus 기준에서는 Ollama `SuperGemma4` generation과 `bge-m3` embedding을 유지했다. 전환 실험용 venv, 모델 cache, 산출물, 전용 비교 스크립트는 디스크 절약을 위해 삭제했다. AutoRAG는 별도 venv의 retrieval-only 실험 도구로 되살렸지만 운영 검색은 기존 Chroma vector-only 구조를 유지한다.
+- 2026-06-07 기본 답변 모델을 `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`로 변경했다. 같은 관광 재랭킹/답변 프롬프트 기준 첫 호출 제외 평균은 Unsloth Gemma4가 재랭킹 655ms, 답변 2359ms로 SuperGemma4보다 빨랐고, 답변도 더 상담형이었다. 두 태그 모두 Ollama native `think=true`는 지원하지 않는다.
 - 2026-05-27 한국어 BM25 토크나이저 재실험을 추가했다. corpus 1,010개, QA 192개에서 `bge-m3` vector-only top40 recall 0.6276/MRR 0.4052가 `ko_kkma` BM25 top40 recall 0.5072/MRR 0.2937, `ko_okt` BM25 top40 recall 0.3971/MRR 0.3332보다 높았다. `space`는 한국어 BM25에 부적합하고, `ko_okt`는 BM25 후보 중 상위 카드 안정성이 좋아 오프라인 비교 후보로 둔다. 운영은 Chroma vector-only `top_k=40` 유지다.
-- 2026-05-27 통합 벤치마크를 재실행했다. 중형 120문항은 `current_runtime` 104/120, 노이즈 현실형 200문항은 `roberta_small_candidate` 174/200, `et5_roberta_combined` 172/200, `current_runtime` 168/200이다. medium/noisy 세트에서는 reasoning assist가 실제 0회라 LLM 품질 비교로 보지 않고, 20문항 LLM 트리거 eval에서 SuperGemma4/Gemma3/Gemma4/OFF 모두 20/20 통과했다. 기본값은 reasoning assist OFF, 필요 시 SuperGemma4 `think=false` 실험 유지다.
+- 2026-05-27 통합 벤치마크를 재실행했다. 중형 120문항은 `current_runtime` 104/120, 노이즈 현실형 200문항은 `roberta_small_candidate` 174/200, `et5_roberta_combined` 172/200, `current_runtime` 168/200이다. medium/noisy 세트에서는 reasoning assist가 실제 0회라 LLM 품질 비교로 보지 않고, 20문항 LLM 트리거 eval에서 SuperGemma4/Gemma3/Gemma4/OFF 모두 20/20 통과했다. 2026-06-07 이후 기본값은 reasoning assist OFF, 필요 시 현재 기본 Unsloth Gemma4 `think=false` 제한 실험이다.
 - `data/raw/tourism_accessible` 기준 904개 Markdown fallback 확보
 - MVP fallback 수집은 지역별 최소 안전망 기준으로 90% 완료다. 남은 10%는 20문항 eval에서 드러나는 부족 지역만 보강하는 작업이다.
 - 전국 시군구 fallback은 TourAPI 지역 코드 234개 중 228개 시군구가 3장 이상 확보됐다. 청원군, 마산시, 진해시, 남제주군, 북제주군은 부족 지역으로 표시하지 않고 현재 행정구역 기준 안내 예외로만 관리한다. 공식 무장애 상세 3장 미만 지역은 계룡시 1장이다. 2026-05-17 재수집에서도 무장애 전용 목록은 1건만 반환했고, 일반 관광 검색 8건 중 나머지 7건은 무장애 상세가 없어 접근성 카드로 편입하지 않았다. 행안부 현행 시군구 매칭은 228개이며, 250개는 확정 행정구역 수가 아니라 행정시/일반구/생활권 표현까지 포함할 수 있는 제품 목표 상한으로만 둔다.
@@ -149,7 +150,7 @@ Production readiness [██░░░░░░░░] 20%
 | 2 | P1 | noisy realistic 잔여 28건 데이터 보강 후보화 | 수어/자막, 점자/촉지도, 보조견, strict combo 부족을 데이터 수집 후보로 분리하고 코드 과수정 금지 | `docs/tourism/noisy_realistic_residuals.md` |
 | 3 | P1 | LLM hard-style v4/blind targeted batch 생성 | 2026-05-27 1,000건 batch는 검수/병합 완료. 다음은 v4/blind failure bucket을 겨냥한 새 batch 필요 | `docs/tourism/context_llm_dataset_generation.md` |
 | 4 | P2 | 지역명 alias 제품 target list 결정 | 228/234/250 차이를 기준으로 실제 사용자 입력 대상 목록을 별도 정책으로 고정 | `docs/tourism/admin_region_aliases.md` |
-| 5 | P2 | 로컬 AI provider 비교 갱신 | Apple Silicon 전용 provider 전환 검토 종료. Ollama `SuperGemma4` + `bge-m3` 유지. AutoRAG는 별도 venv retrieval-only 실험 도구로 재도입 | `docs/tourism/tourism_model_reasoning_benchmark.md` |
+| 5 | P2 | 로컬 AI provider 비교 갱신 | Apple Silicon 전용 provider 전환 검토 종료. Ollama `Unsloth Gemma4` + `bge-m3` 유지. AutoRAG는 별도 venv retrieval-only 실험 도구로 재도입 | `docs/tourism/tourism_model_reasoning_benchmark.md` |
 | 6 | P3 | event log SQLite 전환 판단 | JSONL 조회/대시보드 필요가 생기면 SQLite schema로 이동, 아니면 보류 | `TODOS.md`, `TourismQueryEventLogger` |
 | 7 | P3 | 초급자용 재현 문서 초안 작성 | 사용자 요청에 따라 보류. 재개 시 설치, 색인, 테스트, 서버, 터널, UI 확인을 순서대로 작성 | `docs/README.md` |
 

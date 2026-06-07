@@ -141,7 +141,7 @@ offline-index 우선은 폐기할 방식이 아니라 **비상/시연 안정 모
 - **추론 보조**: 후보 카드 생성 후 LLM 프롬프트로 복합 의도를 재해석하고 재랭킹하는 단계.
 - **Ollama native thinking**: `think=true`를 전달했을 때 모델이 별도 thinking 필드를 반환하는 기능.
 
-현재 프로젝트 기본 모델 `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`는 Gemma 4 기반 8B급 모델이지만, 로컬 Ollama 확인 기준 native thinking을 지원하지 않는다. 따라서 기본 구현은 짧은 추론 보조 프롬프트로 시작한다. 2026-05-15 1차 벤치마크에서는 공식 `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`가 native thinking을 반환했지만 30초 이상 지연됐고, `qwen3:4b`는 JSON/한국어 계약을 지키지 못했다. MVP 기본값은 `think=false`로 유지한다.
+현재 프로젝트 기본 모델 `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`는 Gemma 4 기반 모델이지만, 로컬 Ollama 확인 기준 native thinking을 지원하지 않는다. 따라서 기본 구현은 짧은 추론 보조 프롬프트로 시작한다. 2026-05-15 1차 벤치마크에서는 공식 `gemma4:e4b`와 `huihui_ai/gemma-4-abliterated:e4b`가 native thinking을 반환했지만 30초 이상 지연됐고, `qwen3:4b`는 JSON/한국어 계약을 지키지 못했다. MVP 기본값은 `think=false`로 유지한다.
 
 추론 보조 없이 처리할 것:
 

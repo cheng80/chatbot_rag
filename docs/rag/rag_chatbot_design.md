@@ -38,8 +38,8 @@ RAG는 모델을 새로 학습시키는 방식이 아니라, 질문이 들어올
 | API 서버 | FastAPI |
 | Vector DB | ChromaDB |
 | LLM 실행 | Ollama |
-| 답변 생성 모델 | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
-| 비교 기준선 | `gemma3:4b-it-q4_K_M` |
+| 답변 생성 모델 | `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` |
+| 비교 기준선 | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M`, `gemma3:4b-it-q4_K_M` |
 | 임베딩 모델 | bge-m3 |
 | 일반 DB | SQLite |
 | 외부 접속 | Cloudflare Tunnel 또는 ngrok |
@@ -205,6 +205,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
+ollama run hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL
 ollama run hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M
 ollama pull gemma3:4b-it-q4_K_M
 ollama pull bge-m3
@@ -262,7 +263,7 @@ curl http://localhost:8000/documents/stats
 6. scripts/ 실행 스크립트 존재
 7. data/raw/example_faq.md 테스트 문서 존재
 8. pytest 통과: 3 passed
-9. Ollama 모델 준비 완료: supergemma4-e4b-abliterated Q4_K_M, gemma3:4b-it-q4_K_M, bge-m3
+9. Ollama 모델 준비 완료: unsloth gemma-4-E4B-it-qat UD-Q4_K_XL, supergemma4-e4b-abliterated Q4_K_M, gemma3:4b-it-q4_K_M, bge-m3
 10. scripts/ingest_all.py 실행 성공
     - document_count: 1
     - chunk_count: 1
@@ -273,7 +274,7 @@ curl http://localhost:8000/documents/stats
 
 서버와 스크립트 실행은 `.venv` 활성화 후 `python -m ...` 형식을 쓰거나, `.venv/bin/python -m ...` 형식을 쓰면 가장 명확하다.
 
-응답 속도 기준으로는 ChromaDB 검색보다 Ollama 답변 생성 시간이 대부분을 차지한다. `supergemma4-e4b-abliterated Q4_K_M` 사용 시 `LLM_NUM_PREDICT`로 최대 생성 토큰을 제한한다.
+응답 속도 기준으로는 ChromaDB 검색보다 Ollama 답변 생성 시간이 대부분을 차지한다. 현재 기본 `unsloth/gemma-4-E4B-it-qat UD-Q4_K_XL` 사용 시 `LLM_NUM_PREDICT`로 최대 생성 토큰을 제한한다.
 
 ```text
 embedding: 약 0.3초
@@ -304,7 +305,8 @@ POST /chat 전체 응답: 약 2~3초
 
 | 구분 | 모델 |
 |---|---|
-| 1차 후보 | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
+| 1차 후보 | `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL` |
+| 이전 기준선 | `hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M` |
 | 기준선 | `gemma3:4b-it-q4_K_M` |
 | 예비 기준선 | `gemma4:4b-q4_K_M` |
 

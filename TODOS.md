@@ -50,7 +50,7 @@ Depends on / blocked by: Enough event volume or dashboard need to justify moving
 
 ## Tourism model comparison run
 
-What: Run the committed 20-question tourism evaluation set and compare `supergemma4`, `gemma3`, official `gemma4:e4b`, `qwen3:4b`, and selected Gemma 4 abliterated candidates on grounded answer quality. Native-thinking capable models must be measured in both `think=false` and `think=true` modes.
+What: Run the committed 20-question tourism evaluation set and compare the current default `hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL`, previous SuperGemma4, `gemma3`, official `gemma4:e4b`, `qwen3`, and selected Gemma 4 abliterated candidates on grounded answer quality. Native-thinking capable models must be measured in both `think=false` and `think=true` modes.
 
 Why: The endpoint can return structured cards, but public-demo answer quality needs repeatable evidence instead of manual spot checks.
 
@@ -58,7 +58,7 @@ Pros: Catches prompt/model regressions and gives a defensible basis for the defa
 
 Cons: Requires running both local models, saving result summaries, and manually scoring answer quality.
 
-Context: Use `data/eval/tourism_20_questions.jsonl`, `scripts/eval_tourism_chat.py`, `scripts/benchmark_tourism_reasoning_models.py`, the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow described in `README.md` and `docs/tourism/tourism_model_reasoning_benchmark.md`. Current local `supergemma4` is 8B-class but exposes only `Capabilities: completion` in Ollama, so do not treat it as native `think=true` capable unless a new tag proves otherwise.
+Context: Use `data/eval/tourism_20_questions.jsonl`, `scripts/eval_tourism_chat.py`, `scripts/benchmark_tourism_reasoning_models.py`, the backend response contract from `/tourism/chat`, current indexed tourism samples, and the model comparison workflow described in `README.md` and `docs/tourism/tourism_model_reasoning_benchmark.md`. Current local Unsloth Gemma4 and previous SuperGemma4 both return `does not support thinking` in Ollama, so do not treat either as native `think=true` capable unless a new tag proves otherwise.
 
 Depends on / blocked by: Rebuilt Chroma index for the tourism sample set and local Ollama models being available.
 

@@ -122,7 +122,7 @@ README의 주요 요청 경로와 기술 구성을 바탕으로 3개 레이어�
   - 응답에는 카드, 출처, 경고, 조회 경로가 포함됨
 
 - AI와 판단 규칙
-  - Ollama SuperGemma4
+  - Ollama Unsloth Gemma4
   - bge-m3
   - ET5 + 정규화 규칙
   - 규칙 + n-gram 보조 분류기
@@ -156,7 +156,7 @@ README 기준 최신 수치가 유지된다면 아래 내용을 쓴다.
 - TOP_K=40 challenge 30건 실패 0
 - TOP_K=40 residual hard chat 80건 실패 0
 - noisy realistic 200건 direct 실행 후 남은 실패 28
-- LLM reasoning assist 20문항 eval: OFF, SuperGemma4, Gemma3, Gemma4 모두 20/20 통과
+- LLM reasoning assist 20문항 eval: OFF, Unsloth Gemma4, Gemma3, Gemma4 비교 대상
 
 표현은 짧게 줄여도 된다.
 
@@ -315,7 +315,7 @@ footer:
 - bge-m3
 - TourAPI
 - SQLite
-- Ollama SuperGemma4
+- Ollama Unsloth Gemma4
 
 피해야 할 것:
 

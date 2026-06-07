@@ -85,7 +85,7 @@ ollama list
 
 ```text
 bge-m3가 임베딩 모델로 준비되어 있다.
-hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M가 답변 모델로 준비되어 있다.
+hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL가 답변 모델로 준비되어 있다.
 비교 테스트가 필요하면 gemma3:4b-it-q4_K_M도 준비되어 있다.
 ```
 

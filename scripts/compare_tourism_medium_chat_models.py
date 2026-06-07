@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "eval" / "tourism_context_medium_chat_eval_v4_120.jsonl"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "generated" / "tour_api" / "medium_chat_model_compare_20260518"
-SUPERGEMMA4_MODEL = "hf.co/mradermacher/supergemma4-e4b-abliterated-i1-GGUF:Q4_K_M"
+DEFAULT_CHAT_MODEL = "hf.co/unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL"
 GEMMA3_FAST_MODEL = "gemma3:4b-it-q4_K_M"
 GEMMA4_MODEL = "gemma4:e4b"
 
@@ -267,8 +267,8 @@ def main() -> None:
         "et5_local",
         "quickspacer",
         "roberta_small_candidate",
-        "current_supergemma4_reasoning",
-        "et5_roberta_supergemma4_reasoning",
+        "current_default_reasoning",
+        "et5_roberta_default_reasoning",
         "current_gemma3_reasoning",
         "current_gemma4_reasoning",
     ]
@@ -303,22 +303,22 @@ def main() -> None:
         if args.include_reasoning_assist:
             variants.update(
                 {
-                    "current_supergemma4_reasoning": {
+                    "current_default_reasoning": {
                         "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
                         "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
                         "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
                         "TOURISM_CONDITION_TRANSFORMER_ENABLED": "false",
                         "TOURISM_REASONING_ASSIST_ENABLED": "true",
-                        "OLLAMA_CHAT_MODEL": SUPERGEMMA4_MODEL,
+                        "OLLAMA_CHAT_MODEL": DEFAULT_CHAT_MODEL,
                         "LLM_THINK": "false",
                     },
-                    "et5_roberta_supergemma4_reasoning": {
+                    "et5_roberta_default_reasoning": {
                         "TOURISM_KOREAN_CORRECTION_ENABLED": "true",
                         "TOURISM_KOREAN_CORRECTION_PROVIDER": "hf_seq2seq",
                         "TOURISM_KOREAN_CORRECTION_RISKY_ONLY": "true",
                         "TOURISM_CONDITION_TRANSFORMER_ENABLED": "true",
                         "TOURISM_REASONING_ASSIST_ENABLED": "true",
-                        "OLLAMA_CHAT_MODEL": SUPERGEMMA4_MODEL,
+                        "OLLAMA_CHAT_MODEL": DEFAULT_CHAT_MODEL,
                         "LLM_THINK": "false",
                     },
                     "current_gemma3_reasoning": {

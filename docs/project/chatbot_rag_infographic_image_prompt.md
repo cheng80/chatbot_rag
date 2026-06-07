@@ -103,13 +103,13 @@
 - bge-m3
 - TourAPI
 - JSON
-- SuperGemma4
+- Unsloth Gemma4
 
 기술명 표시 규칙:
 
 - 위 기술명을 전부 크게 표시할 필요는 없다.
 - 본문에는 `Chroma + bge-m3`, `TourAPI`, `JSON`, `LLM 보조` 정도는 보이게 해.
-- `SuperGemma4`는 하단 구성 요소 strip 또는 7단계의 작은 보조 라벨로만 작게 넣어.
+- `Unsloth Gemma4`는 하단 구성 요소 strip 또는 7단계의 작은 보조 라벨로만 작게 넣어.
 - `areaBasedList2`, `detailCommon2`, `detailWithTour2` 같은 세부 API명은 이미지에 쓰지 마. 내부 참고로만 둬.
 
 숫자와 시간 표현:

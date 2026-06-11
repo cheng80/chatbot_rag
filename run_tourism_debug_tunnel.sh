@@ -14,6 +14,7 @@ PUBLIC_URL_FILE="${LOG_DIR}/debug_public_url.txt"
 TUNNEL_ATTEMPTS="${TUNNEL_ATTEMPTS:-3}"
 
 mkdir -p "$LOG_DIR"
+touch "$UVICORN_LOG" "$TUNNEL_LOG"
 
 if [[ ! -x ".venv/bin/python" ]]; then
   echo "[error] .venv/bin/python 이 없습니다. 프로젝트 루트에서 .venv를 먼저 준비하세요." >&2
@@ -43,19 +44,49 @@ health_ok() {
   curl -fsS "${BASE_URL}/health" >/dev/null 2>&1
 }
 
+public_health_ok() {
+  local public_url="$1"
+  curl --max-time 3 -fsS "${public_url}/health" >/dev/null 2>&1
+}
+
+open_debug_browser() {
+  local url="$1"
+
+  if [[ "${OPEN_BROWSER:-true}" != "true" ]]; then
+    return 0
+  fi
+
+  if ! command -v open >/dev/null 2>&1; then
+    echo "[warn] macOS open 명령을 찾지 못해 브라우저를 자동으로 열지 못했습니다." >&2
+    return 0
+  fi
+
+  if [[ -n "${BROWSER_APP:-}" ]]; then
+    if open -Ra "$BROWSER_APP" >/dev/null 2>&1; then
+      echo "[open] ${BROWSER_APP}: ${url}"
+      open -a "$BROWSER_APP" "$url"
+      return 0
+    fi
+    echo "[warn] ${BROWSER_APP} 앱을 찾지 못해 기본 브라우저로 엽니다: ${url}" >&2
+  fi
+
+  echo "[open] default browser: ${url}"
+  open "$url"
+}
+
 existing_public_url() {
   local candidate=""
   for file in "$PUBLIC_URL_FILE" "${LOG_DIR}/release_public_url.txt"; do
     if [[ -f "$file" ]]; then
       candidate="$(tail -n 1 "$file" | tr -d '[:space:]')"
-      if [[ -n "$candidate" ]] && curl -fsS "${candidate}/health" >/dev/null 2>&1; then
+      if [[ -n "$candidate" ]] && public_health_ok "$candidate"; then
         printf '%s\n' "$candidate"
         return 0
       fi
     fi
   done
   candidate="$(grep -RhsEo 'https://[-a-zA-Z0-9.]+\.trycloudflare\.com' "$LOG_DIR"/*_cloudflared.log 2>/dev/null | tail -n 1 || true)"
-  if [[ -n "$candidate" ]] && curl -fsS "${candidate}/health" >/dev/null 2>&1; then
+  if [[ -n "$candidate" ]] && public_health_ok "$candidate"; then
     printf '%s\n' "$candidate"
     return 0
   fi
@@ -151,23 +182,25 @@ fi
 
 DEBUG_URL="${PUBLIC_URL}/tourism-ui/"
 RELEASE_URL="${PUBLIC_URL}/tourism-ui/?mode=release"
+LOCAL_DEBUG_URL="${BASE_URL}/tourism-ui/"
+BROWSER_URL="$DEBUG_URL"
 printf '%s\n' "$PUBLIC_URL" > "$PUBLIC_URL_FILE"
 
 echo
 echo "========================================"
 echo "무장애 관광 챗봇 debug tunnel ready"
+echo "Local UI   : ${LOCAL_DEBUG_URL}"
 echo "Public base: ${PUBLIC_URL}"
 echo "Debug UI   : ${DEBUG_URL}"
 echo "Release UI : ${RELEASE_URL}"
 echo "Swagger    : ${PUBLIC_URL}/docs"
+echo "Open target: ${BROWSER_URL}"
 echo "Uvicorn log: ${UVICORN_LOG}"
 echo "Tunnel log : ${TUNNEL_LOG}"
 echo "========================================"
 echo
 
-if [[ "${OPEN_BROWSER:-true}" == "true" ]] && command -v open >/dev/null 2>&1; then
-  open "$DEBUG_URL"
-fi
+open_debug_browser "$BROWSER_URL"
 
 if [[ "$UVICORN_STARTED" != "true" && "$TUNNEL_STARTED" != "true" ]]; then
   echo "[done] 기존 서버/터널 주소를 열었습니다. 새로 종료할 프로세스는 없습니다."
@@ -175,8 +208,9 @@ if [[ "$UVICORN_STARTED" != "true" && "$TUNNEL_STARTED" != "true" ]]; then
   exit 0
 fi
 
+echo "[logs] FastAPI 요청 로그만 표시합니다. 자세한 터널 로그: ${TUNNEL_LOG}"
 echo "[logs] Ctrl+C를 누르면 이 스크립트가 시작한 서버/터널이 종료됩니다."
-tail -n 20 -f "$UVICORN_LOG" "$TUNNEL_LOG" &
+tail -n 0 -f "$UVICORN_LOG" &
 TAIL_PID="$!"
 if [[ "$UVICORN_STARTED" == "true" && "$TUNNEL_STARTED" == "true" ]]; then
   wait "$UVICORN_PID" "$TUNNEL_PID"

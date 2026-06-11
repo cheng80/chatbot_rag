@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import chat, documents, health, tourism
@@ -30,6 +31,10 @@ def create_app() -> FastAPI:
 
     web_frontend_path = PROJECT_ROOT / "frontend" / "web"
     if web_frontend_path.exists():
+        @app.get("/", include_in_schema=False)
+        def redirect_root_to_release_ui() -> RedirectResponse:
+            return RedirectResponse(url="/tourism-ui/?mode=release")
+
         app.mount(
             "/tourism-ui",
             StaticFiles(directory=web_frontend_path, html=True),

@@ -40,6 +40,15 @@ def test_tourism_chat_api_smoke():
     assert data["cards"][0]["accessibility_tags"] == ["휠체어 접근"]
 
 
+def test_root_redirects_to_release_tourism_ui():
+    client = TestClient(app)
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/tourism-ui/?mode=release"
+
+
 def test_tourism_chat_rejects_blank_message():
     app.dependency_overrides[get_tourism_chat_service] = lambda: FakeTourismChatService()
     client = TestClient(app)
